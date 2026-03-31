@@ -14,6 +14,7 @@ public class CloudMusicLyricsReader
     public MemoryEditor Editor { get; set; } = new();
     public static Dictionary<string, Func<MemoryEditor, nint>> VersionResolverDictionary { get; } = new()
     {
+        { "3.1.30", editor => editor.ResolvePointerAddress("cloudmusic.dll", 0x01DF44D0, 0x120, 0x8, 0x0) },
         { "3.1.29", editor => editor.ResolvePointerAddress("cloudmusic.dll", 0x01DEB4D0, 0x120, 0x8, 0x0) },
         { "3.1.28", editor => editor.ResolvePointerAddress("cloudmusic.dll", 0x01DDF290, 0x120, 0x8, 0x0) },
         { "3.1.27", editor => editor.ResolvePointerAddress("cloudmusic.dll", 0x01DDE290, 0xE0, 0x8, 0xE8, 0x38, 0x118, 0x8, 0x0) },
