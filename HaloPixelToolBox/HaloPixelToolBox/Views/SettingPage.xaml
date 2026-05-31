@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="HaloPixelToolBox.Views.SettingPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:HaloPixelToolBox.Views"
+    xmlns:controls="using:CommunityToolkit.WinUI.Controls"
+    xmlns:converter="using:XFEExtension.NetCore.WinUIHelper.Utilities.Converter"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+    <Page.Resources>
+        <converter:StringFormatConverter x:Key="StringFormatConverter"/>
+        <Style x:Key="SettingsSectionHeaderTextBlockStyle"
+               BasedOn="{StaticResource BodyStrongTextBlockStyle}"
+               TargetType="TextBlock">
+            <Style.Setters>
+                <Setter Property="Margin" Value="1,30,0,6" />
+            </Style.Setters>
+        </Style>
+    </Page.Resources>
+
+    <Grid>
+        <ContentDialog x:Name="cleanCacheContentDialog" Title="清除应用缓存" Content="是否清除应用的所有缓存文件（可以定期清理）" IsPrimaryButtonEnabled="True" IsSecondaryButtonEnabled="True" PrimaryButtonText="确定" SecondaryButtonText="取消" DefaultButton="Primary"/>
+        <ScrollView>
+            <StackPanel Orientation="Vertical" Spacing="4" Margin="0,0,0,20">
+                <TextBlock Text="外观 &amp; 行为" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"/>
+                <controls:SettingsCard Header="色彩模式" Description="软件显示的主题颜色">
+                    <controls:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE790;"/>
+                    </controls:SettingsCard.HeaderIcon>
+                    <ComboBox x:Name="appThemeComboBox" Tag="HaloPixelToolBox.Profiles.CrossVersionProfiles.SystemProfile.Theme">
+                        <ComboBoxItem Content="浅色" Tag="Light"/>
+                        <ComboBoxItem Content="深色" Tag="Dark"/>
+                        <ComboBoxItem Content="跟随系统" Tag="Default"/>
+                    </ComboBox>
+                </controls:SettingsCard>
+                <TextBlock Text="通用" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"/>
+                <controls:SettingsCard Header="自启动" Description="开机之后自动启动应用">
+                    <controls:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE7E8;"/>
+                    </controls:SettingsCard.HeaderIcon>
+                    <ToggleSwitch x:Name="autoStartToggleSwitch" IsOn="{x:Bind ViewModel.IsAutoStartEnable, Mode=TwoWay}"/>
+                </controls:SettingsCard>
+                <controls:SettingsCard Header="自动托盘到右下角" Description="启动软件后自动托盘到右下角">
+                    <controls:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE944;"/>
+                    </controls:SettingsCard.HeaderIcon>
+                    <ToggleSwitch x:Name="minimizeWhenOpenToggleSwitch" IsOn="{x:Bind ViewModel.MinimizeWhenOpen, Mode=TwoWay}"/>
+                </controls:SettingsCard>
+                <controls:SettingsCard Header="关闭主界面时" Description="选择关闭主界面时的操作">
+                    <controls:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE89F;"/>
+                    </controls:SettingsCard.HeaderIcon>
+                    <ComboBox SelectedIndex="{x:Bind ViewModel.CloseButtonActionIndex, Mode=TwoWay}">
+                        <ComboBoxItem Content="最小化到右下角托盘区"/>
+                        <ComboBoxItem Content="直接退出程序"/>
+                    </ComboBox>
+                </controls:SettingsCard>
+                <TextBlock Text="下载 &amp; 更新" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"/>
+                <controls:SettingsCard Header="检查新的更新" Description="检查是否有新的更新">
+                    <Button Content="检查更新" Command="{x:Bind ViewModel.CheckUpgradeCommand}"/>
+                </controls:SettingsCard>
+                <controls:SettingsCard Header="忽略的版本号" Description="忽略该次更新的版本号">
+                    <Grid ColumnSpacing="20">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition/>
+                            <ColumnDefinition/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind ViewModel.IgnoreVersion, Mode=OneWay}" VerticalAlignment="Center"/>
+                        <Button Grid.Column="1" Content="删除" IsEnabled="{x:Bind ViewModel.IgnoreVersion, Mode=OneWay, Converter={StaticResource StringEmptyBooleanConverter}, ConverterParameter='inverse'}" Command="{x:Bind ViewModel.ClearIgnoreVersionCommand}"/>
+                    </Grid>
+                </controls:SettingsCard>
+                <TextBlock Text="路径 &amp; 存储" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"/>
+                <controls:SettingsCard Header="缓存目录" Description="{x:Bind ViewModel.AppCacheDirectory, Mode=OneWay}" IsClickEnabled="True" Command="{x:Bind ViewModel.OpenPathCommand}" CommandParameter="{x:Bind ViewModel.AppCacheDirectory, Mode=OneWay}">
+                    <controls:SettingsCard.ActionIcon>
+                        <FontIcon Glyph="&#xE8A7;"/>
+                    </controls:SettingsCard.ActionIcon>
+                    <Grid ColumnSpacing="20">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition/>
+                            <ColumnDefinition/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind ViewModel.AppCacheSize, Mode=OneWay}" VerticalAlignment="Center"/>
+                        <Button Grid.Column="1" Content="清除缓存" Command="{x:Bind ViewModel.ClearCacheCommand}"/>
+                    </Grid>
+                </controls:SettingsCard>
+                <controls:SettingsCard Header="程序日志" Description="{x:Bind ViewModel.AppLogDirectory, Mode=OneWay}" IsClickEnabled="True" Command="{x:Bind ViewModel.OpenPathCommand}" CommandParameter="{x:Bind ViewModel.AppLogDirectory, Mode=OneWay}">
+                    <controls:SettingsCard.ActionIcon>
+                        <FontIcon Glyph="&#xE8A7;"/>
+                    </controls:SettingsCard.ActionIcon>
+                    <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind ViewModel.AppLogSize, Mode=OneWay}" VerticalAlignment="Center"/>
+                </controls:SettingsCard>
+                <TextBlock Text="关于" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"/>
+                <controls:SettingsExpander Header="花再工具箱" Description="版权所有 © 2025 XFEstudio. All rights reserved">
+                    <controls:SettingsExpander.HeaderIcon>
+                        <ImageIcon Source="/Assets/icon.png"/>
+                    </controls:SettingsExpander.HeaderIcon>
+                    <TextBlock Grid.Column="2" Grid.RowSpan="2" Text="{x:Bind ViewModel.CurrentVersion, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <controls:SettingsExpander.Items>
+                        <controls:SettingsCard Header="作者">
+                            <TextBlock Text="XFEstudio" Foreground="{ThemeResource TextFillColorSecondary}"/>
+                        </controls:SettingsCard>
+                        <controls:SettingsCard Header="问题反馈 &amp; 建议" IsClickEnabled="True" Command="{x:Bind ViewModel.LinkToGithubIssueCommand}">
+                            <controls:SettingsCard.ActionIcon>
+                                <FontIcon Glyph="&#xE8A7;"/>
+                            </controls:SettingsCard.ActionIcon>
+                        </controls:SettingsCard>
+                        <controls:SettingsCard Header="Github仓库" IsClickEnabled="True" Command="{x:Bind ViewModel.LinkToGithubRepoCommand}">
+                            <controls:SettingsCard.ActionIcon>
+                                <FontIcon Glyph="&#xE8A7;"/>
+                            </controls:SettingsCard.ActionIcon>
+                        </controls:SettingsCard>
+                        <controls:SettingsCard Header="联系我们" HorizontalContentAlignment="Left" ContentAlignment="Vertical">
+                            <StackPanel Margin="-12,0,0,0" Orientation="Vertical">
+                                <HyperlinkButton Content="加入QQ群" NavigateUri="https://qm.qq.com/q/VLpyYjWOWe"/>
+                                <HyperlinkButton Content="Github" NavigateUri="https://github.com/XFEstudio"/>
+                                <HyperlinkButton Content="Bilibili主页" NavigateUri="https://space.bilibili.com/200494622"/>
+                            </StackPanel>
+                        </controls:SettingsCard>
+                    </controls:SettingsExpander.Items>
+                </controls:SettingsExpander>
+            </StackPanel>
+        </ScrollView>
+    </Grid>
+</Page>
