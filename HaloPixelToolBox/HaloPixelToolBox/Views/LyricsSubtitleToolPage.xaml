@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="HaloPixelToolBox.Views.LyricsSubtitleToolPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:CommunityToolkit.WinUI.Controls"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+    <ScrollViewer>
+        <StackPanel Spacing="10" Margin="0,0,0,24">
+            <TextBlock Text="歌词字幕" Style="{StaticResource TitleTextBlockStyle}"/>
+            <controls:SettingsCard Header="歌词来源" Description="平台 Provider 已模块化预留">
+                <ComboBox ItemsSource="{x:Bind ViewModel.ProviderNames}"
+                          SelectedIndex="{x:Bind ViewModel.SelectedProviderIndex, Mode=TwoWay}"
+                          MinWidth="240"/>
+            </controls:SettingsCard>
+            <controls:SettingsCard Header="歌曲关键字" Description="后续用于平台搜索或本地匹配">
+                <TextBox Text="{x:Bind ViewModel.Keyword, Mode=TwoWay}" MinWidth="260"/>
+            </controls:SettingsCard>
+            <controls:SettingsCard Header="滚动歌词" Description="歌词过长时切换为滚动显示">
+                <ToggleSwitch IsOn="{x:Bind ViewModel.EnableScroll, Mode=TwoWay}"/>
+            </controls:SettingsCard>
+            <controls:SettingsCard Header="播放进度" Description="用于同步当前歌词，单位秒">
+                <NumberBox Value="{x:Bind ViewModel.PositionSeconds, Mode=TwoWay}" Minimum="0" SpinButtonPlacementMode="Compact"/>
+            </controls:SettingsCard>
+            <controls:SettingsExpander Header="歌词预览" Description="{x:Bind ViewModel.StatusMessage, Mode=OneWay}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="加载占位歌词" Command="{x:Bind ViewModel.LoadLyricsCommand}" Style="{StaticResource AccentButtonStyle}"/>
+                    <Button Content="发送当前行" Command="{x:Bind ViewModel.SendCurrentLineCommand}"/>
+                </StackPanel>
+                <controls:SettingsExpander.Items>
+                    <TextBlock Text="{x:Bind ViewModel.PreviewText, Mode=OneWay}" TextWrapping="Wrap" Margin="16,8"/>
+                </controls:SettingsExpander.Items>
+            </controls:SettingsExpander>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

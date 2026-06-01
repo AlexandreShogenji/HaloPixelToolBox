@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="HaloPixelToolBox.Views.ClockToolPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:CommunityToolkit.WinUI.Controls"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+    <Page.Resources>
+        <Style x:Key="SectionHeaderStyle" BasedOn="{StaticResource BodyStrongTextBlockStyle}" TargetType="TextBlock">
+            <Setter Property="Margin" Value="1,24,0,6"/>
+        </Style>
+    </Page.Resources>
+
+    <ScrollViewer>
+        <StackPanel Spacing="10" Margin="0,0,0,24">
+            <TextBlock Text="屏幕时钟" Style="{StaticResource TitleTextBlockStyle}"/>
+            <TextBlock Text="模板与资源" Style="{StaticResource SectionHeaderStyle}"/>
+            <controls:SettingsCard Header="时钟图案模板" Description="可加载官方软件导出的模板描述文件">
+                <ComboBox ItemsSource="{x:Bind ViewModel.TemplateNames, Mode=OneWay}"
+                          SelectedIndex="{x:Bind ViewModel.SelectedTemplateIndex, Mode=TwoWay}"
+                          MinWidth="240"/>
+            </controls:SettingsCard>
+            <controls:SettingsCard Header="模板目录" Description="{x:Bind ViewModel.TemplateDirectory, Mode=OneWay}">
+                <Button Content="重新加载" Command="{x:Bind ViewModel.ReloadTemplatesCommand}"/>
+            </controls:SettingsCard>
+
+            <TextBlock Text="显示参数" Style="{StaticResource SectionHeaderStyle}"/>
+            <controls:SettingsCard Header="显示日期" Description="追加日期信息到时钟文本">
+                <ToggleSwitch IsOn="{x:Bind ViewModel.ShowDate, Mode=TwoWay}"/>
+            </controls:SettingsCard>
+            <controls:SettingsCard Header="字体" Description="预留字体配置，后续图案渲染时使用">
+                <TextBox Text="{x:Bind ViewModel.FontFamily, Mode=TwoWay}" MinWidth="220"/>
+            </controls:SettingsCard>
+            <controls:SettingsCard Header="刷新频率" Description="时钟实时走时的刷新间隔，单位毫秒">
+                <NumberBox Value="{x:Bind ViewModel.RefreshInterval, Mode=TwoWay}" Minimum="200" SmallChange="100" SpinButtonPlacementMode="Compact"/>
+            </controls:SettingsCard>
+            <Grid ColumnSpacing="10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition/>
+                    <ColumnDefinition/>
+                </Grid.ColumnDefinitions>
+                <controls:SettingsCard Header="X 坐标" Description="预留图案渲染位置">
+                    <NumberBox Value="{x:Bind ViewModel.X, Mode=TwoWay}" SpinButtonPlacementMode="Compact"/>
+                </controls:SettingsCard>
+                <controls:SettingsCard Grid.Column="1" Header="Y 坐标" Description="预留图案渲染位置">
+                    <NumberBox Value="{x:Bind ViewModel.Y, Mode=TwoWay}" SpinButtonPlacementMode="Compact"/>
+                </controls:SettingsCard>
+            </Grid>
+
+            <TextBlock Text="发送" Style="{StaticResource SectionHeaderStyle}"/>
+            <controls:SettingsCard Header="预览" Description="{x:Bind ViewModel.PreviewText, Mode=OneWay}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Content="发送一次" Command="{x:Bind ViewModel.SendClockCommand}" Style="{StaticResource AccentButtonStyle}"/>
+                    <Button Content="开始刷新" Command="{x:Bind ViewModel.StartClockCommand}"/>
+                    <Button Content="停止" Command="{x:Bind ViewModel.StopClockCommand}"/>
+                </StackPanel>
+            </controls:SettingsCard>
+            <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}" TextWrapping="Wrap"/>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

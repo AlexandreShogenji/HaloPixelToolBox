@@ -21,7 +21,7 @@ namespace HaloPixelToolBox.Views
             ViewModel.DialogService.RegisterDialog(closeDialog);
             ViewModel.PageService.Initialize(this);
             ViewModel.LoadingService.Initialize(loadingGrid, globalLoadingGrid, globalLoadingTextBlock, DispatcherQueue, ViewModel.NavigationViewService.NavigationService);
-            ViewModel.NavigationViewService.NavigateTo<CloudMusicLyricsToolPage>();
+            ViewModel.NavigationViewService.NavigateTo<CustomSubtitleToolPage>();
         }
 
         private void NavigationView_DisplayModeChanged(NavigationView sender, NavigationViewDisplayModeChangedEventArgs args)

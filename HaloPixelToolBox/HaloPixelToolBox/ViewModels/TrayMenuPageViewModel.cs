@@ -86,7 +86,7 @@ public partial class TrayMenuPageViewModel : ServiceBaseViewModelBase<string>
     void Show()
     {
         ServiceManager.GetGlobalService<ITrayIconService>()?.ShowWindow();
-        NavigationViewService?.NavigateTo<CloudMusicLyricsToolPage>();
+        NavigationViewService?.NavigateTo<CustomSubtitleToolPage>();
         MenuWindow.Close();
     }
 
