@@ -43,7 +43,8 @@ public partial class App : Application
         AppThemeHelper.Theme = SystemProfile.Theme;
         PageManager.RegisterPage(typeof(AppShellPage));
         PageManager.RegisterPage(typeof(CloudMusicLyricsToolPage));
-        PageManager.RegisterPage(typeof(ClockToolPage));
+        PageManager.RegisterPage(typeof(PersonalSceneToolPage));
+        PageManager.RegisterPage(typeof(LightingToolPage));
         PageManager.RegisterPage(typeof(LyricsSubtitleToolPage));
         PageManager.RegisterPage(typeof(VideoSubtitleToolPage));
         PageManager.RegisterPage(typeof(BrowserTranslationSubtitleToolPage));

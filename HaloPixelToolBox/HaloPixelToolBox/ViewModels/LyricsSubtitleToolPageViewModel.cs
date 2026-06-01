@@ -76,6 +76,7 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
 
         await displayService.SendSubtitleCueAsync(cue, new DisplayTextOptions
         {
+            Source = DisplayContentKind.Lyrics,
             Layout = HaloPixelTextLayout.Center,
             ScrollDirection = EnableScroll ? TextScrollDirection.RightToLeft : TextScrollDirection.None
         });

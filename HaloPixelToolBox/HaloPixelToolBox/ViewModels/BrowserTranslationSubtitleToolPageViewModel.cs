@@ -58,6 +58,7 @@ public partial class BrowserTranslationSubtitleToolPageViewModel : ViewModelBase
                 await displayService.SendTextAsync(new DisplayTextOptions
                 {
                     Text = translated,
+                    Source = DisplayContentKind.BrowserTranslation,
                     Layout = HaloPixelTextLayout.Center,
                     ScrollDirection = TextScrollDirection.RightToLeft
                 }, cancellationTokenSource.Token);
@@ -85,6 +86,7 @@ public partial class BrowserTranslationSubtitleToolPageViewModel : ViewModelBase
         await displayService.SendTextAsync(new DisplayTextOptions
         {
             Text = translated,
+            Source = DisplayContentKind.BrowserTranslation,
             Layout = HaloPixelTextLayout.Center,
             ScrollDirection = TextScrollDirection.RightToLeft
         });

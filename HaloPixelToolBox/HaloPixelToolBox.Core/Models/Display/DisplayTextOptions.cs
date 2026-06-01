@@ -8,6 +8,7 @@ namespace HaloPixelToolBox.Core.Models.Display;
 public class DisplayTextOptions
 {
     public string Text { get; set; } = string.Empty;
+    public DisplayContentKind Source { get; set; } = DisplayContentKind.Custom;
     public HaloPixelTextLayout Layout { get; set; } = HaloPixelTextLayout.Center;
     public TextScrollDirection ScrollDirection { get; set; } = TextScrollDirection.None;
     public int Speed { get; set; } = 5;

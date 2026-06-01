@@ -68,6 +68,7 @@ public partial class VideoSubtitleToolPageViewModel : ViewModelBase
 
         await displayService.SendSubtitleCueAsync(cue, new DisplayTextOptions
         {
+            Source = DisplayContentKind.VideoSubtitle,
             Layout = HaloPixelTextLayout.Center,
             ScrollDirection = TextScrollDirection.RightToLeft
         });
@@ -85,6 +86,7 @@ public partial class VideoSubtitleToolPageViewModel : ViewModelBase
 
         timelineController.Play(document, new DisplayTextOptions
         {
+            Source = DisplayContentKind.VideoSubtitle,
             Layout = HaloPixelTextLayout.Center,
             ScrollDirection = TextScrollDirection.RightToLeft
         }, TimeSpan.FromSeconds(PositionSeconds));

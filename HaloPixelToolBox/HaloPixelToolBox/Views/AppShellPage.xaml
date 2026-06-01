@@ -47,7 +47,8 @@
 
         <NavigationView x:Name="navigationView" IsBackButtonVisible="Collapsed" Canvas.ZIndex="0" IsBackEnabled="{x:Bind ViewModel.CanGoBack, Mode=OneWay}" IsSettingsVisible="False" DisplayModeChanged="NavigationView_DisplayModeChanged" PaneOpening="NavigationView_PaneOpening" PaneOpened="NavigationView_PaneOpened" PaneClosing="NavigationView_PaneClosing" PaneClosed="NavigationView_PaneClosed">
             <NavigationView.MenuItems>
-                <NavigationViewItem Content="屏幕时钟" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.ClockToolPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE121;"/></NavigationViewItem.Icon></NavigationViewItem>
+                <NavigationViewItem Content="个性场景" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.PersonalSceneToolPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE790;"/></NavigationViewItem.Icon></NavigationViewItem>
+                <NavigationViewItem Content="灯光颜色" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.LightingToolPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE790;"/></NavigationViewItem.Icon></NavigationViewItem>
                 <NavigationViewItem Content="歌词字幕" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.LyricsSubtitleToolPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE8D6;"/></NavigationViewItem.Icon></NavigationViewItem>
                 <NavigationViewItem Content="视频字幕" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.VideoSubtitleToolPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE714;"/></NavigationViewItem.Icon></NavigationViewItem>
                 <NavigationViewItem Content="浏览器翻译字幕" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.BrowserTranslationSubtitleToolPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE774;"/></NavigationViewItem.Icon></NavigationViewItem>
