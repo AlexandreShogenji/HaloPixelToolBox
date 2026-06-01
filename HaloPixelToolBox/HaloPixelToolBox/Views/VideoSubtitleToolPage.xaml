@@ -11,10 +11,10 @@
         <StackPanel Spacing="10" Margin="0,0,0,24">
             <TextBlock Text="视频字幕" Style="{StaticResource TitleTextBlockStyle}"/>
             <controls:SettingsCard Header="视频文件" Description="本地视频路径，用于记录同步来源">
-                <TextBox Text="{x:Bind ViewModel.VideoPath, Mode=TwoWay}" PlaceholderText="D:\Video\demo.mp4" MinWidth="360"/>
+                <TextBox Text="{x:Bind ViewModel.VideoPath, Mode=TwoWay}" PlaceholderText="选择本地视频文件路径" MinWidth="360"/>
             </controls:SettingsCard>
             <controls:SettingsCard Header="字幕文件" Description="支持 SRT / WebVTT 基础解析">
-                <TextBox Text="{x:Bind ViewModel.SubtitlePath, Mode=TwoWay}" PlaceholderText="D:\Video\demo.srt" MinWidth="360"/>
+                <TextBox Text="{x:Bind ViewModel.SubtitlePath, Mode=TwoWay}" PlaceholderText="选择本地字幕文件路径" MinWidth="360"/>
             </controls:SettingsCard>
             <controls:SettingsCard Header="播放进度" Description="与视频播放器进度同步，单位秒">
                 <NumberBox Value="{x:Bind ViewModel.PositionSeconds, Mode=TwoWay}" Minimum="0" SpinButtonPlacementMode="Compact"/>

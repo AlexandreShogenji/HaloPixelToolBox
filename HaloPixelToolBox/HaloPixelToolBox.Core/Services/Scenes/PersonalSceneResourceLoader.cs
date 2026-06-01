@@ -13,8 +13,14 @@ namespace HaloPixelToolBox.Core.Services.Scenes;
 /// </summary>
 public sealed class PersonalSceneResourceLoader
 {
-    public const string DefaultOfficialInstallPath = @"C:\Users\winte\AppData\Local\Programs\EDIFIER TempoHub";
-    public const string DefaultLiLyricInstallPath = @"D:\Program Files (x86)\LiLyric";
+    public static string DefaultOfficialInstallPath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Programs",
+        "EDIFIER TempoHub");
+
+    public static string DefaultLiLyricInstallPath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+        "LiLyric");
 
     private static readonly Regex PreviewUrlRegex = new(
         @"https://edifier-provider-oss\.edifier\.com/pixel_screen_image/[A-Za-z0-9_./-]+\.jpg",
@@ -38,9 +44,12 @@ public sealed class PersonalSceneResourceLoader
     ];
 
     public IReadOnlyList<PersonalSceneDefinition> LoadScenes(
-        string officialInstallPath = DefaultOfficialInstallPath,
-        string liLyricInstallPath = DefaultLiLyricInstallPath)
+        string? officialInstallPath = null,
+        string? liLyricInstallPath = null)
     {
+        officialInstallPath ??= DefaultOfficialInstallPath;
+        liLyricInstallPath ??= DefaultLiLyricInstallPath;
+
         var cachedScenes = LoadTempoHubCachedScenes().ToList();
         if (cachedScenes.Count > 0)
         {
@@ -159,7 +168,11 @@ public sealed class PersonalSceneResourceLoader
         string? resourceRemoteUrl)
     {
         var isLiLyricClock = plan.Category == PersonalSceneCategory.Clock;
-        var bundledPreviewPath = ResolveBundledPreviewOverride(plan.Category, index);
+        var bundledPreviewPath = ResolveBundledPreviewPath(plan.Category, index);
+        var bundledResourcePath = isLiLyricClock
+            ? null
+            : ResolveBundledPixelResourcePath(plan.CategoryIndex, index);
+
         return new PersonalSceneDefinition
         {
             Id = $"official-scene-{plan.CategoryIndex}-{index}",
@@ -173,21 +186,43 @@ public sealed class PersonalSceneResourceLoader
             ScreenSettingParameters = [0x01, (byte)plan.CategoryIndex, (byte)index, 0xff],
             PreviewPath = bundledPreviewPath ?? previewPath,
             PreviewRemoteUrl = previewRemoteUrl,
-            ResourcePath = isLiLyricClock ? null : resourcePath,
+            ResourcePath = isLiLyricClock ? null : bundledResourcePath ?? resourcePath,
             ResourceRemoteUrl = isLiLyricClock ? null : resourceRemoteUrl
         };
     }
 
-    private static string? ResolveBundledPreviewOverride(PersonalSceneCategory category, int index)
+    private static string? ResolveBundledPreviewPath(PersonalSceneCategory category, int index)
     {
-        // 赛博类第 8 个官方预览缓存有误，优先使用随程序打包的手动校正图。
-        if (category == PersonalSceneCategory.Cyber && index == 7)
+        // 发布版本优先使用随程序打包的预览图，TempoHub / LiLyric 目录只作为开发期补充来源。
+        var categoryIndex = CategoryPlans.FirstOrDefault(plan => plan.Category == category)?.CategoryIndex;
+        if (categoryIndex is null)
+            return null;
+
+        var directory = category == PersonalSceneCategory.Clock
+            ? Path.Combine(AppContext.BaseDirectory, "Assets", "PersonalScenes", "ClockPreviews")
+            : Path.Combine(AppContext.BaseDirectory, "Assets", "PersonalScenes", "Previews");
+
+        foreach (var extension in new[] { ".jpg", ".png", ".gif" })
         {
-            var path = Path.Combine(AppContext.BaseDirectory, "Assets", "PersonalScenePreviews", "cyber_7_7.jpg");
-            return File.Exists(path) ? path : null;
+            var path = Path.Combine(directory, $"{categoryIndex}_{index}{extension}");
+            if (File.Exists(path))
+                return path;
         }
 
         return null;
+    }
+
+    private static string? ResolveBundledPixelResourcePath(int categoryIndex, int sceneIndex)
+    {
+        // 官方个性场景资源固定按 分类_序号.bin 打包，避免发布后依赖用户本机 TempoHub 缓存。
+        var path = Path.Combine(
+            AppContext.BaseDirectory,
+            "Assets",
+            "PersonalScenes",
+            "Resources",
+            $"{categoryIndex}_{sceneIndex}.bin");
+
+        return File.Exists(path) ? path : null;
     }
 
     private static string? ResolveOfficialPixelResourcePath(int categoryIndex, int sceneIndex)
