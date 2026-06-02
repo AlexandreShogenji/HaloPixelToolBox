@@ -8,6 +8,7 @@ public sealed class PotPlayerSubtitleSyncService
 {
     private readonly HaloPixelDisplayService displayService;
     private readonly PotPlayerPlaybackStateReader playbackStateReader;
+    private readonly SubtitleParserFactory subtitleParserFactory = new();
     private CancellationTokenSource? cancellationTokenSource;
     private string lastSentText = string.Empty;
     private DateTime lastReadWriteTimeUtc;
@@ -52,6 +53,7 @@ public sealed class PotPlayerSubtitleSyncService
         }
 
         ReportStatus("PotPlayer 字幕同步已启动");
+        await TryReadAndSendSubtitleAsync(configuration, PotPlayerPlaybackState.RunningUnknown, true, cancellationToken);
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -68,7 +70,7 @@ public sealed class PotPlayerSubtitleSyncService
                 }
                 else
                 {
-                    await TryReadAndSendSubtitleAsync(configuration, state, cancellationToken);
+                    await TryReadAndSendSubtitleAsync(configuration, state, false, cancellationToken);
                 }
 
                 await Task.Delay(configuration.PollInterval, cancellationToken);
@@ -85,7 +87,7 @@ public sealed class PotPlayerSubtitleSyncService
         }
     }
 
-    private async Task TryReadAndSendSubtitleAsync(PotPlayerSubtitleSyncConfiguration configuration, PotPlayerPlaybackState state, CancellationToken cancellationToken)
+    private async Task TryReadAndSendSubtitleAsync(PotPlayerSubtitleSyncConfiguration configuration, PotPlayerPlaybackState state, bool forceRead, CancellationToken cancellationToken)
     {
         var subtitleOutputPath = ResolveSubtitleOutputPath(configuration.SubtitleOutputPath);
         if (subtitleOutputPath is null)
@@ -95,14 +97,14 @@ public sealed class PotPlayerSubtitleSyncService
         }
 
         var fileInfo = new FileInfo(subtitleOutputPath);
-        if (fileInfo.LastWriteTimeUtc == lastReadWriteTimeUtc)
+        if (!forceRead && fileInfo.LastWriteTimeUtc == lastReadWriteTimeUtc)
         {
             ReportStatus(GetWaitingStatus(state));
             return;
         }
 
         lastReadWriteTimeUtc = fileInfo.LastWriteTimeUtc;
-        var text = NormalizeSubtitleText(await ReadTextWithSharedAccessAsync(subtitleOutputPath, cancellationToken));
+        var text = await ReadSubtitleTextAsync(subtitleOutputPath, cancellationToken);
         if (string.IsNullOrWhiteSpace(text) || text == lastSentText)
         {
             ReportStatus(GetWaitingStatus(state));
@@ -127,6 +129,35 @@ public sealed class PotPlayerSubtitleSyncService
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         using var reader = new StreamReader(stream, Encoding.UTF8, true);
         return await reader.ReadToEndAsync(cancellationToken);
+    }
+
+    private async Task<string> ReadSubtitleTextAsync(string path, CancellationToken cancellationToken)
+    {
+        var extension = Path.GetExtension(path);
+        if (extension.Equals(".srt", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".vtt", StringComparison.OrdinalIgnoreCase))
+        {
+            var text = TryReadFirstParsedCue(path);
+            if (!string.IsNullOrWhiteSpace(text))
+                return text;
+        }
+
+        return NormalizeSubtitleText(await ReadTextWithSharedAccessAsync(path, cancellationToken), extension);
+    }
+
+    private string? TryReadFirstParsedCue(string path)
+    {
+        try
+        {
+            var parser = subtitleParserFactory.GetParser(path);
+            return parser.Parse(path).Cues
+                .Select(cue => cue.Text.Trim())
+                .FirstOrDefault(text => !string.IsNullOrWhiteSpace(text));
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static string? ResolveSubtitleOutputPath(string path)
@@ -158,17 +189,22 @@ public sealed class PotPlayerSubtitleSyncService
             || extension.Equals(".sub", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string NormalizeSubtitleText(string text)
+    private static string NormalizeSubtitleText(string text, string extension)
     {
         var lines = text
             .ReplaceLineEndings("\n")
             .Split('\n')
             .Select(line => line.Trim())
-            .Select(NormalizeSubtitleLine)
+            .Select(line => NormalizeSubtitleLine(line, extension))
             .Where(line => !string.IsNullOrWhiteSpace(line))
             .Where(line => !line.Equals("WEBVTT", StringComparison.OrdinalIgnoreCase))
             .Where(line => !int.TryParse(line, out _))
             .Where(line => !line.Contains("-->", StringComparison.Ordinal))
+            .Where(line => !line.StartsWith("[Script Info]", StringComparison.OrdinalIgnoreCase))
+            .Where(line => !line.StartsWith("[V4", StringComparison.OrdinalIgnoreCase))
+            .Where(line => !line.StartsWith("[Events]", StringComparison.OrdinalIgnoreCase))
+            .Where(line => !line.StartsWith("Format:", StringComparison.OrdinalIgnoreCase))
+            .Where(line => !line.StartsWith("Style:", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         if (lines.Count == 0)
@@ -177,8 +213,11 @@ public sealed class PotPlayerSubtitleSyncService
         return string.Join(" / ", lines.TakeLast(3));
     }
 
-    private static string NormalizeSubtitleLine(string line)
+    private static string NormalizeSubtitleLine(string line, string extension)
     {
+        if (extension.Equals(".lrc", StringComparison.OrdinalIgnoreCase))
+            line = StripLrcTimeTags(line);
+
         if (!line.StartsWith("Dialogue:", StringComparison.OrdinalIgnoreCase))
             return line;
 
@@ -186,6 +225,20 @@ public sealed class PotPlayerSubtitleSyncService
         return fields.Length == 10
             ? fields[9].Replace("\\N", " ").Replace("\\n", " ").Trim()
             : line;
+    }
+
+    private static string StripLrcTimeTags(string line)
+    {
+        while (line.StartsWith("[", StringComparison.Ordinal))
+        {
+            var end = line.IndexOf(']', StringComparison.Ordinal);
+            if (end < 0)
+                break;
+
+            line = line[(end + 1)..].TrimStart();
+        }
+
+        return line;
     }
 
     private void ReportStatus(string message) => StatusChanged?.Invoke(this, message);

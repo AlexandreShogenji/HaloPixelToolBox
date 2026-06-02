@@ -36,9 +36,7 @@ public class HidPacketBuilder
     /// </summary>
     public static byte[] BuildText(string text)
     {
-        if (text.Length > 50)
-            text = text.Substring(0, 50);
-        var textBytes = Encoding.UTF8.GetBytes(text);
+        var textBytes = TruncateUtf8(text, 55);
         byte textLen = (byte)textBytes.Length;
         // 有效载荷长度 = TextLen(1) + Text(N) + Checksum(1)
         ushort totalLen = (ushort)(1 + textLen + 1);
@@ -58,6 +56,22 @@ public class HidPacketBuilder
         list.Add(byte.Parse(Checksum(textBytes).ToString()));
 
         return Build(list);
+    }
+
+    private static byte[] TruncateUtf8(string text, int maxByteCount)
+    {
+        var result = new List<byte>(maxByteCount);
+        foreach (var rune in text.EnumerateRunes())
+        {
+            var runeText = rune.ToString();
+            var bytes = Encoding.UTF8.GetBytes(runeText);
+            if (result.Count + bytes.Length > maxByteCount)
+                break;
+
+            result.AddRange(bytes);
+        }
+
+        return [.. result];
     }
 
     /// <summary>
