@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Text;
 using HaloPixelToolBox.Core.Models.Subtitles;
+using Microsoft.Win32;
 using Windows.Media.Control;
 
 namespace HaloPixelToolBox.Core.Services.Subtitles;
@@ -33,6 +35,26 @@ public sealed class PotPlayerPlaybackStateReader
             return processSnapshot;
 
         return await TryReadMediaSessionSnapshotAsync(cancellationToken) ?? processSnapshot;
+    }
+
+    public string? TryGetCurrentMediaPath()
+    {
+        var processFolders = ProcessNames
+            .SelectMany(Process.GetProcessesByName)
+            .Select(process => SafeReadProcessPath(process))
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(Path.GetDirectoryName)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Cast<string>();
+
+        foreach (var playlistPath in GetPlaylistPaths(processFolders))
+        {
+            var mediaPath = TryReadCurrentMediaPathFromPlaylist(playlistPath);
+            if (!string.IsNullOrWhiteSpace(mediaPath))
+                return mediaPath;
+        }
+
+        return null;
     }
 
     private static PotPlayerPlaybackSnapshot GetProcessSnapshot()
@@ -139,11 +161,93 @@ public sealed class PotPlayerPlaybackStateReader
         return value;
     }
 
+    private static IEnumerable<string> GetPlaylistPaths(IEnumerable<string> processFolders)
+    {
+        var settingsKey = Registry.CurrentUser.OpenSubKey(@"Software\DAUM\PotPlayerMini64\Settings");
+        var playlistName = settingsKey?.GetValue("LastPlayListName") as string;
+        if (string.IsNullOrWhiteSpace(playlistName))
+            playlistName = "PotPlayerMini64.dpl";
+
+        var programFolder = Registry.CurrentUser.OpenSubKey(@"Software\DAUM\PotPlayer64")?.GetValue("ProgramFolder") as string;
+        var playlistRoots = processFolders
+            .Concat(string.IsNullOrWhiteSpace(programFolder) ? [] : [programFolder])
+            .Concat([
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Daum", "PotPlayer")
+            ])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .SelectMany(folder => new[]
+            {
+                Path.Combine(folder, "Playlist"),
+                folder
+            })
+            .Where(Directory.Exists)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        foreach (var root in playlistRoots)
+        {
+            var lastPlaylist = Path.Combine(root, playlistName);
+            if (File.Exists(lastPlaylist))
+                yield return lastPlaylist;
+        }
+
+        foreach (var playlist in playlistRoots
+            .SelectMany(root => Directory.EnumerateFiles(root, "*.dpl"))
+            .OrderByDescending(file => new FileInfo(file).LastWriteTimeUtc))
+        {
+            yield return playlist;
+        }
+    }
+
+    private static string? TryReadCurrentMediaPathFromPlaylist(string playlistPath)
+    {
+        try
+        {
+            var lines = File.ReadLines(playlistPath, Encoding.UTF8).ToList();
+            var playNameLine = lines.FirstOrDefault(line => line.StartsWith("playname=", StringComparison.OrdinalIgnoreCase));
+            var playName = playNameLine?["playname=".Length..].Trim();
+            if (IsExistingMediaPath(playName))
+                return playName;
+
+            return lines
+                .Select(ExtractPlaylistFilePath)
+                .FirstOrDefault(IsExistingMediaPath);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? ExtractPlaylistFilePath(string line)
+    {
+        var markerIndex = line.IndexOf("*file*", StringComparison.OrdinalIgnoreCase);
+        if (markerIndex < 0)
+            return null;
+
+        return line[(markerIndex + "*file*".Length)..].Trim();
+    }
+
+    private static bool IsExistingMediaPath(string? path)
+        => !string.IsNullOrWhiteSpace(path) && File.Exists(path);
+
     private static string SafeReadTitle(Process process)
     {
         try
         {
             return process.MainWindowTitle ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string SafeReadProcessPath(Process process)
+    {
+        try
+        {
+            return process.MainModule?.FileName ?? string.Empty;
         }
         catch
         {

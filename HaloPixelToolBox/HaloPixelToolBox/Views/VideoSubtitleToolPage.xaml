@@ -33,11 +33,6 @@
                             Command="{x:Bind ViewModel.RestartPotPlayerSyncCommand}"/>
                 </Grid>
             </controls:SettingsCard>
-            <controls:SettingsCard Header="同步状态" Description="{x:Bind ViewModel.StatusMessage, Mode=OneWay}">
-                <TextBlock Text="启用后会在 PotPlayer 播放时读取字幕文件内容变化，并自动发送到字幕屏。"
-                           TextWrapping="Wrap"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-            </controls:SettingsCard>
             <TextBox Text="{x:Bind ViewModel.PreviewText, Mode=OneWay}" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="180" IsReadOnly="True"/>
         </StackPanel>
     </ScrollViewer>

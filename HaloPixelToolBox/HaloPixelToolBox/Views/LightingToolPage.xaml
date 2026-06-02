@@ -23,8 +23,8 @@
             <Border Style="{StaticResource LightingPanelStyle}">
                 <Grid ColumnSpacing="28" RowSpacing="18">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="2*"/>
-                        <ColumnDefinition Width="3*"/>
+                        <ColumnDefinition Width="220"/>
+                        <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -93,8 +93,8 @@
             <Border Style="{StaticResource LightingPanelStyle}">
                 <Grid ColumnSpacing="28" RowSpacing="18">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="2*"/>
-                        <ColumnDefinition Width="3*"/>
+                        <ColumnDefinition Width="220"/>
+                        <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel Spacing="6">
                         <TextBlock Text="像素屏颜色" Style="{StaticResource SubtitleTextBlockStyle}"/>

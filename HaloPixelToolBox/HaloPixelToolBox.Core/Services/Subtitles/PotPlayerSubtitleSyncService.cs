@@ -18,6 +18,16 @@ public sealed class PotPlayerSubtitleSyncService
     private CancellationTokenSource? cancellationTokenSource;
     private string lastSentText = string.Empty;
     private DateTime lastReadWriteTimeUtc;
+    private static readonly string[] SubtitleExtensions =
+    [
+        ".srt",
+        ".ass",
+        ".ssa",
+        ".vtt",
+        ".lrc",
+        ".sub",
+        ".txt"
+    ];
 
     public PotPlayerSubtitleSyncService()
         : this(new HaloPixelDisplayService(), new PotPlayerPlaybackStateReader())
@@ -36,9 +46,13 @@ public sealed class PotPlayerSubtitleSyncService
 
     public event EventHandler<string>? SubtitleSent;
 
+    public event EventHandler<string>? SubtitleSourceResolved;
+
     public void Start(PotPlayerSubtitleSyncConfiguration configuration)
     {
         Stop();
+        lastSentText = string.Empty;
+        lastReadWriteTimeUtc = default;
         cancellationTokenSource = new CancellationTokenSource();
         _ = SyncAsync(configuration, cancellationTokenSource.Token);
     }
@@ -52,26 +66,24 @@ public sealed class PotPlayerSubtitleSyncService
 
     private async Task SyncAsync(PotPlayerSubtitleSyncConfiguration configuration, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(configuration.SubtitleOutputPath))
+        var subtitleOutputPath = ResolvePotPlayerSubtitleOutputPath(configuration.SubtitleOutputPath)
+            ?? ResolveSubtitleOutputPath(configuration.SubtitleOutputPath);
+        if (subtitleOutputPath is null)
         {
-            ReportStatus("请先填写 PotPlayer 字幕输出文件路径");
+            ReportStatus("未找到当前视频同名字幕，请选择字幕文件");
             return;
         }
 
-        var subtitleOutputPath = ResolveSubtitleOutputPath(configuration.SubtitleOutputPath);
-        if (subtitleOutputPath is null)
-        {
-            ReportStatus("字幕输出文件不存在");
-            return;
-        }
+        SubtitleSourceResolved?.Invoke(this, subtitleOutputPath);
 
         if (TryLoadTimelineSubtitle(subtitleOutputPath, out var document))
         {
+            ReportStatus($"已加载字幕文件：{Path.GetFileName(subtitleOutputPath)}");
             await SyncTimelineSubtitleAsync(document, configuration, cancellationToken);
             return;
         }
 
-        ReportStatus("PotPlayer 实时字幕文件同步已启动");
+        ReportStatus($"PotPlayer 实时字幕文件同步已启动：{Path.GetFileName(subtitleOutputPath)}");
         await TryReadAndSendSubtitleAsync(subtitleOutputPath, configuration, PotPlayerPlaybackState.RunningUnknown, true, cancellationToken);
 
         while (!cancellationToken.IsCancellationRequested)
@@ -282,8 +294,66 @@ public sealed class PotPlayerSubtitleSyncService
         displayService.ShowScreenScene(DefaultClockGroup, DefaultClockCategory, DefaultClockSceneIndex, DefaultClockOption);
     }
 
+    private string? ResolvePotPlayerSubtitleOutputPath(string configuredPath)
+    {
+        var mediaPath = playbackStateReader.TryGetCurrentMediaPath();
+        if (string.IsNullOrWhiteSpace(mediaPath))
+            return null;
+
+        var subtitlePath = FindMatchingSubtitleForMedia(mediaPath);
+        if (!string.IsNullOrWhiteSpace(subtitlePath))
+            return subtitlePath;
+
+        var configuredDirectory = ResolveConfiguredDirectory(configuredPath);
+        return string.IsNullOrWhiteSpace(configuredDirectory)
+            ? null
+            : FindMatchingSubtitle(Path.Combine(configuredDirectory, Path.GetFileName(mediaPath)));
+    }
+
+    private static string? FindMatchingSubtitleForMedia(string mediaPath)
+    {
+        var directory = Path.GetDirectoryName(mediaPath);
+        return string.IsNullOrWhiteSpace(directory)
+            ? null
+            : FindMatchingSubtitle(Path.Combine(directory, Path.GetFileName(mediaPath)));
+    }
+
+    private static string? FindMatchingSubtitle(string mediaPath)
+    {
+        var directory = Path.GetDirectoryName(mediaPath);
+        var stem = Path.GetFileNameWithoutExtension(mediaPath);
+        if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(stem) || !Directory.Exists(directory))
+            return null;
+
+        foreach (var extension in SubtitleExtensions)
+        {
+            var exactPath = Path.Combine(directory, $"{stem}{extension}");
+            if (File.Exists(exactPath))
+                return exactPath;
+        }
+
+        return Directory.EnumerateFiles(directory, $"{stem}.*")
+            .Where(IsCandidateSubtitleOutput)
+            .OrderBy(file => file.Length)
+            .FirstOrDefault();
+    }
+
+    private static string? ResolveConfiguredDirectory(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+
+        if (Directory.Exists(path))
+            return path;
+
+        return File.Exists(path) ? Path.GetDirectoryName(path) : null;
+    }
+
     private static string? ResolveSubtitleOutputPath(string path)
     {
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+
         if (File.Exists(path))
             return path;
 
@@ -302,13 +372,7 @@ public sealed class PotPlayerSubtitleSyncService
     private static bool IsCandidateSubtitleOutput(string path)
     {
         var extension = Path.GetExtension(path);
-        return extension.Equals(".txt", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".srt", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".vtt", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".ass", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".ssa", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".lrc", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".sub", StringComparison.OrdinalIgnoreCase);
+        return SubtitleExtensions.Any(item => extension.Equals(item, StringComparison.OrdinalIgnoreCase));
     }
 
     private static string NormalizeSubtitleText(string text, string extension)

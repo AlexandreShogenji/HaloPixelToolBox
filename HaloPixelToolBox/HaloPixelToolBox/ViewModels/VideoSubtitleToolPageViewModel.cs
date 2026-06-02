@@ -33,6 +33,7 @@ public partial class VideoSubtitleToolPageViewModel : ViewModelBase
     {
         potPlayerSubtitleSyncService.StatusChanged += (_, message) => UpdatePotPlayerStatus(message);
         potPlayerSubtitleSyncService.SubtitleSent += (_, text) => UpdatePotPlayerStatus($"已同步：{text}");
+        potPlayerSubtitleSyncService.SubtitleSourceResolved += (_, path) => UpdateSubtitleSource(path);
         if (IsPotPlayerSyncEnabled)
             StartPotPlayerSync();
     }
@@ -100,6 +101,20 @@ public partial class VideoSubtitleToolPageViewModel : ViewModelBase
             StatusMessage = message;
             if (message.StartsWith("已同步：", StringComparison.Ordinal))
                 PreviewText = message["已同步：".Length..];
+        }
+
+        if (dispatcherQueue is not null && !dispatcherQueue.HasThreadAccess)
+            dispatcherQueue.TryEnqueue(Apply);
+        else
+            Apply();
+    }
+
+    private void UpdateSubtitleSource(string path)
+    {
+        void Apply()
+        {
+            if (!PotPlayerSubtitleOutputPath.Equals(path, StringComparison.OrdinalIgnoreCase))
+                PotPlayerSubtitleOutputPath = path;
         }
 
         if (dispatcherQueue is not null && !dispatcherQueue.HasThreadAccess)
