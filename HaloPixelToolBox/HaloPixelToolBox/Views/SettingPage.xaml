@@ -92,14 +92,14 @@
                     <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind ViewModel.AppLogSize, Mode=OneWay}" VerticalAlignment="Center"/>
                 </controls:SettingsCard>
                 <TextBlock Text="关于" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"/>
-                <controls:SettingsExpander Header="花再工具箱" Description="版权所有 © 2025 XFEstudio. All rights reserved">
+                <controls:SettingsExpander Header="花再工具箱" Description="基于开源项目二次开发，原作者 XFEstudio；二次开发签名 Alexandre">
                     <controls:SettingsExpander.HeaderIcon>
                         <ImageIcon Source="/Assets/icon.png"/>
                     </controls:SettingsExpander.HeaderIcon>
                     <TextBlock Grid.Column="2" Grid.RowSpan="2" Text="{x:Bind ViewModel.CurrentVersion, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <controls:SettingsExpander.Items>
                         <controls:SettingsCard Header="作者">
-                            <TextBlock Text="XFEstudio" Foreground="{ThemeResource TextFillColorSecondary}"/>
+                            <TextBlock Text="XFEstudio / Alexandre" Foreground="{ThemeResource TextFillColorSecondary}"/>
                         </controls:SettingsCard>
                         <controls:SettingsCard Header="问题反馈 &amp; 建议" IsClickEnabled="True" Command="{x:Bind ViewModel.LinkToGithubIssueCommand}">
                             <controls:SettingsCard.ActionIcon>
@@ -113,9 +113,8 @@
                         </controls:SettingsCard>
                         <controls:SettingsCard Header="联系我们" HorizontalContentAlignment="Left" ContentAlignment="Vertical">
                             <StackPanel Margin="-12,0,0,0" Orientation="Vertical">
-                                <HyperlinkButton Content="加入QQ群" NavigateUri="https://qm.qq.com/q/VLpyYjWOWe"/>
-                                <HyperlinkButton Content="Github" NavigateUri="https://github.com/XFEstudio"/>
-                                <HyperlinkButton Content="Bilibili主页" NavigateUri="https://space.bilibili.com/200494622"/>
+                                <HyperlinkButton Content="Github 项目主页" NavigateUri="https://github.com/AlexandreShogenji/HaloPixelToolBox/tree/codex/refine-subtitle-features?tab=readme-ov-file"/>
+                                <HyperlinkButton Content="Issues 问题反馈" NavigateUri="https://github.com/AlexandreShogenji/HaloPixelToolBox/issues"/>
                             </StackPanel>
                         </controls:SettingsCard>
                     </controls:SettingsExpander.Items>

@@ -14,6 +14,8 @@ public partial class VideoSubtitleToolPageViewModel : ViewModelBase
     private readonly SubtitleParserFactory parserFactory = new();
     private readonly SubtitleTimelineController timelineController = new(new HaloPixelDisplayService());
     private readonly HaloPixelDisplayService displayService = new();
+    private readonly PotPlayerSubtitleSyncService potPlayerSubtitleSyncService = new();
+    private readonly Microsoft.UI.Dispatching.DispatcherQueue? dispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
     private SubtitleDocument? document;
 
     [ObservableProperty]
@@ -21,6 +23,15 @@ public partial class VideoSubtitleToolPageViewModel : ViewModelBase
 
     [ObservableProperty]
     private string subtitlePath = DisplayFeatureProfile.VideoSubtitlePath;
+
+    [ObservableProperty]
+    private string potPlayerSubtitleOutputPath = DisplayFeatureProfile.PotPlayerSubtitleOutputPath;
+
+    [ObservableProperty]
+    private bool isPotPlayerSyncEnabled = DisplayFeatureProfile.PotPlayerSubtitleSyncEnabled;
+
+    [ObservableProperty]
+    private string potPlayerSyncStatus = "PotPlayer 字幕同步未启用";
 
     [ObservableProperty]
     private double positionSeconds;
@@ -34,8 +45,26 @@ public partial class VideoSubtitleToolPageViewModel : ViewModelBase
     [ObservableProperty]
     private string statusMessage = "等待导入字幕";
 
+    public VideoSubtitleToolPageViewModel()
+    {
+        potPlayerSubtitleSyncService.StatusChanged += (_, message) => UpdatePotPlayerStatus(message);
+        potPlayerSubtitleSyncService.SubtitleSent += (_, text) => UpdatePotPlayerStatus($"已同步：{text}");
+        if (IsPotPlayerSyncEnabled)
+            StartPotPlayerSync();
+    }
+
     partial void OnVideoPathChanged(string value) => DisplayFeatureProfile.VideoPath = value;
     partial void OnSubtitlePathChanged(string value) => DisplayFeatureProfile.VideoSubtitlePath = value;
+    partial void OnPotPlayerSubtitleOutputPathChanged(string value) => DisplayFeatureProfile.PotPlayerSubtitleOutputPath = value;
+
+    partial void OnIsPotPlayerSyncEnabledChanged(bool value)
+    {
+        DisplayFeatureProfile.PotPlayerSubtitleSyncEnabled = value;
+        if (value)
+            StartPotPlayerSync();
+        else
+            potPlayerSubtitleSyncService.Stop();
+    }
 
     [RelayCommand]
     private void ParseSubtitle()
@@ -98,5 +127,42 @@ public partial class VideoSubtitleToolPageViewModel : ViewModelBase
     {
         timelineController.Stop();
         StatusMessage = "字幕同步播放已停止";
+    }
+
+    [RelayCommand]
+    private void RestartPotPlayerSync()
+    {
+        IsPotPlayerSyncEnabled = true;
+        StartPotPlayerSync();
+    }
+
+    private void StartPotPlayerSync()
+    {
+        potPlayerSubtitleSyncService.Start(new PotPlayerSubtitleSyncConfiguration
+        {
+            SubtitleOutputPath = PotPlayerSubtitleOutputPath,
+            DisplayOptions = new DisplayTextOptions
+            {
+                Source = DisplayContentKind.VideoSubtitle,
+                Layout = HaloPixelTextLayout.Center,
+                ScrollDirection = TextScrollDirection.RightToLeft
+            }
+        });
+    }
+
+    private void UpdatePotPlayerStatus(string message)
+    {
+        void Apply()
+        {
+            PotPlayerSyncStatus = message;
+            StatusMessage = message;
+            if (message.StartsWith("已同步：", StringComparison.Ordinal))
+                PreviewText = message["已同步：".Length..];
+        }
+
+        if (dispatcherQueue is not null && !dispatcherQueue.HasThreadAccess)
+            dispatcherQueue.TryEnqueue(Apply);
+        else
+            Apply();
     }
 }

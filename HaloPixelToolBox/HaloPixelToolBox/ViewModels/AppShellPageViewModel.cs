@@ -1,7 +1,10 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
+using HaloPixelToolBox.Core.Services.Device;
 using HaloPixelToolBox.Interface.Services;
 using HaloPixelToolBox.Profiles.CrossVersionProfiles;
 using HaloPixelToolBox.Utilities.Helpers;
+using Microsoft.UI;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using XFEExtension.NetCore.WinUIHelper.Interface.Services;
@@ -11,6 +14,9 @@ namespace HaloPixelToolBox.ViewModels;
 
 public partial class AppShellPageViewModel : ViewModelBase
 {
+    private readonly HaloPixelDeviceConnectionMonitor deviceConnectionMonitor = new();
+    private readonly DispatcherTimer deviceStatusTimer = new() { Interval = TimeSpan.FromSeconds(2) };
+
     [ObservableProperty]
     private int selectedIndex;
     [ObservableProperty]
@@ -23,6 +29,12 @@ public partial class AppShellPageViewModel : ViewModelBase
     private string userName = Environment.UserName;
     [ObservableProperty]
     private ImageSource userTile = Win32Helper.GetUserTile();
+    [ObservableProperty]
+    private double deviceIconOpacity = 0.38;
+    [ObservableProperty]
+    private string deviceConnectionStatusText = "音箱设备未连接";
+    [ObservableProperty]
+    private SolidColorBrush deviceConnectionBrush = new(Colors.Gray);
 
     public IDialogService DialogService { get; } = ServiceManager.GetService<IDialogService>();
     public INavigationViewService NavigationViewService { get; } = ServiceManager.GetService<INavigationViewService>();
@@ -34,6 +46,10 @@ public partial class AppShellPageViewModel : ViewModelBase
 
     public AppShellPageViewModel()
     {
+        deviceStatusTimer.Tick += (_, _) => RefreshDeviceConnectionStatus();
+        RefreshDeviceConnectionStatus();
+        deviceStatusTimer.Start();
+
         NavigationViewService.NavigationService.Navigated += NavigationService_Navigated;
         PageService.CurrentPageLoaded += CurrentPage_Loaded;
         if (CloseWindowService is not null)
@@ -95,6 +111,14 @@ public partial class AppShellPageViewModel : ViewModelBase
                 Console.WriteLine($"[ERROR]检查更新时发生错误：{ex}");
             }
         });
+    }
+
+    private void RefreshDeviceConnectionStatus()
+    {
+        var isConnected = deviceConnectionMonitor.IsConnected();
+        DeviceIconOpacity = isConnected ? 1 : 0.38;
+        DeviceConnectionStatusText = isConnected ? "音箱设备已连接" : "音箱设备未连接";
+        DeviceConnectionBrush = new SolidColorBrush(isConnected ? Colors.LimeGreen : Colors.Gray);
     }
 
     private async void CloseWindowService_Closed(object sender, WindowEventArgs args)

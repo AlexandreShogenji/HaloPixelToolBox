@@ -89,10 +89,10 @@ public partial class SettingPageViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    static async Task LinkToGithubRepo() => await Launcher.LaunchUriAsync(new Uri("https://github.com/XFEstudio/HaloPixelToolBox"));
+    static async Task LinkToGithubRepo() => await Launcher.LaunchUriAsync(new Uri("https://github.com/AlexandreShogenji/HaloPixelToolBox/tree/codex/refine-subtitle-features?tab=readme-ov-file"));
 
     [RelayCommand]
-    static async Task LinkToGithubIssue() => await Launcher.LaunchUriAsync(new Uri("https://github.com/XFEstudio/HaloPixelToolBox/issues/new/choose"));
+    static async Task LinkToGithubIssue() => await Launcher.LaunchUriAsync(new Uri("https://github.com/AlexandreShogenji/HaloPixelToolBox/issues"));
 
     [RelayCommand]
     void ClearIgnoreVersion() => IgnoreVersion = string.Empty;

@@ -22,7 +22,22 @@
         </ContentDialog>
 
         <Grid x:Name="appTitleBar" Canvas.ZIndex="1" Height="{Binding ElementName=navigationView, Path=CompactPaneLength}" IsHitTestVisible="True" VerticalAlignment="Top">
-            <Image Source="/Assets/icon.png" HorizontalAlignment="Left" Width="16" Height="16" Margin="10,0,0,0"/>
+            <Grid HorizontalAlignment="Left" Width="22" Height="22" Margin="8,0,0,0">
+                <ToolTipService.ToolTip>
+                    <ToolTip Content="{x:Bind ViewModel.DeviceConnectionStatusText, Mode=OneWay}"/>
+                </ToolTipService.ToolTip>
+                <Image Source="/Assets/icon.png"
+                       Width="16"
+                       Height="16"
+                       Opacity="{x:Bind ViewModel.DeviceIconOpacity, Mode=OneWay}"/>
+                <Ellipse Width="7"
+                         Height="7"
+                         Fill="{x:Bind ViewModel.DeviceConnectionBrush, Mode=OneWay}"
+                         Stroke="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+                         StrokeThickness="1"
+                         HorizontalAlignment="Right"
+                         VerticalAlignment="Bottom"/>
+            </Grid>
             <TextBlock Text="花再字幕屏工具箱" VerticalAlignment="Center" TextWrapping="NoWrap" Margin="38,0,0,0"/>
         </Grid>
 
@@ -45,7 +60,7 @@
             </Grid>
         </Grid>
 
-        <NavigationView x:Name="navigationView" IsBackButtonVisible="Collapsed" Canvas.ZIndex="0" IsBackEnabled="{x:Bind ViewModel.CanGoBack, Mode=OneWay}" IsSettingsVisible="False" DisplayModeChanged="NavigationView_DisplayModeChanged" PaneOpening="NavigationView_PaneOpening" PaneOpened="NavigationView_PaneOpened" PaneClosing="NavigationView_PaneClosing" PaneClosed="NavigationView_PaneClosed">
+        <NavigationView x:Name="navigationView" IsBackButtonVisible="Collapsed" Canvas.ZIndex="0" IsBackEnabled="{x:Bind ViewModel.CanGoBack, Mode=OneWay}" IsSettingsVisible="False" CompactPaneLength="48" OpenPaneLength="184" DisplayModeChanged="NavigationView_DisplayModeChanged" PaneOpening="NavigationView_PaneOpening" PaneOpened="NavigationView_PaneOpened" PaneClosing="NavigationView_PaneClosing" PaneClosed="NavigationView_PaneClosed">
             <NavigationView.MenuItems>
                 <NavigationViewItem Content="个性场景" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.PersonalSceneToolPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE790;"/></NavigationViewItem.Icon></NavigationViewItem>
                 <NavigationViewItem Content="灯光颜色" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.LightingToolPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE790;"/></NavigationViewItem.Icon></NavigationViewItem>

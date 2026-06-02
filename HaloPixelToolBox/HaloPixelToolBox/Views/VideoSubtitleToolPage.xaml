@@ -10,6 +10,24 @@
     <ScrollViewer>
         <StackPanel Spacing="10" Margin="0,0,0,24">
             <TextBlock Text="视频字幕" Style="{StaticResource TitleTextBlockStyle}"/>
+            <controls:SettingsCard Header="PotPlayer 实时同步" Description="{x:Bind ViewModel.PotPlayerSyncStatus, Mode=OneWay}">
+                <ToggleSwitch IsOn="{x:Bind ViewModel.IsPotPlayerSyncEnabled, Mode=TwoWay}"
+                              OnContent="已启用"
+                              OffContent="已禁用"/>
+            </controls:SettingsCard>
+            <controls:SettingsCard Header="PotPlayer 字幕输出文件" Description="PotPlayer 播放时实时写入的字幕文本文件路径">
+                <Grid ColumnSpacing="8" MinWidth="420">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox Text="{x:Bind ViewModel.PotPlayerSubtitleOutputPath, Mode=TwoWay}"
+                             PlaceholderText="填写 PotPlayer 字幕输出 txt 路径"/>
+                    <Button Grid.Column="1"
+                            Content="重新同步"
+                            Command="{x:Bind ViewModel.RestartPotPlayerSyncCommand}"/>
+                </Grid>
+            </controls:SettingsCard>
             <controls:SettingsCard Header="视频文件" Description="本地视频路径，用于记录同步来源">
                 <TextBox Text="{x:Bind ViewModel.VideoPath, Mode=TwoWay}" PlaceholderText="选择本地视频文件路径" MinWidth="360"/>
             </controls:SettingsCard>
