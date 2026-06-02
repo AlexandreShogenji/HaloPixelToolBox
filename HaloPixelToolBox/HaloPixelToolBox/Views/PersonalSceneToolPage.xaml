@@ -53,28 +53,40 @@
                     </GridView.ItemContainerStyle>
                     <GridView.ItemTemplate>
                         <DataTemplate x:DataType="scenes:PersonalSceneDefinition">
-                            <Button Click="SceneButton_Click"
-                                    Tag="{Binding}"
-                                    Padding="0"
-                                    BorderThickness="1"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                    Background="Transparent"
-                                    HorizontalAlignment="Stretch">
-                                <Grid Width="520" Height="62" CornerRadius="6" Background="Black">
-                                    <Image Source="{x:Bind PreviewSource, Mode=OneWay}" Stretch="UniformToFill"/>
-                                    <Border Background="#F0FFB15A"
-                                            CornerRadius="0,0,0,4"
-                                            HorizontalAlignment="Right"
-                                            VerticalAlignment="Top"
-                                            Padding="8,3"
-                                            Opacity="{x:Bind InUseBadgeOpacity, Mode=OneWay}">
-                                        <TextBlock Text="使用中"
-                                                   Foreground="Black"
-                                                   FontSize="12"
-                                                   FontWeight="SemiBold"/>
-                                    </Border>
-                                </Grid>
-                            </Button>
+                            <Grid Width="520" Height="62">
+                                <Button Click="SceneButton_Click"
+                                        Tag="{Binding}"
+                                        Padding="0"
+                                        BorderThickness="1"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                        Background="Transparent"
+                                        HorizontalAlignment="Stretch">
+                                    <Grid Width="520" Height="62" CornerRadius="6" Background="Black">
+                                        <Image Source="{x:Bind PreviewSource, Mode=OneWay}" Stretch="UniformToFill"/>
+                                        <Border Background="#F0FFB15A"
+                                                CornerRadius="0,0,0,4"
+                                                HorizontalAlignment="Right"
+                                                VerticalAlignment="Top"
+                                                Padding="8,3"
+                                                Opacity="{x:Bind InUseBadgeOpacity, Mode=OneWay}">
+                                            <TextBlock Text="使用中"
+                                                       Foreground="Black"
+                                                       FontSize="12"
+                                                       FontWeight="SemiBold"/>
+                                        </Border>
+                                    </Grid>
+                                </Button>
+                                <Button Content="删除"
+                                        Click="SceneDelete_Click"
+                                        Tag="{Binding}"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Bottom"
+                                        Margin="0,0,6,6"
+                                        Padding="8,2"
+                                        FontSize="12"
+                                        Opacity="{x:Bind DeleteButtonOpacity, Mode=OneWay}"
+                                        IsHitTestVisible="{x:Bind DeleteButtonHitTestVisible, Mode=OneWay}"/>
+                            </Grid>
                         </DataTemplate>
                     </GridView.ItemTemplate>
                 </GridView>
@@ -88,7 +100,7 @@
                     <StackPanel Spacing="14">
                         <StackPanel Spacing="4">
                             <TextBlock Text="自定义图像资源" Style="{StaticResource SubtitleTextBlockStyle}"/>
-                            <TextBlock Text="拖入或选择 1 到 5 张 256×32 PNG 图像；1 张为静态资源，多张为动画序列。"
+                            <TextBlock Text="拖入或选择 1 到 5 张 256x32 PNG 图像；1 张为静态资源，多张为动画序列。"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                        TextWrapping="Wrap"/>
                         </StackPanel>
@@ -121,7 +133,9 @@
                                                             Opacity="{x:Bind PlaceholderOpacity, Mode=OneWay}"
                                                             Spacing="2">
                                                     <TextBlock Text="{x:Bind Title}" TextAlignment="Center"/>
-                                                    <TextBlock Text="拖入 PNG" FontSize="12" TextAlignment="Center"
+                                                    <TextBlock Text="拖入 PNG"
+                                                               FontSize="12"
+                                                               TextAlignment="Center"
                                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                                 </StackPanel>
                                             </Grid>
@@ -151,6 +165,7 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <Button Click="GeneratedCustomScene_Click"
                                     Padding="0"
@@ -173,6 +188,10 @@
                                 </Grid>
                             </Button>
                             <Button Grid.Column="1"
+                                    Content="固定到列表"
+                                    Command="{x:Bind ViewModel.PinGeneratedCustomSceneCommand}"
+                                    VerticalAlignment="Center"/>
+                            <Button Grid.Column="2"
                                     Content="删除资源"
                                     Command="{x:Bind ViewModel.DeleteGeneratedCustomSceneCommand}"
                                     VerticalAlignment="Center"/>

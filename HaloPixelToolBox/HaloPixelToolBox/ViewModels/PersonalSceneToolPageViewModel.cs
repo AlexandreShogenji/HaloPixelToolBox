@@ -96,9 +96,14 @@ public partial class PersonalSceneToolPageViewModel : ViewModelBase
     [RelayCommand]
     private void ReloadScenes()
     {
-        scenes = resourceLoader.LoadScenes();
+        scenes = resourceLoader.LoadScenes()
+            .Concat(customSceneGenerationService.LoadPinnedScenes())
+            .ToList();
         Categories = resourceLoader.LoadCategoryPlans()
-            .Select(plan => new PersonalSceneCategoryGroup(plan.Category, plan.DisplayName, plan.Count))
+            .Select(plan => new PersonalSceneCategoryGroup(
+                plan.Category,
+                plan.DisplayName,
+                scenes.Count(scene => scene.Category == plan.Category)))
             .ToList();
 
         var previewCount = scenes.Count(scene => !string.IsNullOrWhiteSpace(scene.PreviewPath));
@@ -149,6 +154,8 @@ public partial class PersonalSceneToolPageViewModel : ViewModelBase
 
             foreach (var item in scenes)
                 item.IsInUse = item.Id == scene.Id;
+            if (GeneratedCustomScene is not null)
+                GeneratedCustomScene.IsInUse = GeneratedCustomScene.Id == scene.Id;
 
             if (scene.RequiresResourceUpload)
             {
@@ -228,6 +235,38 @@ public partial class PersonalSceneToolPageViewModel : ViewModelBase
         CustomSceneGenerationStatus = "已删除生成资源";
     }
 
+    [RelayCommand]
+    private void PinGeneratedCustomScene()
+    {
+        var pinnedScene = customSceneGenerationService.PinGeneratedScene();
+        if (pinnedScene is null)
+        {
+            CustomSceneGenerationStatus = "没有可固定的自定义资源";
+            return;
+        }
+
+        GeneratedCustomScene = null;
+        CustomSceneGenerationStatus = $"已固定到自定义类列表：{pinnedScene.Name}";
+        ReloadScenes();
+        SelectCustomCategory();
+    }
+
+    public void DeleteScene(PersonalSceneDefinition scene)
+    {
+        if (scene.Category != PersonalSceneCategory.Custom || !scene.CanDelete)
+            return;
+
+        if (!customSceneGenerationService.DeletePinnedScene(scene))
+        {
+            StatusMessage = "删除自定义场景失败，请确认资源仍在本地自定义目录";
+            return;
+        }
+
+        StatusMessage = "已删除自定义场景，并重新编排自定义类索引";
+        ReloadScenes();
+        SelectCustomCategory();
+    }
+
     private void UpdateUploadProgress(PixelSceneUploadProgress progress)
     {
         var percent = Math.Clamp(progress.Percent, 0, 100);
@@ -293,6 +332,13 @@ public partial class PersonalSceneToolPageViewModel : ViewModelBase
             .OrderBy(scene => scene.SceneIndex)
             .ToList();
         OnPropertyChanged(nameof(CustomWorkbenchVisibility));
+    }
+
+    private void SelectCustomCategory()
+    {
+        var customCategory = Categories.FirstOrDefault(category => category.Category == PersonalSceneCategory.Custom);
+        if (customCategory is not null)
+            SelectCategory(customCategory);
     }
 }
 

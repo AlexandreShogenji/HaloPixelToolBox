@@ -1,18 +1,16 @@
 using System.Text;
 using HaloPixelToolBox.Core.Models.Subtitles;
 using HaloPixelToolBox.Core.Services;
+using HaloPixelToolBox.Core.Services.Scenes;
 
 namespace HaloPixelToolBox.Core.Services.Subtitles;
 
 public sealed class PotPlayerSubtitleSyncService
 {
-    private const byte DefaultClockGroup = 0x01;
-    private const byte DefaultClockCategory = 0x00;
-    private const byte DefaultClockSceneIndex = 0x09;
-    private const byte DefaultClockOption = 0xff;
     private static readonly TimeSpan DefaultSceneReturnDelay = TimeSpan.FromSeconds(5);
 
     private readonly HaloPixelDisplayService displayService;
+    private readonly PersonalSceneRestoreService restoreService = new();
     private readonly PotPlayerPlaybackStateReader playbackStateReader;
     private readonly SubtitleParserFactory subtitleParserFactory = new();
     private CancellationTokenSource? cancellationTokenSource;
@@ -64,7 +62,7 @@ public sealed class PotPlayerSubtitleSyncService
         cancellationTokenSource?.Cancel();
         cancellationTokenSource = null;
         if (returnToDefaultScene)
-            ReturnToDefaultClockScene();
+            _ = RestoreCurrentSceneAsync(CancellationToken.None);
 
         if (reportStatus)
             ReportStatus("PotPlayer 字幕同步已停止");
@@ -91,6 +89,7 @@ public sealed class PotPlayerSubtitleSyncService
 
         ReportStatus($"PotPlayer 实时字幕文件同步已启动：{Path.GetFileName(subtitleOutputPath)}");
         await TryReadAndSendSubtitleAsync(subtitleOutputPath, configuration, PotPlayerPlaybackState.RunningUnknown, true, cancellationToken);
+        var hasRestoredForMissingPotPlayer = false;
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -100,7 +99,11 @@ public sealed class PotPlayerSubtitleSyncService
                 var state = snapshot.State;
                 if (state == PotPlayerPlaybackState.NotRunning)
                 {
-                    ReturnToDefaultClockScene();
+                    if (!hasRestoredForMissingPotPlayer)
+                    {
+                        await RestoreCurrentSceneAsync(cancellationToken);
+                        hasRestoredForMissingPotPlayer = true;
+                    }
                     ReportStatus("未检测到 PotPlayer 进程");
                 }
                 else if (state == PotPlayerPlaybackState.Paused)
@@ -109,6 +112,7 @@ public sealed class PotPlayerSubtitleSyncService
                 }
                 else
                 {
+                    hasRestoredForMissingPotPlayer = false;
                     await TryReadAndSendSubtitleAsync(subtitleOutputPath, configuration, state, false, cancellationToken);
                 }
 
@@ -144,6 +148,7 @@ public sealed class PotPlayerSubtitleSyncService
         var nextCueIndex = 0;
         var lastTick = DateTimeOffset.Now;
         TimeSpan? defaultSceneReturnPosition = null;
+        var hasRestoredForMissingPotPlayer = false;
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -158,11 +163,17 @@ public sealed class PotPlayerSubtitleSyncService
 
             if (state == PotPlayerPlaybackState.NotRunning)
             {
-                ReturnToDefaultClockScene();
+                if (!hasRestoredForMissingPotPlayer)
+                {
+                    await RestoreCurrentSceneAsync(cancellationToken);
+                    hasRestoredForMissingPotPlayer = true;
+                }
                 ReportStatus("未检测到 PotPlayer 进程");
                 await Task.Delay(configuration.PollInterval, cancellationToken);
                 continue;
             }
+
+            hasRestoredForMissingPotPlayer = false;
 
             if (state == PotPlayerPlaybackState.Paused)
             {
@@ -176,9 +187,9 @@ public sealed class PotPlayerSubtitleSyncService
 
             if (defaultSceneReturnPosition is not null && playbackPosition >= defaultSceneReturnPosition.Value)
             {
-                ReturnToDefaultClockScene();
+                await RestoreCurrentSceneAsync(cancellationToken);
                 cancellationTokenSource = null;
-                ReportStatus("最后一条字幕已停留 5 秒，已返回时钟类第 10 个场景");
+                ReportStatus("最后一条字幕已停留 5 秒，已恢复当前使用中的个性场景");
                 return;
             }
 
@@ -194,7 +205,7 @@ public sealed class PotPlayerSubtitleSyncService
                 if (nextCueIndex == cues.Count - 1 && defaultSceneReturnPosition is null)
                 {
                     defaultSceneReturnPosition = playbackPosition + DefaultSceneReturnDelay;
-                    ReportStatus("最后一条字幕已发送，5 秒后返回默认时钟场景");
+                    ReportStatus("最后一条字幕已发送，5 秒后恢复当前使用中的个性场景");
                 }
             }
             else
@@ -296,10 +307,19 @@ public sealed class PotPlayerSubtitleSyncService
         return value <= 0x007f ? 0.5d : 1d;
     }
 
-    private void ReturnToDefaultClockScene()
+    private async Task RestoreCurrentSceneAsync(CancellationToken cancellationToken)
     {
-        // 字幕播放自然结束后恢复默认个性场景：时钟类第 10 个。场景序号从 0 开始，因此第 10 个为 0x09。
-        displayService.ShowScreenScene(DefaultClockGroup, DefaultClockCategory, DefaultClockSceneIndex, DefaultClockOption);
+        try
+        {
+            await restoreService.RestoreAsync(displayService, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            ReportStatus($"恢复当前个性场景失败：{ex.Message}");
+        }
     }
 
     private string? ResolvePotPlayerSubtitleOutputPath(string configuredPath)

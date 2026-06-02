@@ -1,5 +1,6 @@
 namespace HaloPixelToolBox.Views;
 
+using HaloPixelToolBox.Core.Models.Scenes;
 using HaloPixelToolBox.ViewModels;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
@@ -70,4 +71,10 @@ public sealed partial class PersonalSceneToolPage : Page
 
     private async void GeneratedCustomScene_Click(object sender, RoutedEventArgs e)
         => await ViewModel.SendGeneratedCustomSceneAsync();
+
+    private void SceneDelete_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: PersonalSceneDefinition scene })
+            ViewModel.DeleteScene(scene);
+    }
 }

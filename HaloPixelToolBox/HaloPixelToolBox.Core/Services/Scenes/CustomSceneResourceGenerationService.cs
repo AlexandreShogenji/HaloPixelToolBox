@@ -29,6 +29,8 @@ public sealed class CustomSceneResourceGenerationService
 
     public string GeneratedPreviewPath => Path.Combine(GeneratedDirectory, "custom_0.png");
 
+    public string PinnedDirectory => Path.Combine(GeneratedDirectory, "Pinned");
+
     public string DefaultScriptPath => Path.Combine(
         AppContext.BaseDirectory,
         "Assets",
@@ -42,6 +44,27 @@ public sealed class CustomSceneResourceGenerationService
             return null;
 
         return CreateGeneratedSceneDefinition(GeneratedResourcePath, GeneratedPreviewPath);
+    }
+
+    public IReadOnlyList<PersonalSceneDefinition> LoadPinnedScenes()
+    {
+        if (!Directory.Exists(PinnedDirectory))
+            return [];
+
+        return Directory.EnumerateFiles(PinnedDirectory, "custom_*.bin")
+            .Select(path => new
+            {
+                ResourcePath = path,
+                SceneIndex = TryGetPinnedSceneIndex(path)
+            })
+            .Where(item => item.SceneIndex > CustomSceneIndex)
+            .OrderBy(item => item.SceneIndex)
+            .Select(item => CreatePinnedSceneDefinition(
+                item.SceneIndex,
+                item.ResourcePath,
+                Path.ChangeExtension(item.ResourcePath, ".png")))
+            .Where(scene => File.Exists(scene.PreviewPath))
+            .ToList();
     }
 
     public async Task<CustomSceneGenerationResult> GenerateAsync(
@@ -96,6 +119,43 @@ public sealed class CustomSceneResourceGenerationService
         DeleteIfExists(GeneratedPreviewPath);
     }
 
+    public PersonalSceneDefinition? PinGeneratedScene()
+    {
+        if (!File.Exists(GeneratedResourcePath) || !File.Exists(GeneratedPreviewPath))
+            return null;
+
+        Directory.CreateDirectory(PinnedDirectory);
+        var nextIndex = LoadPinnedScenes()
+            .Select(scene => scene.SceneIndex)
+            .DefaultIfEmpty(CustomSceneIndex)
+            .Max() + 1;
+        var resourcePath = Path.Combine(PinnedDirectory, $"custom_{nextIndex}.bin");
+        var previewPath = Path.Combine(PinnedDirectory, $"custom_{nextIndex}.png");
+
+        File.Copy(GeneratedResourcePath, resourcePath, overwrite: true);
+        File.Copy(GeneratedPreviewPath, previewPath, overwrite: true);
+        DeleteGeneratedScene();
+        ReindexPinnedScenes();
+
+        return LoadPinnedScenes().LastOrDefault();
+    }
+
+    public bool DeletePinnedScene(PersonalSceneDefinition scene)
+    {
+        if (!scene.CanDelete || string.IsNullOrWhiteSpace(scene.ResourcePath))
+            return false;
+
+        var resourcePath = Path.GetFullPath(scene.ResourcePath);
+        var pinnedRoot = Path.GetFullPath(PinnedDirectory);
+        if (!resourcePath.StartsWith(pinnedRoot, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        DeleteIfExists(resourcePath);
+        DeleteIfExists(Path.ChangeExtension(resourcePath, ".png"));
+        ReindexPinnedScenes();
+        return true;
+    }
+
     private static PersonalSceneDefinition CreateGeneratedSceneDefinition(string resourcePath, string previewPath)
         => new()
         {
@@ -109,6 +169,73 @@ public sealed class CustomSceneResourceGenerationService
             ResourcePath = resourcePath,
             PreviewPath = previewPath
         };
+
+    private static PersonalSceneDefinition CreatePinnedSceneDefinition(int sceneIndex, string resourcePath, string previewPath)
+        => new()
+        {
+            Id = $"custom-pinned-scene-9-{sceneIndex}",
+            Name = $"自定义资源 {sceneIndex:D2}",
+            Category = PersonalSceneCategory.Custom,
+            Source = "用户固定资源",
+            CategoryIndex = CustomCategoryIndex,
+            UploadCategoryIndex = CustomUploadCategoryIndex,
+            SceneIndex = sceneIndex,
+            ResourcePath = resourcePath,
+            PreviewPath = previewPath,
+            CanDelete = true
+        };
+
+    private void ReindexPinnedScenes()
+    {
+        if (!Directory.Exists(PinnedDirectory))
+            return;
+
+        var entries = Directory.EnumerateFiles(PinnedDirectory, "custom_*.bin")
+            .Select(path => new
+            {
+                ResourcePath = path,
+                PreviewPath = Path.ChangeExtension(path, ".png"),
+                SceneIndex = TryGetPinnedSceneIndex(path)
+            })
+            .Where(item => item.SceneIndex > CustomSceneIndex && File.Exists(item.PreviewPath))
+            .OrderBy(item => item.SceneIndex)
+            .ToList();
+
+        var tempDirectory = Path.Combine(PinnedDirectory, ".reindex");
+        if (Directory.Exists(tempDirectory))
+            Directory.Delete(tempDirectory, recursive: true);
+        Directory.CreateDirectory(tempDirectory);
+
+        for (var index = 0; index < entries.Count; index++)
+        {
+            File.Copy(entries[index].ResourcePath, Path.Combine(tempDirectory, $"{index + 1}.bin"), overwrite: true);
+            File.Copy(entries[index].PreviewPath, Path.Combine(tempDirectory, $"{index + 1}.png"), overwrite: true);
+        }
+
+        foreach (var file in Directory.EnumerateFiles(PinnedDirectory, "custom_*.*"))
+            File.Delete(file);
+
+        for (var index = 0; index < entries.Count; index++)
+        {
+            var sceneIndex = index + 1;
+            File.Copy(Path.Combine(tempDirectory, $"{sceneIndex}.bin"), Path.Combine(PinnedDirectory, $"custom_{sceneIndex}.bin"), overwrite: true);
+            File.Copy(Path.Combine(tempDirectory, $"{sceneIndex}.png"), Path.Combine(PinnedDirectory, $"custom_{sceneIndex}.png"), overwrite: true);
+        }
+
+        Directory.Delete(tempDirectory, recursive: true);
+    }
+
+    private static int TryGetPinnedSceneIndex(string path)
+    {
+        var name = Path.GetFileNameWithoutExtension(path);
+        if (name.StartsWith("custom_", StringComparison.OrdinalIgnoreCase)
+            && int.TryParse(name["custom_".Length..], out var index))
+        {
+            return index;
+        }
+
+        return -1;
+    }
 
     private static CustomSceneGenerationResult ValidatePngFrame(string path)
     {

@@ -10,6 +10,11 @@ public sealed partial class PersonalSceneDefinition : ObservableObject
     [NotifyPropertyChangedFor(nameof(InUseBadgeOpacity))]
     private bool isInUse;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DeleteButtonOpacity))]
+    [NotifyPropertyChangedFor(nameof(DeleteButtonHitTestVisible))]
+    private bool canDelete;
+
     public string Id { get; set; } = string.Empty;
 
     public string Name { get; set; } = string.Empty;
@@ -54,4 +59,8 @@ public sealed partial class PersonalSceneDefinition : ObservableObject
         || !string.IsNullOrWhiteSpace(ResourceRemoteUrl);
 
     public double InUseBadgeOpacity => IsInUse ? 1 : 0;
+
+    public double DeleteButtonOpacity => CanDelete ? 1 : 0;
+
+    public bool DeleteButtonHitTestVisible => CanDelete;
 }

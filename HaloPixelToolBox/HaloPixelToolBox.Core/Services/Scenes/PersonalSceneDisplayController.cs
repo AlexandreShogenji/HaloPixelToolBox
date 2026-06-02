@@ -6,39 +6,45 @@ namespace HaloPixelToolBox.Core.Services.Scenes;
 public sealed class PersonalSceneDisplayController
 {
     private readonly HaloPixelDisplayService displayService;
+    private readonly PersonalSceneRestoreService restoreService = new();
 
     public PersonalSceneDisplayController(HaloPixelDisplayService displayService)
     {
         this.displayService = displayService;
     }
 
-    public async Task<bool> SendAsync(PersonalSceneDefinition scene, IProgress<PixelSceneUploadProgress>? uploadProgress = null, CancellationToken cancellationToken = default)
+    public async Task<bool> SendAsync(
+        PersonalSceneDefinition scene,
+        IProgress<PixelSceneUploadProgress>? uploadProgress = null,
+        CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        var sent = false;
 
         if (scene.Category == PersonalSceneCategory.Clock && scene.ScreenSettingParameters is { Length: 4 } clockParameters)
         {
-            // 时钟类使用 LiLyric 已验证的内置切换包，避免官方资源上传协议未完成时串到默认资源。
+            // 时钟类使用 LiLyric 已验证的内置切换包，成功后记录为字幕结束时可恢复的场景。
             displayService.ShowScreenScene(clockParameters[0], clockParameters[1], clockParameters[2], clockParameters[3]);
-            return true;
+            sent = true;
         }
-
-        if (scene.RequiresResourceUpload)
-            return await displayService.ShowPixelSceneAsync(scene, uploadProgress, cancellationToken);
-
-        if (scene.BuiltInUiModel is null)
+        else if (scene.RequiresResourceUpload)
         {
-            if (scene.ScreenSettingParameters is not { Length: 4 } parameters)
-            {
-                // 扩展点：后续若拿到真实图像/动画帧协议，可在这里转换为 HID 数据包发送。
-                return false;
-            }
-
+            sent = await displayService.ShowPixelSceneAsync(scene, uploadProgress, cancellationToken);
+        }
+        else if (scene.ScreenSettingParameters is { Length: 4 } parameters)
+        {
             displayService.ShowScreenScene(parameters[0], parameters[1], parameters[2], parameters[3]);
-            return true;
+            sent = true;
+        }
+        else if (scene.BuiltInUiModel is not null)
+        {
+            displayService.ShowBuiltInUi(scene.BuiltInUiModel.Value, DisplayContentKind.Scene);
+            sent = true;
         }
 
-        displayService.ShowBuiltInUi(scene.BuiltInUiModel.Value, DisplayContentKind.Scene);
-        return true;
+        if (sent)
+            restoreService.Remember(scene);
+
+        return sent;
     }
 }
