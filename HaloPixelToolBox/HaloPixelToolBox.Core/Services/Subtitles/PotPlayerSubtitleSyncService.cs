@@ -153,7 +153,9 @@ public sealed class PotPlayerSubtitleSyncService
             || extension.Equals(".srt", StringComparison.OrdinalIgnoreCase)
             || extension.Equals(".vtt", StringComparison.OrdinalIgnoreCase)
             || extension.Equals(".ass", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".ssa", StringComparison.OrdinalIgnoreCase);
+            || extension.Equals(".ssa", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".lrc", StringComparison.OrdinalIgnoreCase)
+            || extension.Equals(".sub", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string NormalizeSubtitleText(string text)

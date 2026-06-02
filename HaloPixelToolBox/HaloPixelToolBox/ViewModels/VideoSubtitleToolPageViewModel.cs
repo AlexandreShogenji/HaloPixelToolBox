@@ -3,26 +3,16 @@ using CommunityToolkit.Mvvm.Input;
 using HaloPixelToolBox.Core.Models;
 using HaloPixelToolBox.Core.Models.Display;
 using HaloPixelToolBox.Core.Models.Subtitles;
-using HaloPixelToolBox.Core.Services;
 using HaloPixelToolBox.Core.Services.Subtitles;
 using HaloPixelToolBox.Profiles.CrossVersionProfiles;
+using Windows.Storage.Pickers;
 
 namespace HaloPixelToolBox.ViewModels;
 
 public partial class VideoSubtitleToolPageViewModel : ViewModelBase
 {
-    private readonly SubtitleParserFactory parserFactory = new();
-    private readonly SubtitleTimelineController timelineController = new(new HaloPixelDisplayService());
-    private readonly HaloPixelDisplayService displayService = new();
     private readonly PotPlayerSubtitleSyncService potPlayerSubtitleSyncService = new();
     private readonly Microsoft.UI.Dispatching.DispatcherQueue? dispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
-    private SubtitleDocument? document;
-
-    [ObservableProperty]
-    private string videoPath = DisplayFeatureProfile.VideoPath;
-
-    [ObservableProperty]
-    private string subtitlePath = DisplayFeatureProfile.VideoSubtitlePath;
 
     [ObservableProperty]
     private string potPlayerSubtitleOutputPath = DisplayFeatureProfile.PotPlayerSubtitleOutputPath;
@@ -34,16 +24,10 @@ public partial class VideoSubtitleToolPageViewModel : ViewModelBase
     private string potPlayerSyncStatus = "PotPlayer 字幕同步未启用";
 
     [ObservableProperty]
-    private double positionSeconds;
+    private string previewText = "等待 PotPlayer 字幕同步";
 
     [ObservableProperty]
-    private int loadedCueCount;
-
-    [ObservableProperty]
-    private string previewText = "导入 SRT/VTT 字幕后会显示预览";
-
-    [ObservableProperty]
-    private string statusMessage = "等待导入字幕";
+    private string statusMessage = "请选择字幕输出文件并启用同步";
 
     public VideoSubtitleToolPageViewModel()
     {
@@ -53,8 +37,6 @@ public partial class VideoSubtitleToolPageViewModel : ViewModelBase
             StartPotPlayerSync();
     }
 
-    partial void OnVideoPathChanged(string value) => DisplayFeatureProfile.VideoPath = value;
-    partial void OnSubtitlePathChanged(string value) => DisplayFeatureProfile.VideoSubtitlePath = value;
     partial void OnPotPlayerSubtitleOutputPathChanged(string value) => DisplayFeatureProfile.PotPlayerSubtitleOutputPath = value;
 
     partial void OnIsPotPlayerSyncEnabledChanged(bool value)
@@ -64,69 +46,6 @@ public partial class VideoSubtitleToolPageViewModel : ViewModelBase
             StartPotPlayerSync();
         else
             potPlayerSubtitleSyncService.Stop();
-    }
-
-    [RelayCommand]
-    private void ParseSubtitle()
-    {
-        if (string.IsNullOrWhiteSpace(SubtitlePath) || !File.Exists(SubtitlePath))
-        {
-            StatusMessage = "字幕文件不存在";
-            return;
-        }
-
-        var parser = parserFactory.GetParser(SubtitlePath);
-        document = parser.Parse(SubtitlePath);
-        LoadedCueCount = document.Cues.Count;
-        PreviewText = string.Join(Environment.NewLine, document.Cues.Take(8).Select(cue => cue.ToString()));
-        StatusMessage = $"已解析 {parser.FormatName} 字幕，共 {LoadedCueCount} 条";
-    }
-
-    [RelayCommand]
-    private async Task SendCurrentCueAsync()
-    {
-        if (document is null)
-            ParseSubtitle();
-
-        var cue = document is null ? null : timelineController.GetCurrentCue(document, TimeSpan.FromSeconds(PositionSeconds));
-        if (cue is null)
-        {
-            StatusMessage = "当前进度没有字幕";
-            return;
-        }
-
-        await displayService.SendSubtitleCueAsync(cue, new DisplayTextOptions
-        {
-            Source = DisplayContentKind.VideoSubtitle,
-            Layout = HaloPixelTextLayout.Center,
-            ScrollDirection = TextScrollDirection.RightToLeft
-        });
-        StatusMessage = $"已发送当前字幕：{cue.Text}";
-    }
-
-    [RelayCommand]
-    private void StartPlayback()
-    {
-        if (document is null)
-            ParseSubtitle();
-
-        if (document is null)
-            return;
-
-        timelineController.Play(document, new DisplayTextOptions
-        {
-            Source = DisplayContentKind.VideoSubtitle,
-            Layout = HaloPixelTextLayout.Center,
-            ScrollDirection = TextScrollDirection.RightToLeft
-        }, TimeSpan.FromSeconds(PositionSeconds));
-        StatusMessage = "字幕同步播放已启动";
-    }
-
-    [RelayCommand]
-    private void StopPlayback()
-    {
-        timelineController.Stop();
-        StatusMessage = "字幕同步播放已停止";
     }
 
     [RelayCommand]
@@ -148,6 +67,29 @@ public partial class VideoSubtitleToolPageViewModel : ViewModelBase
                 ScrollDirection = TextScrollDirection.RightToLeft
             }
         });
+    }
+
+    [RelayCommand]
+    private async Task SelectSubtitleOutputFileAsync()
+    {
+        var picker = new FileOpenPicker
+        {
+            SuggestedStartLocation = PickerLocationId.VideosLibrary
+        };
+
+        foreach (var extension in new[] { ".txt", ".srt", ".vtt", ".ass", ".ssa", ".lrc", ".sub" })
+            picker.FileTypeFilter.Add(extension);
+
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+        var file = await picker.PickSingleFileAsync();
+        if (file is null)
+            return;
+
+        PotPlayerSubtitleOutputPath = file.Path;
+        StatusMessage = $"已选择字幕文件：{Path.GetFileName(file.Path)}";
+        if (IsPotPlayerSyncEnabled)
+            StartPotPlayerSync();
     }
 
     private void UpdatePotPlayerStatus(string message)

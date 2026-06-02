@@ -15,37 +15,29 @@
                               OnContent="已启用"
                               OffContent="已禁用"/>
             </controls:SettingsCard>
-            <controls:SettingsCard Header="PotPlayer 字幕输出文件" Description="PotPlayer 播放时实时写入的字幕文本文件路径">
+            <controls:SettingsCard Header="字幕输出文件" Description="选择 PotPlayer 实时写入的字幕文件，支持 TXT / SRT / WebVTT / ASS / SSA / LRC / SUB">
                 <Grid ColumnSpacing="8" MinWidth="420">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <TextBox Text="{x:Bind ViewModel.PotPlayerSubtitleOutputPath, Mode=TwoWay}"
-                             PlaceholderText="填写 PotPlayer 字幕输出 txt 路径"/>
+                             PlaceholderText="请选择字幕输出文件"
+                             IsReadOnly="True"/>
                     <Button Grid.Column="1"
+                            Content="选择文件"
+                            Command="{x:Bind ViewModel.SelectSubtitleOutputFileCommand}"/>
+                    <Button Grid.Column="2"
                             Content="重新同步"
                             Command="{x:Bind ViewModel.RestartPotPlayerSyncCommand}"/>
                 </Grid>
             </controls:SettingsCard>
-            <controls:SettingsCard Header="视频文件" Description="本地视频路径，用于记录同步来源">
-                <TextBox Text="{x:Bind ViewModel.VideoPath, Mode=TwoWay}" PlaceholderText="选择本地视频文件路径" MinWidth="360"/>
+            <controls:SettingsCard Header="同步状态" Description="{x:Bind ViewModel.StatusMessage, Mode=OneWay}">
+                <TextBlock Text="启用后会在 PotPlayer 播放时读取字幕文件内容变化，并自动发送到字幕屏。"
+                           TextWrapping="Wrap"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
             </controls:SettingsCard>
-            <controls:SettingsCard Header="字幕文件" Description="支持 SRT / WebVTT 基础解析">
-                <TextBox Text="{x:Bind ViewModel.SubtitlePath, Mode=TwoWay}" PlaceholderText="选择本地字幕文件路径" MinWidth="360"/>
-            </controls:SettingsCard>
-            <controls:SettingsCard Header="播放进度" Description="与视频播放器进度同步，单位秒">
-                <NumberBox Value="{x:Bind ViewModel.PositionSeconds, Mode=TwoWay}" Minimum="0" SpinButtonPlacementMode="Compact"/>
-            </controls:SettingsCard>
-            <controls:SettingsCard Header="字幕控制" Description="{x:Bind ViewModel.StatusMessage, Mode=OneWay}">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <Button Content="解析字幕" Command="{x:Bind ViewModel.ParseSubtitleCommand}" Style="{StaticResource AccentButtonStyle}"/>
-                    <Button Content="发送当前字幕" Command="{x:Bind ViewModel.SendCurrentCueCommand}"/>
-                    <Button Content="开始同步" Command="{x:Bind ViewModel.StartPlaybackCommand}"/>
-                    <Button Content="停止" Command="{x:Bind ViewModel.StopPlaybackCommand}"/>
-                </StackPanel>
-            </controls:SettingsCard>
-            <TextBlock Text="{x:Bind ViewModel.LoadedCueCount, Mode=OneWay, Converter={StaticResource StringFormatConverter}, ConverterParameter='已加载字幕条数：(0)'}"/>
             <TextBox Text="{x:Bind ViewModel.PreviewText, Mode=OneWay}" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="180" IsReadOnly="True"/>
         </StackPanel>
     </ScrollViewer>
