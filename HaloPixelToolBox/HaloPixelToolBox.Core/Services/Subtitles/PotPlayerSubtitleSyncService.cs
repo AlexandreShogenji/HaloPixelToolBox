@@ -52,8 +52,21 @@ public sealed class PotPlayerSubtitleSyncService
             return;
         }
 
-        ReportStatus("PotPlayer 字幕同步已启动");
-        await TryReadAndSendSubtitleAsync(configuration, PotPlayerPlaybackState.RunningUnknown, true, cancellationToken);
+        var subtitleOutputPath = ResolveSubtitleOutputPath(configuration.SubtitleOutputPath);
+        if (subtitleOutputPath is null)
+        {
+            ReportStatus("字幕输出文件不存在");
+            return;
+        }
+
+        if (TryLoadTimelineSubtitle(subtitleOutputPath, out var document))
+        {
+            await SyncTimelineSubtitleAsync(document, configuration, cancellationToken);
+            return;
+        }
+
+        ReportStatus("PotPlayer 实时字幕文件同步已启动");
+        await TryReadAndSendSubtitleAsync(subtitleOutputPath, configuration, PotPlayerPlaybackState.RunningUnknown, true, cancellationToken);
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -70,7 +83,7 @@ public sealed class PotPlayerSubtitleSyncService
                 }
                 else
                 {
-                    await TryReadAndSendSubtitleAsync(configuration, state, false, cancellationToken);
+                    await TryReadAndSendSubtitleAsync(subtitleOutputPath, configuration, state, false, cancellationToken);
                 }
 
                 await Task.Delay(configuration.PollInterval, cancellationToken);
@@ -87,15 +100,69 @@ public sealed class PotPlayerSubtitleSyncService
         }
     }
 
-    private async Task TryReadAndSendSubtitleAsync(PotPlayerSubtitleSyncConfiguration configuration, PotPlayerPlaybackState state, bool forceRead, CancellationToken cancellationToken)
+    private async Task SyncTimelineSubtitleAsync(SubtitleDocument document, PotPlayerSubtitleSyncConfiguration configuration, CancellationToken cancellationToken)
     {
-        var subtitleOutputPath = ResolveSubtitleOutputPath(configuration.SubtitleOutputPath);
-        if (subtitleOutputPath is null)
+        var cues = document.Cues
+            .Where(cue => !string.IsNullOrWhiteSpace(cue.Text))
+            .OrderBy(cue => cue.Start)
+            .ToList();
+
+        if (cues.Count == 0)
         {
-            ReportStatus("字幕输出文件不存在");
+            ReportStatus("字幕文件没有可同步的时间轴内容");
             return;
         }
 
+        ReportStatus($"已加载 {cues.Count} 条字幕，等待 PotPlayer 播放");
+        var playbackPosition = TimeSpan.Zero;
+        var nextCueIndex = 0;
+        var lastTick = DateTimeOffset.Now;
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var state = playbackStateReader.GetState();
+            var now = DateTimeOffset.Now;
+            var elapsed = now - lastTick;
+            lastTick = now;
+
+            if (state == PotPlayerPlaybackState.NotRunning)
+            {
+                ReportStatus("未检测到 PotPlayer 进程");
+                await Task.Delay(configuration.PollInterval, cancellationToken);
+                continue;
+            }
+
+            if (state == PotPlayerPlaybackState.Paused)
+            {
+                ReportStatus($"PotPlayer 已暂停，字幕位置 {FormatPosition(playbackPosition)}");
+                await Task.Delay(configuration.PollInterval, cancellationToken);
+                continue;
+            }
+
+            playbackPosition += elapsed;
+
+            while (nextCueIndex < cues.Count && cues[nextCueIndex].End <= playbackPosition)
+                nextCueIndex++;
+
+            if (nextCueIndex >= cues.Count)
+            {
+                ReportStatus("字幕时间轴同步完成");
+                Stop();
+                return;
+            }
+
+            var cue = cues[nextCueIndex];
+            if (cue.Start <= playbackPosition && cue.Text != lastSentText)
+                await SendSubtitleTextAsync(cue.Text, configuration, cancellationToken);
+            else
+                ReportStatus($"时间轴同步中 {FormatPosition(playbackPosition)} / 下一条 {FormatPosition(cue.Start)}");
+
+            await Task.Delay(configuration.PollInterval, cancellationToken);
+        }
+    }
+
+    private async Task TryReadAndSendSubtitleAsync(string subtitleOutputPath, PotPlayerSubtitleSyncConfiguration configuration, PotPlayerPlaybackState state, bool forceRead, CancellationToken cancellationToken)
+    {
         var fileInfo = new FileInfo(subtitleOutputPath);
         if (!forceRead && fileInfo.LastWriteTimeUtc == lastReadWriteTimeUtc)
         {
@@ -104,19 +171,24 @@ public sealed class PotPlayerSubtitleSyncService
         }
 
         lastReadWriteTimeUtc = fileInfo.LastWriteTimeUtc;
-        var text = await ReadSubtitleTextAsync(subtitleOutputPath, cancellationToken);
+        var text = NormalizeSubtitleText(await ReadTextWithSharedAccessAsync(subtitleOutputPath, cancellationToken), Path.GetExtension(subtitleOutputPath));
         if (string.IsNullOrWhiteSpace(text) || text == lastSentText)
         {
             ReportStatus(GetWaitingStatus(state));
             return;
         }
 
+        await SendSubtitleTextAsync(text, configuration, cancellationToken);
+    }
+
+    private async Task SendSubtitleTextAsync(string text, PotPlayerSubtitleSyncConfiguration configuration, CancellationToken cancellationToken)
+    {
         lastSentText = text;
-        configuration.DisplayOptions.Text = text;
+        configuration.DisplayOptions.Text = TruncateDisplayText(text);
         var sent = await displayService.SendTextAsync(configuration.DisplayOptions, cancellationToken);
-        ReportStatus(sent ? $"已发送 PotPlayer 字幕：{text}" : "发送失败，请确认音箱设备已连接");
+        ReportStatus(sent ? $"已发送 PotPlayer 字幕：{configuration.DisplayOptions.Text}" : "发送失败，请确认音箱设备已连接");
         if (sent)
-            SubtitleSent?.Invoke(this, text);
+            SubtitleSent?.Invoke(this, configuration.DisplayOptions.Text);
     }
 
     private static string GetWaitingStatus(PotPlayerPlaybackState state)
@@ -131,33 +203,49 @@ public sealed class PotPlayerSubtitleSyncService
         return await reader.ReadToEndAsync(cancellationToken);
     }
 
-    private async Task<string> ReadSubtitleTextAsync(string path, CancellationToken cancellationToken)
+    private bool TryLoadTimelineSubtitle(string path, out SubtitleDocument document)
     {
-        var extension = Path.GetExtension(path);
-        if (extension.Equals(".srt", StringComparison.OrdinalIgnoreCase)
-            || extension.Equals(".vtt", StringComparison.OrdinalIgnoreCase))
-        {
-            var text = TryReadFirstParsedCue(path);
-            if (!string.IsNullOrWhiteSpace(text))
-                return text;
-        }
-
-        return NormalizeSubtitleText(await ReadTextWithSharedAccessAsync(path, cancellationToken), extension);
-    }
-
-    private string? TryReadFirstParsedCue(string path)
-    {
+        document = new SubtitleDocument { SourceName = Path.GetFileName(path) };
         try
         {
             var parser = subtitleParserFactory.GetParser(path);
-            return parser.Parse(path).Cues
-                .Select(cue => cue.Text.Trim())
-                .FirstOrDefault(text => !string.IsNullOrWhiteSpace(text));
-        }
+            document = parser.Parse(path);
+            return document.Cues.Count > 0;
+        }   
         catch
         {
-            return null;
+            return false;
+        } 
+    }
+
+    private static string FormatPosition(TimeSpan position)
+    {
+        return position.TotalHours >= 1
+            ? position.ToString(@"hh\:mm\:ss")
+            : position.ToString(@"mm\:ss");
+    }
+
+    private static string TruncateDisplayText(string text)
+    {
+        var width = 0d;
+        var builder = new StringBuilder();
+        foreach (var rune in text.EnumerateRunes())
+        {
+            var nextWidth = width + GetDisplayWidth(rune);
+            if (nextWidth > 32d)
+                break;
+
+            builder.Append(rune);
+            width = nextWidth;
         }
+
+        return builder.ToString().Trim();
+    }
+
+    private static double GetDisplayWidth(System.Text.Rune rune)
+    {
+        var value = rune.Value;
+        return value <= 0x007f ? 0.5d : 1d;
     }
 
     private static string? ResolveSubtitleOutputPath(string path)
