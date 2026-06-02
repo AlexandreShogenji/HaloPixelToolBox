@@ -10,7 +10,7 @@ public sealed class PotPlayerSubtitleSyncService
     private const byte DefaultClockCategory = 0x00;
     private const byte DefaultClockSceneIndex = 0x09;
     private const byte DefaultClockOption = 0xff;
-    private static readonly TimeSpan DefaultSceneReturnDelay = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan DefaultSceneReturnDelay = TimeSpan.FromSeconds(5);
 
     private readonly HaloPixelDisplayService displayService;
     private readonly PotPlayerPlaybackStateReader playbackStateReader;
@@ -50,18 +50,24 @@ public sealed class PotPlayerSubtitleSyncService
 
     public void Start(PotPlayerSubtitleSyncConfiguration configuration)
     {
-        Stop();
+        Stop(returnToDefaultScene: false, reportStatus: false);
         lastSentText = string.Empty;
         lastReadWriteTimeUtc = default;
         cancellationTokenSource = new CancellationTokenSource();
         _ = SyncAsync(configuration, cancellationTokenSource.Token);
     }
 
-    public void Stop()
+    public void Stop() => Stop(returnToDefaultScene: true);
+
+    private void Stop(bool returnToDefaultScene, bool reportStatus = true)
     {
         cancellationTokenSource?.Cancel();
         cancellationTokenSource = null;
-        ReportStatus("PotPlayer 字幕同步已停止");
+        if (returnToDefaultScene)
+            ReturnToDefaultClockScene();
+
+        if (reportStatus)
+            ReportStatus("PotPlayer 字幕同步已停止");
     }
 
     private async Task SyncAsync(PotPlayerSubtitleSyncConfiguration configuration, CancellationToken cancellationToken)
@@ -94,6 +100,7 @@ public sealed class PotPlayerSubtitleSyncService
                 var state = snapshot.State;
                 if (state == PotPlayerPlaybackState.NotRunning)
                 {
+                    ReturnToDefaultClockScene();
                     ReportStatus("未检测到 PotPlayer 进程");
                 }
                 else if (state == PotPlayerPlaybackState.Paused)
@@ -151,6 +158,7 @@ public sealed class PotPlayerSubtitleSyncService
 
             if (state == PotPlayerPlaybackState.NotRunning)
             {
+                ReturnToDefaultClockScene();
                 ReportStatus("未检测到 PotPlayer 进程");
                 await Task.Delay(configuration.PollInterval, cancellationToken);
                 continue;
@@ -170,7 +178,7 @@ public sealed class PotPlayerSubtitleSyncService
             {
                 ReturnToDefaultClockScene();
                 cancellationTokenSource = null;
-                ReportStatus("最后一条字幕已停留 3 秒，已返回时钟类第 10 个场景");
+                ReportStatus("最后一条字幕已停留 5 秒，已返回时钟类第 10 个场景");
                 return;
             }
 
@@ -186,7 +194,7 @@ public sealed class PotPlayerSubtitleSyncService
                 if (nextCueIndex == cues.Count - 1 && defaultSceneReturnPosition is null)
                 {
                     defaultSceneReturnPosition = playbackPosition + DefaultSceneReturnDelay;
-                    ReportStatus("最后一条字幕已发送，3 秒后返回默认时钟场景");
+                    ReportStatus("最后一条字幕已发送，5 秒后返回默认时钟场景");
                 }
             }
             else

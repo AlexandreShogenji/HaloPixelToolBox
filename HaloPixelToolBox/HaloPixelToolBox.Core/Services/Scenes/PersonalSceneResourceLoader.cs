@@ -190,7 +190,8 @@ public sealed class PersonalSceneResourceLoader
             PreviewPath = bundledPreviewPath ?? previewPath,
             PreviewRemoteUrl = previewRemoteUrl,
             ResourcePath = isLiLyricClock ? null : bundledResourcePath ?? resourcePath,
-            ResourceRemoteUrl = isLiLyricClock ? null : resourceRemoteUrl
+            ResourceRemoteUrl = isLiLyricClock ? null : resourceRemoteUrl,
+            UploadCategoryIndex = plan.Category == PersonalSceneCategory.Custom ? 1 : null
         };
     }
 

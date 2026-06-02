@@ -16,21 +16,23 @@
                               OffContent="已禁用"/>
             </controls:SettingsCard>
             <controls:SettingsCard Header="字幕输出文件" Description="选择 PotPlayer 实时写入的字幕文件，支持 TXT / SRT / WebVTT / ASS / SSA / LRC / SUB">
-                <Grid ColumnSpacing="8" MinWidth="420">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
+                <Grid RowSpacing="8" HorizontalAlignment="Stretch">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
                     <TextBox Text="{x:Bind ViewModel.PotPlayerSubtitleOutputPath, Mode=TwoWay}"
                              PlaceholderText="请选择字幕输出文件"
+                             TextWrapping="Wrap"
+                             AcceptsReturn="True"
+                             MinHeight="60"
                              IsReadOnly="True"/>
-                    <Button Grid.Column="1"
-                            Content="选择文件"
-                            Command="{x:Bind ViewModel.SelectSubtitleOutputFileCommand}"/>
-                    <Button Grid.Column="2"
-                            Content="重新同步"
-                            Command="{x:Bind ViewModel.RestartPotPlayerSyncCommand}"/>
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+                        <Button Content="选择文件"
+                                Command="{x:Bind ViewModel.SelectSubtitleOutputFileCommand}"/>
+                        <Button Content="重新同步"
+                                Command="{x:Bind ViewModel.RestartPotPlayerSyncCommand}"/>
+                    </StackPanel>
                 </Grid>
             </controls:SettingsCard>
             <TextBox Text="{x:Bind ViewModel.PreviewText, Mode=OneWay}" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="180" IsReadOnly="True"/>

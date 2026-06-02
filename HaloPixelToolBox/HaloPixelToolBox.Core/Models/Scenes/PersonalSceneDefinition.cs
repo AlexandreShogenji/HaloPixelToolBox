@@ -38,6 +38,11 @@ public sealed partial class PersonalSceneDefinition : ObservableObject
 
     public int SceneIndex { get; set; }
 
+    /// <summary>
+    /// 资源上传握手使用的分类索引。自定义类实际索引仍为 9，但设备首次进入自定义类时需要借用已验证的游戏类索引预热上传通道。
+    /// </summary>
+    public int? UploadCategoryIndex { get; set; }
+
     public DisplayContentKind ContentKind { get; set; } = DisplayContentKind.Scene;
 
     public bool CanSendDirectly => BuiltInUiModel is not null

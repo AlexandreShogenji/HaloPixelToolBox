@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using HaloPixelToolBox.Core.Models.Scenes;
 using HaloPixelToolBox.Core.Services;
 using HaloPixelToolBox.Core.Services.Scenes;
+using Microsoft.UI.Xaml;
 
 namespace HaloPixelToolBox.ViewModels;
 
@@ -10,6 +11,7 @@ public partial class PersonalSceneToolPageViewModel : ViewModelBase
 {
     private readonly PersonalSceneResourceLoader resourceLoader = new();
     private readonly PersonalSceneDisplayController displayController = new(new HaloPixelDisplayService());
+    private readonly CustomSceneResourceGenerationService customSceneGenerationService = new();
     private readonly Microsoft.UI.Dispatching.DispatcherQueue? dispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
     private IReadOnlyList<PersonalSceneDefinition> scenes = [];
     private long uploadTotalBytes;
@@ -43,9 +45,34 @@ public partial class PersonalSceneToolPageViewModel : ViewModelBase
     [ObservableProperty]
     private string uploadProgressText = "0%";
 
+    [ObservableProperty]
+    private List<CustomSceneFrameSlot> customFrameSlots = [];
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(GeneratedCustomSceneVisibility))]
+    [NotifyPropertyChangedFor(nameof(GeneratedCustomScenePreviewSource))]
+    private PersonalSceneDefinition? generatedCustomScene;
+
+    [ObservableProperty]
+    private string customSceneGenerationStatus = "拖入或选择 1 到 5 张 256×32 PNG 图像";
+
+    [ObservableProperty]
+    private bool isGeneratingCustomScene;
+
     public string OfficialInstallPath => PersonalSceneResourceLoader.DefaultOfficialInstallPath;
 
     public double UploadOverlayOpacity => IsUploading ? 1 : 0;
+
+    public Visibility CustomWorkbenchVisibility => IsCustomCategorySelected ? Visibility.Visible : Visibility.Collapsed;
+
+    public Visibility GeneratedCustomSceneVisibility => GeneratedCustomScene is null ? Visibility.Collapsed : Visibility.Visible;
+
+    public string GeneratedCustomScenePreviewSource => GeneratedCustomScene?.PreviewSource ?? "ms-appx:///Assets/icon.png";
+
+    private bool IsCustomCategorySelected => Categories.Count > 0
+        && SelectedCategoryIndex >= 0
+        && SelectedCategoryIndex < Categories.Count
+        && Categories[SelectedCategoryIndex].Category == PersonalSceneCategory.Custom;
 
     public string OfficialCachePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
@@ -54,10 +81,17 @@ public partial class PersonalSceneToolPageViewModel : ViewModelBase
 
     public PersonalSceneToolPageViewModel()
     {
+        CustomFrameSlots = Enumerable.Range(0, 5)
+            .Select(index => new CustomSceneFrameSlot(index))
+            .ToList();
         ReloadScenes();
     }
 
-    partial void OnSelectedCategoryIndexChanged(int value) => UpdateSelectedScenes();
+    partial void OnSelectedCategoryIndexChanged(int value)
+    {
+        UpdateSelectedScenes();
+        OnPropertyChanged(nameof(CustomWorkbenchVisibility));
+    }
 
     [RelayCommand]
     private void ReloadScenes()
@@ -68,6 +102,7 @@ public partial class PersonalSceneToolPageViewModel : ViewModelBase
             .ToList();
 
         var previewCount = scenes.Count(scene => !string.IsNullOrWhiteSpace(scene.PreviewPath));
+        GeneratedCustomScene = customSceneGenerationService.LoadGeneratedScene();
         SceneCountText = $"已加载 {scenes.Count} 个场景，{previewCount} 张预览图";
         SelectedCategoryIndex = Math.Clamp(SelectedCategoryIndex, 0, Math.Max(0, Categories.Count - 1));
         UpdateSelectedScenes();
@@ -135,6 +170,64 @@ public partial class PersonalSceneToolPageViewModel : ViewModelBase
         }
     }
 
+    public async Task SetCustomFrameAsync(CustomSceneFrameSlot slot, string imagePath)
+    {
+        if (!File.Exists(imagePath))
+        {
+            CustomSceneGenerationStatus = "图片文件不存在";
+            return;
+        }
+
+        if (!Path.GetExtension(imagePath).Equals(".png", StringComparison.OrdinalIgnoreCase))
+        {
+            CustomSceneGenerationStatus = "仅支持 PNG 图像";
+            return;
+        }
+
+        slot.ImagePath = imagePath;
+        CustomSceneGenerationStatus = $"已载入第 {slot.Index + 1} 帧：{Path.GetFileName(imagePath)}";
+        await Task.CompletedTask;
+    }
+
+    public async Task SendGeneratedCustomSceneAsync()
+    {
+        if (GeneratedCustomScene is not null)
+            await SendSceneAsync(GeneratedCustomScene);
+    }
+
+    [RelayCommand]
+    private async Task GenerateCustomSceneAsync()
+    {
+        if (IsGeneratingCustomScene)
+            return;
+
+        try
+        {
+            IsGeneratingCustomScene = true;
+            CustomSceneGenerationStatus = "正在生成自定义资源";
+            var imagePaths = CustomFrameSlots
+                .Where(slot => !string.IsNullOrWhiteSpace(slot.ImagePath))
+                .Select(slot => slot.ImagePath!)
+                .ToList();
+            var result = await customSceneGenerationService.GenerateAsync(imagePaths);
+            CustomSceneGenerationStatus = result.Message;
+            if (result.Success)
+                GeneratedCustomScene = customSceneGenerationService.LoadGeneratedScene();
+        }
+        finally
+        {
+            IsGeneratingCustomScene = false;
+        }
+    }
+
+    [RelayCommand]
+    private void DeleteGeneratedCustomScene()
+    {
+        customSceneGenerationService.DeleteGeneratedScene();
+        GeneratedCustomScene = null;
+        CustomSceneGenerationStatus = "已删除生成资源";
+    }
+
     private void UpdateUploadProgress(PixelSceneUploadProgress progress)
     {
         var percent = Math.Clamp(progress.Percent, 0, 100);
@@ -199,6 +292,7 @@ public partial class PersonalSceneToolPageViewModel : ViewModelBase
             .Where(scene => scene.Category == category)
             .OrderBy(scene => scene.SceneIndex)
             .ToList();
+        OnPropertyChanged(nameof(CustomWorkbenchVisibility));
     }
 }
 
@@ -221,4 +315,34 @@ public partial class PersonalSceneCategoryGroup : ObservableObject
     public int Count { get; }
 
     public string Header => $"{Name} ({Count})";
+}
+
+public partial class CustomSceneFrameSlot : ObservableObject
+{
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasImage))]
+    [NotifyPropertyChangedFor(nameof(PreviewSource))]
+    [NotifyPropertyChangedFor(nameof(PreviewOpacity))]
+    [NotifyPropertyChangedFor(nameof(PlaceholderOpacity))]
+    [NotifyPropertyChangedFor(nameof(StatusText))]
+    private string? imagePath;
+
+    public CustomSceneFrameSlot(int index)
+    {
+        Index = index;
+    }
+
+    public int Index { get; }
+
+    public string Title => $"帧 {Index + 1}";
+
+    public bool HasImage => !string.IsNullOrWhiteSpace(ImagePath);
+
+    public string PreviewSource => HasImage ? new Uri(ImagePath!).AbsoluteUri : "ms-appx:///Assets/icon.png";
+
+    public double PreviewOpacity => HasImage ? 1 : 0.12;
+
+    public double PlaceholderOpacity => HasImage ? 0 : 1;
+
+    public string StatusText => HasImage ? Path.GetFileName(ImagePath) ?? "PNG 图像" : "拖入 256×32 PNG";
 }

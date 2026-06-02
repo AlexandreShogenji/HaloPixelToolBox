@@ -87,8 +87,9 @@ public class HaloPixelDisplayService
         if (resourceBytes is null || resourceBytes.Length == 0)
             return false;
 
+        var uploadCategoryIndex = (byte)(scene.UploadCategoryIndex ?? scene.CategoryIndex);
         var result = await Task.Run(
-            () => Device.SetPixelSceneResource((byte)scene.CategoryIndex, (byte)scene.SceneIndex, resourceBytes, uploadProgress: uploadProgress, cancellationToken: cancellationToken),
+            () => Device.SetPixelSceneResource(uploadCategoryIndex, (byte)scene.SceneIndex, resourceBytes, uploadProgress: uploadProgress, cancellationToken: cancellationToken),
             cancellationToken);
 
         if (result)
