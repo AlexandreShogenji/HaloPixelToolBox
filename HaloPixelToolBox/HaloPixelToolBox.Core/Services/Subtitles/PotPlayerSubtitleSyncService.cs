@@ -10,6 +10,7 @@ public sealed class PotPlayerSubtitleSyncService
     private const byte DefaultClockCategory = 0x00;
     private const byte DefaultClockSceneIndex = 0x09;
     private const byte DefaultClockOption = 0xff;
+    private static readonly TimeSpan DefaultSceneReturnDelay = TimeSpan.FromSeconds(3);
 
     private readonly HaloPixelDisplayService displayService;
     private readonly PotPlayerPlaybackStateReader playbackStateReader;
@@ -77,7 +78,8 @@ public sealed class PotPlayerSubtitleSyncService
         {
             try
             {
-                var state = playbackStateReader.GetState();
+                var snapshot = await playbackStateReader.GetSnapshotAsync(cancellationToken);
+                var state = snapshot.State;
                 if (state == PotPlayerPlaybackState.NotRunning)
                 {
                     ReportStatus("未检测到 PotPlayer 进程");
@@ -122,13 +124,18 @@ public sealed class PotPlayerSubtitleSyncService
         var playbackPosition = TimeSpan.Zero;
         var nextCueIndex = 0;
         var lastTick = DateTimeOffset.Now;
+        TimeSpan? defaultSceneReturnPosition = null;
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            var state = playbackStateReader.GetState();
+            var snapshot = await playbackStateReader.GetSnapshotAsync(cancellationToken);
+            var state = snapshot.State;
             var now = DateTimeOffset.Now;
             var elapsed = now - lastTick;
             lastTick = now;
+
+            if (snapshot.Position is not null)
+                playbackPosition = snapshot.Position.Value;
 
             if (state == PotPlayerPlaybackState.NotRunning)
             {
@@ -139,29 +146,41 @@ public sealed class PotPlayerSubtitleSyncService
 
             if (state == PotPlayerPlaybackState.Paused)
             {
-                ReportStatus($"PotPlayer 已暂停，字幕位置 {FormatPosition(playbackPosition)}");
+                ReportStatus($"PotPlayer 已暂停，字幕位置 {FormatPosition(playbackPosition)}（{GetPositionSource(snapshot)}）");
                 await Task.Delay(configuration.PollInterval, cancellationToken);
                 continue;
             }
 
-            playbackPosition += elapsed;
+            if (snapshot.Position is null)
+                playbackPosition += elapsed;
 
-            while (nextCueIndex < cues.Count && cues[nextCueIndex].End <= playbackPosition)
-                nextCueIndex++;
-
-            if (nextCueIndex >= cues.Count)
+            if (defaultSceneReturnPosition is not null && playbackPosition >= defaultSceneReturnPosition.Value)
             {
                 ReturnToDefaultClockScene();
                 cancellationTokenSource = null;
-                ReportStatus("字幕时间轴同步完成，已返回时钟类第 10 个场景");
+                ReportStatus("最后一条字幕已停留 3 秒，已返回时钟类第 10 个场景");
                 return;
             }
 
+            while (nextCueIndex < cues.Count - 1 && cues[nextCueIndex].End <= playbackPosition)
+                nextCueIndex++;
+
             var cue = cues[nextCueIndex];
-            if (cue.Start <= playbackPosition && cue.Text != lastSentText)
-                await SendSubtitleTextAsync(cue.Text, configuration, cancellationToken);
+            if (cue.Start <= playbackPosition)
+            {
+                if (cue.Text != lastSentText)
+                    await SendSubtitleTextAsync(cue.Text, configuration, cancellationToken);
+
+                if (nextCueIndex == cues.Count - 1 && defaultSceneReturnPosition is null)
+                {
+                    defaultSceneReturnPosition = playbackPosition + DefaultSceneReturnDelay;
+                    ReportStatus("最后一条字幕已发送，3 秒后返回默认时钟场景");
+                }
+            }
             else
-                ReportStatus($"时间轴同步中 {FormatPosition(playbackPosition)} / 下一条 {FormatPosition(cue.Start)}");
+            {
+                ReportStatus($"时间轴同步中 {FormatPosition(playbackPosition)}（{GetPositionSource(snapshot)}） / 下一条 {FormatPosition(cue.Start)}");
+            }
 
             await Task.Delay(configuration.PollInterval, cancellationToken);
         }
@@ -230,6 +249,9 @@ public sealed class PotPlayerSubtitleSyncService
             ? position.ToString(@"hh\:mm\:ss")
             : position.ToString(@"mm\:ss");
     }
+
+    private static string GetPositionSource(PotPlayerPlaybackSnapshot snapshot)
+        => snapshot.HasReliablePosition ? "媒体会话" : "本地计时";
 
     private static string TruncateDisplayText(string text)
     {

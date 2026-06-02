@@ -11,6 +11,7 @@ public enum PersonalSceneCategory
     Memes,
     Cyber,
     Spectrum,
+    Custom,
     Music,
     Space,
     Unknown

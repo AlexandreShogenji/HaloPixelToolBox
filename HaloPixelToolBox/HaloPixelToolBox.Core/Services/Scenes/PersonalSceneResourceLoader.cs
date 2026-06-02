@@ -40,7 +40,8 @@ public sealed class PersonalSceneResourceLoader
         new(PersonalSceneCategory.Dogs, "狗狗类", 5, 13),
         new(PersonalSceneCategory.Memes, "热梗类", 6, 46),
         new(PersonalSceneCategory.Cyber, "赛博类", 7, 16),
-        new(PersonalSceneCategory.Spectrum, "频谱类", 8, 4)
+        new(PersonalSceneCategory.Spectrum, "频谱类", 8, 4),
+        new(PersonalSceneCategory.Custom, "自定义类", 9, 1)
     ];
 
     public IReadOnlyList<PersonalSceneDefinition> LoadScenes(
@@ -54,11 +55,13 @@ public sealed class PersonalSceneResourceLoader
         if (cachedScenes.Count > 0)
         {
             ReplaceClockScenes(cachedScenes, LoadLiLyricClockScenes(liLyricInstallPath));
+            AddBundledCustomScenes(cachedScenes);
             return SortScenes(cachedScenes);
         }
 
         var fallbackScenes = LoadFallbackScenes(officialInstallPath, liLyricInstallPath).ToList();
         ReplaceClockScenes(fallbackScenes, LoadLiLyricClockScenes(liLyricInstallPath));
+        AddBundledCustomScenes(fallbackScenes);
         return SortScenes(fallbackScenes);
     }
 
@@ -244,6 +247,25 @@ public sealed class PersonalSceneResourceLoader
 
         scenes.RemoveAll(scene => scene.Category == PersonalSceneCategory.Clock);
         scenes.AddRange(clockScenes);
+    }
+
+    private static void AddBundledCustomScenes(List<PersonalSceneDefinition> scenes)
+    {
+        var plan = CategoryPlans.First(item => item.Category == PersonalSceneCategory.Custom);
+        for (var index = 0; index < plan.Count; index++)
+        {
+            if (scenes.Any(scene => scene.CategoryIndex == plan.CategoryIndex && scene.SceneIndex == index))
+                continue;
+
+            scenes.Add(CreateSceneDefinition(
+                plan,
+                index,
+                "自定义生成资源",
+                null,
+                null,
+                ResolveBundledPixelResourcePath(plan.CategoryIndex, index),
+                null));
+        }
     }
 
     private static IReadOnlyList<PersonalSceneDefinition> SortScenes(IEnumerable<PersonalSceneDefinition> scenes)
