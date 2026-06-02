@@ -6,6 +6,11 @@ namespace HaloPixelToolBox.Core.Services.Subtitles;
 
 public sealed class PotPlayerSubtitleSyncService
 {
+    private const byte DefaultClockGroup = 0x01;
+    private const byte DefaultClockCategory = 0x00;
+    private const byte DefaultClockSceneIndex = 0x09;
+    private const byte DefaultClockOption = 0xff;
+
     private readonly HaloPixelDisplayService displayService;
     private readonly PotPlayerPlaybackStateReader playbackStateReader;
     private readonly SubtitleParserFactory subtitleParserFactory = new();
@@ -146,8 +151,9 @@ public sealed class PotPlayerSubtitleSyncService
 
             if (nextCueIndex >= cues.Count)
             {
-                ReportStatus("字幕时间轴同步完成");
-                Stop();
+                ReturnToDefaultClockScene();
+                cancellationTokenSource = null;
+                ReportStatus("字幕时间轴同步完成，已返回时钟类第 10 个场景");
                 return;
             }
 
@@ -246,6 +252,12 @@ public sealed class PotPlayerSubtitleSyncService
     {
         var value = rune.Value;
         return value <= 0x007f ? 0.5d : 1d;
+    }
+
+    private void ReturnToDefaultClockScene()
+    {
+        // 字幕播放自然结束后恢复默认个性场景：时钟类第 10 个。场景序号从 0 开始，因此第 10 个为 0x09。
+        displayService.ShowScreenScene(DefaultClockGroup, DefaultClockCategory, DefaultClockSceneIndex, DefaultClockOption);
     }
 
     private static string? ResolveSubtitleOutputPath(string path)
