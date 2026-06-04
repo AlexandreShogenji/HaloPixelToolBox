@@ -2,7 +2,7 @@ namespace HaloPixelToolBox.Views;
 
 public sealed partial class BrowserTranslationSubtitleToolPage : Page
 {
-    public BrowserTranslationSubtitleToolPageViewModel ViewModel { get; } = new();
+    public BrowserTranslationSubtitleToolPageViewModel ViewModel { get; } = BrowserTranslationSubtitleToolPageViewModel.Shared;
 
     public BrowserTranslationSubtitleToolPage()
     {

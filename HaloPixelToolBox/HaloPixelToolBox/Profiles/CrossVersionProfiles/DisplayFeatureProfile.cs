@@ -20,5 +20,14 @@ public partial class DisplayFeatureProfile : XFEProfile
     private string translationApiKey = string.Empty;
 
     [ProfileProperty]
-    private string browserProcessName = "msedge";
+    private string browserProcessName = "chrome";
+
+    [ProfileProperty]
+    private string bilibiliVideoUrl = string.Empty;
+
+    [ProfileProperty]
+    private int browserSubtitleOutputModeIndex = 1;
+
+    [ProfileProperty]
+    private int browserSubtitleAsrEngineIndex = 1;
 }

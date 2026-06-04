@@ -10,35 +10,130 @@
     <ScrollViewer>
         <StackPanel Spacing="10" Margin="0,0,0,24">
             <TextBlock Text="浏览器实时翻译字幕" Style="{StaticResource TitleTextBlockStyle}"/>
-            <controls:SettingsCard Header="浏览器进程" Description="后续捕获模块使用的目标进程名">
-                <TextBox Text="{x:Bind ViewModel.BrowserProcessName, Mode=TwoWay}" MinWidth="240"/>
+
+            <controls:SettingsCard Header="Chrome CDP 浏览器" Description="启动独立 Chrome 实例，用于读取 B 站播放进度并自动同步字幕">
+                <Button Command="{x:Bind ViewModel.LaunchCdpBrowserCommand}" ToolTipService.ToolTip="启动 Chrome CDP 实例">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon Glyph="&#xE774;" FontSize="15"/>
+                        <TextBlock Text="启动 CDP 浏览器"/>
+                    </StackPanel>
+                </Button>
             </controls:SettingsCard>
-            <controls:SettingsCard Header="翻译 API 地址" Description="预留在线翻译接口配置">
-                <TextBox Text="{x:Bind ViewModel.TranslationApiEndpoint, Mode=TwoWay}" MinWidth="360"/>
+
+            <controls:SettingsCard Header="B 站视频 URL / BV" Description="填写后优先打开对应视频；留空时尝试从 CDP 浏览器捕获">
+                <TextBox Text="{x:Bind ViewModel.BilibiliVideoUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                         PlaceholderText="https://www.bilibili.com/video/BV... 或 BV..."
+                         Width="160"
+                         MinHeight="64"
+                         TextWrapping="Wrap"
+                         HorizontalAlignment="Left"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
             </controls:SettingsCard>
-            <controls:SettingsCard Header="翻译 API Key" Description="预留密钥配置，当前不会发起真实网络请求">
-                <PasswordBox Password="{x:Bind ViewModel.TranslationApiKey, Mode=TwoWay}" MinWidth="360"/>
-            </controls:SettingsCard>
-            <Grid ColumnSpacing="10">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition/>
-                    <ColumnDefinition/>
-                </Grid.ColumnDefinitions>
-                <controls:SettingsCard Header="源语言" Description="auto 表示自动检测">
-                    <TextBox Text="{x:Bind ViewModel.SourceLanguage, Mode=TwoWay}"/>
-                </controls:SettingsCard>
-                <controls:SettingsCard Grid.Column="1" Header="目标语言" Description="翻译结果语言">
-                    <TextBox Text="{x:Bind ViewModel.TargetLanguage, Mode=TwoWay}"/>
-                </controls:SettingsCard>
-            </Grid>
-            <controls:SettingsCard Header="实时链路" Description="{x:Bind ViewModel.StatusMessage, Mode=OneWay}">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <Button Content="启动占位捕获" Command="{x:Bind ViewModel.StartCaptureCommand}" Style="{StaticResource AccentButtonStyle}"/>
-                    <Button Content="停止" Command="{x:Bind ViewModel.StopCaptureCommand}"/>
-                    <Button Content="发送示例" Command="{x:Bind ViewModel.SendSampleCommand}"/>
+
+            <controls:SettingsCard Header="腾讯翻译 API" Description="配置腾讯 TMT 密钥，保存后可测试：こんにちは -> 中文">
+                <StackPanel Spacing="8">
+                    <TextBox Header="TENCENTCLOUD_SECRET_ID"
+                             Text="{x:Bind ViewModel.TencentCloudSecretId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             MinWidth="360"/>
+                    <PasswordBox Header="TENCENTCLOUD_SECRET_KEY"
+                                 Password="{x:Bind ViewModel.TencentCloudSecretKey, Mode=TwoWay}"
+                                 MinWidth="360"/>
+                    <TextBlock Text="SecretId/SecretKey 只用于写入环境变量，保存后不会回显。"
+                               TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBox Header="Endpoint | Region"
+                             Text="{x:Bind ViewModel.TranslationApiEndpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             PlaceholderText="tmt.tencentcloudapi.com|ap-shanghai"
+                             MinWidth="360"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="配置环境变量" Command="{x:Bind ViewModel.ConfigureTencentEnvironmentCommand}"/>
+                        <Button Content="测试腾讯翻译" Command="{x:Bind ViewModel.TestTranslationCommand}"/>
+                    </StackPanel>
+                    <TextBlock Text="{x:Bind ViewModel.TencentTranslationTestResult, Mode=OneWay}"
+                               TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </StackPanel>
             </controls:SettingsCard>
-            <TextBlock Text="{x:Bind ViewModel.CapturedText, Mode=OneWay}" TextWrapping="Wrap"/>
+
+            <controls:SettingsCard Header="发送内容" Description="选择发送到字幕屏的字幕内容">
+                <StackPanel Spacing="8">
+                    <ComboBox ItemsSource="{x:Bind ViewModel.OutputModeNames}"
+                              SelectedIndex="{x:Bind ViewModel.SelectedOutputModeIndex, Mode=TwoWay}"
+                              MinWidth="180"/>
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition/>
+                            <ColumnDefinition/>
+                        </Grid.ColumnDefinitions>
+                        <ComboBox Header="源语言"
+                                  ItemsSource="{x:Bind ViewModel.LanguageOptions}"
+                                  DisplayMemberPath="Name"
+                                  SelectedValuePath="Value"
+                                  SelectedValue="{x:Bind ViewModel.SourceLanguage, Mode=TwoWay}"
+                                  MinWidth="140"/>
+                        <ComboBox Grid.Column="1"
+                                  Header="目标语言"
+                                  ItemsSource="{x:Bind ViewModel.LanguageOptions}"
+                                  DisplayMemberPath="Name"
+                                  SelectedValuePath="Value"
+                                  SelectedValue="{x:Bind ViewModel.TargetLanguage, Mode=TwoWay}"
+                                  MinWidth="140"/>
+                    </Grid>
+                </StackPanel>
+            </controls:SettingsCard>
+
+            <controls:SettingsCard Header="ASR 引擎" Description="无 B 站 CC 字幕时使用的语音识别模型">
+                <ComboBox ItemsSource="{x:Bind ViewModel.AsrEngineNames}"
+                          SelectedIndex="{x:Bind ViewModel.SelectedAsrEngineIndex, Mode=TwoWay}"
+                          MinWidth="260"/>
+            </controls:SettingsCard>
+
+            <controls:SettingsCard Header="实时链路" Description="{x:Bind ViewModel.StatusMessage, Mode=OneWay}">
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="启动捕获" Command="{x:Bind ViewModel.StartCaptureCommand}" Style="{StaticResource AccentButtonStyle}"/>
+                        <Button Content="停止" Command="{x:Bind ViewModel.StopCaptureCommand}"/>
+                    </StackPanel>
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="220"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Slider Minimum="0"
+                                Maximum="{x:Bind ViewModel.ManualSubtitleMaximum, Mode=OneWay}"
+                                Value="{x:Bind ViewModel.ManualSubtitleIndex, Mode=TwoWay}"
+                                StepFrequency="1"
+                                SmallChange="1"
+                                LargeChange="10"
+                                IsEnabled="{x:Bind ViewModel.IsManualSubtitleSeekEnabled, Mode=OneWay}"/>
+                        <TextBlock Grid.Column="1"
+                                   Text="{x:Bind ViewModel.ManualSubtitlePositionText, Mode=OneWay}"
+                                   VerticalAlignment="Center"/>
+                        <Button Grid.Column="2"
+                                Content="上一条"
+                                Command="{x:Bind ViewModel.SendPreviousSubtitleCommand}"
+                                IsEnabled="{x:Bind ViewModel.IsManualSubtitleSeekEnabled, Mode=OneWay}"/>
+                        <Button Grid.Column="3"
+                                Content="下一条"
+                                Command="{x:Bind ViewModel.SendNextSubtitleCommand}"
+                                IsEnabled="{x:Bind ViewModel.IsManualSubtitleSeekEnabled, Mode=OneWay}"/>
+                    </Grid>
+                </StackPanel>
+            </controls:SettingsCard>
+
+            <controls:SettingsCard Header="原文预览">
+                <TextBlock Text="{x:Bind ViewModel.OriginalText, Mode=OneWay}" TextWrapping="Wrap"/>
+            </controls:SettingsCard>
+
+            <controls:SettingsCard Header="译文预览">
+                <TextBlock Text="{x:Bind ViewModel.TranslatedText, Mode=OneWay}" TextWrapping="Wrap"/>
+            </controls:SettingsCard>
+
+            <controls:SettingsCard Header="发送预览">
+                <TextBlock Text="{x:Bind ViewModel.CapturedText, Mode=OneWay}" TextWrapping="Wrap"/>
+            </controls:SettingsCard>
         </StackPanel>
     </ScrollViewer>
 </Page>
