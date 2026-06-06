@@ -8,9 +8,10 @@ public class LyricsProviderRegistry
 
     public LyricsProviderRegistry()
     {
-        Register(new PlaceholderLyricsProvider(LyricsProviderKind.NetEaseCloudMusic));
+        Register(new NetEaseCloudMusicLiveLineProvider());
         Register(new PlaceholderLyricsProvider(LyricsProviderKind.QQMusic));
-        Register(new PlaceholderLyricsProvider(LyricsProviderKind.LocalFile));
+        Register(new PlaceholderLyricsProvider(LyricsProviderKind.Spotify));
+        Register(new LocalFileLyricsProvider());
         Register(new PlaceholderLyricsProvider(LyricsProviderKind.Custom));
     }
 

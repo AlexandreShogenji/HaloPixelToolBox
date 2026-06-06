@@ -21,6 +21,7 @@ public class CloudMusicLyricsReader
     /// </summary>
     public static Dictionary<string, Func<MemoryEditor, nint>> VersionResolverDictionary { get; } = new()
     {
+        { "3.1.33", editor => editor.ResolvePointerAddress("cloudmusic.dll", 0x01E9D570, 0xE8, 0x38, 0x120, 0x18, 0x0) },
         { "3.1.30", editor => editor.ResolvePointerAddress("cloudmusic.dll", 0x01DF44D0, 0x120, 0x8, 0x0) },
         { "3.1.29", editor => editor.ResolvePointerAddress("cloudmusic.dll", 0x01DEB4D0, 0x120, 0x8, 0x0) },
         { "3.1.28", editor => editor.ResolvePointerAddress("cloudmusic.dll", 0x01DDF290, 0x120, 0x8, 0x0) },
@@ -107,13 +108,8 @@ public class CloudMusicLyricsReader
 
     public static Process? GetCloudMusicLyricsProcess()
     {
-        foreach (var process in Process.GetProcesses())
-        {
-            if (process.ProcessName == "cloudmusic" &&
-                (process.MainWindowTitle == "桌面歌词" || !process.MainWindowTitle.IsNullOrWhiteSpace()))
-                return process;
-        }
-
-        return null;
+        var cloudMusicProcesses = Process.GetProcessesByName("cloudmusic");
+        return cloudMusicProcesses.FirstOrDefault(process => process.MainWindowTitle == "桌面歌词")
+            ?? cloudMusicProcesses.FirstOrDefault(process => !process.MainWindowTitle.IsNullOrWhiteSpace());
     }
 }

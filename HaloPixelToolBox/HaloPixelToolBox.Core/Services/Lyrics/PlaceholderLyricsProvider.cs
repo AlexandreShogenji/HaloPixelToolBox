@@ -16,8 +16,12 @@ public class PlaceholderLyricsProvider : ILyricsProvider
         // TODO: 后续在这里接入具体平台歌词接口、签名、Cookie、客户端版本适配。
         return Task.FromResult<LyricsTrack?>(new LyricsTrack
         {
+            Provider = ProviderKind,
+            SourceName = $"{ProviderKind} Placeholder",
             Title = string.IsNullOrWhiteSpace(query.Keyword) ? $"{ProviderKind} 歌词占位" : query.Keyword,
             Artist = "未接入平台",
+            IsSynced = true,
+            Confidence = 0,
             Lines =
             {
                 new() { Start = TimeSpan.Zero, End = TimeSpan.FromSeconds(3), Text = "歌词接口占位，等待平台适配" },

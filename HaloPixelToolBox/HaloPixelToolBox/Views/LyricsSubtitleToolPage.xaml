@@ -10,29 +10,79 @@
     <ScrollViewer>
         <StackPanel Spacing="10" Margin="0,0,0,24">
             <TextBlock Text="歌词字幕" Style="{StaticResource TitleTextBlockStyle}"/>
-            <controls:SettingsCard Header="歌词来源" Description="平台 Provider 已模块化预留">
+            <controls:SettingsCard Header="歌词来源" Description="本地 LRC 已可用，平台 Provider 将继续适配">
                 <ComboBox ItemsSource="{x:Bind ViewModel.ProviderNames}"
                           SelectedIndex="{x:Bind ViewModel.SelectedProviderIndex, Mode=TwoWay}"
                           MinWidth="240"/>
             </controls:SettingsCard>
-            <controls:SettingsCard Header="歌曲关键字" Description="后续用于平台搜索或本地匹配">
+            <controls:SettingsCard Header="本地歌词文件" Description="支持 LRC 和纯文本歌词">
+                <Grid RowSpacing="8" HorizontalAlignment="Stretch">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBox Text="{x:Bind ViewModel.LocalLyricsFilePath, Mode=TwoWay}"
+                             PlaceholderText="请选择本地 LRC 歌词文件"
+                             TextWrapping="Wrap"
+                             AcceptsReturn="True"
+                             MinHeight="60"
+                             IsReadOnly="True"/>
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+                        <Button Content="选择并加载 LRC"
+                                Command="{x:Bind ViewModel.SelectLocalLyricsFileCommand}"
+                                Style="{StaticResource AccentButtonStyle}"/>
+                    </StackPanel>
+                </Grid>
+            </controls:SettingsCard>
+            <controls:SettingsCard Header="歌曲关键字" Description="用于平台搜索；本地文件可选">
                 <TextBox Text="{x:Bind ViewModel.Keyword, Mode=TwoWay}" MinWidth="260"/>
             </controls:SettingsCard>
             <controls:SettingsCard Header="滚动歌词" Description="歌词过长时切换为滚动显示">
                 <ToggleSwitch IsOn="{x:Bind ViewModel.EnableScroll, Mode=TwoWay}"/>
             </controls:SettingsCard>
-            <controls:SettingsCard Header="播放进度" Description="用于同步当前歌词，单位秒">
-                <NumberBox Value="{x:Bind ViewModel.PositionSeconds, Mode=TwoWay}" Minimum="0" SpinButtonPlacementMode="Compact"/>
+            <controls:SettingsCard Header="播放进度" Description="拖动进度条松开后发送对应歌词，也可输入 00:42.550 后手动发送">
+                <Grid ColumnSpacing="12" HorizontalAlignment="Stretch">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Slider x:Name="PlaybackPositionSlider"
+                            Minimum="0"
+                            Maximum="{x:Bind ViewModel.PlaybackDurationSeconds, Mode=OneWay}"
+                            Value="{x:Bind ViewModel.PositionSeconds, Mode=TwoWay}"
+                            ValueChanged="PlaybackPositionSlider_ValueChanged"/>
+                    <TextBox Grid.Column="1"
+                             Text="{x:Bind ViewModel.PlaybackPositionText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             PlaceholderText="00:42.550"
+                             MinWidth="120"/>
+                </Grid>
             </controls:SettingsCard>
-            <controls:SettingsExpander Header="歌词预览" Description="{x:Bind ViewModel.StatusMessage, Mode=OneWay}">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <Button Content="加载占位歌词" Command="{x:Bind ViewModel.LoadLyricsCommand}" Style="{StaticResource AccentButtonStyle}"/>
-                    <Button Content="发送当前行" Command="{x:Bind ViewModel.SendCurrentLineCommand}"/>
-                </StackPanel>
-                <controls:SettingsExpander.Items>
-                    <TextBlock Text="{x:Bind ViewModel.PreviewText, Mode=OneWay}" TextWrapping="Wrap" Margin="16,8"/>
-                </controls:SettingsExpander.Items>
-            </controls:SettingsExpander>
+            <controls:SettingsCard Header="歌词时间偏移" Description="正数延后显示歌词，负数提前显示歌词，单位秒">
+                <NumberBox Value="{x:Bind ViewModel.OffsetSeconds, Mode=TwoWay}" SpinButtonPlacementMode="Compact" SmallChange="0.1" LargeChange="1"/>
+            </controls:SettingsCard>
+            <controls:SettingsCard Header="歌词预览" Description="{x:Bind ViewModel.StatusMessage, Mode=OneWay}">
+                <Grid RowSpacing="8" HorizontalAlignment="Stretch">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="开始同步"
+                                Command="{x:Bind ViewModel.StartLyricsSyncCommand}"
+                                Style="{StaticResource AccentButtonStyle}"/>
+                        <Button Content="停止同步"
+                                Command="{x:Bind ViewModel.StopLyricsSyncCommand}"/>
+                        <Button Content="重新加载歌词" Command="{x:Bind ViewModel.LoadLyricsCommand}"/>
+                        <Button Content="发送当前行" Command="{x:Bind ViewModel.SendCurrentLineCommand}"/>
+                    </StackPanel>
+                    <TextBox Grid.Row="1"
+                             Text="{x:Bind ViewModel.PreviewText, Mode=OneWay}"
+                             TextWrapping="Wrap"
+                             AcceptsReturn="True"
+                             MinHeight="180"
+                             IsReadOnly="True"/>
+                </Grid>
+            </controls:SettingsCard>
         </StackPanel>
     </ScrollViewer>
 </Page>
