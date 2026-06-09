@@ -7,6 +7,7 @@ public sealed partial class LyricsSubtitleToolPage : Page
     public LyricsSubtitleToolPage()
     {
         InitializeComponent();
+        NavigationCacheMode = Microsoft.UI.Xaml.Navigation.NavigationCacheMode.Required;
         PlaybackPositionSlider.AddHandler(PointerPressedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler(PlaybackPositionSlider_PointerPressed), true);
         PlaybackPositionSlider.AddHandler(PointerReleasedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler(PlaybackPositionSlider_PointerReleased), true);
         PlaybackPositionSlider.AddHandler(PointerCaptureLostEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler(PlaybackPositionSlider_PointerCaptureLost), true);

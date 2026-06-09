@@ -21,7 +21,33 @@ namespace HaloPixelToolBox.Views
             ViewModel.DialogService.RegisterDialog(closeDialog);
             ViewModel.PageService.Initialize(this);
             ViewModel.LoadingService.Initialize(loadingGrid, globalLoadingGrid, globalLoadingTextBlock, DispatcherQueue, ViewModel.NavigationViewService.NavigationService);
-            ViewModel.NavigationViewService.NavigateTo<CustomSubtitleToolPage>();
+            NavigateToInitialToolPage();
+        }
+
+        private void NavigateToInitialToolPage()
+        {
+            switch (DisplayFeatureProfile.LastToolPageName)
+            {
+                case "HaloPixelToolBox.Views.LightingToolPage":
+                    ViewModel.NavigationViewService.NavigateTo<LightingToolPage>();
+                    break;
+                case "HaloPixelToolBox.Views.LyricsSubtitleToolPage":
+                    ViewModel.NavigationViewService.NavigateTo<LyricsSubtitleToolPage>();
+                    break;
+                case "HaloPixelToolBox.Views.VideoSubtitleToolPage":
+                    ViewModel.NavigationViewService.NavigateTo<VideoSubtitleToolPage>();
+                    break;
+                case "HaloPixelToolBox.Views.BrowserTranslationSubtitleToolPage":
+                    ViewModel.NavigationViewService.NavigateTo<BrowserTranslationSubtitleToolPage>();
+                    break;
+                case "HaloPixelToolBox.Views.CustomSubtitleToolPage":
+                    ViewModel.NavigationViewService.NavigateTo<CustomSubtitleToolPage>();
+                    break;
+                case "HaloPixelToolBox.Views.PersonalSceneToolPage":
+                default:
+                    ViewModel.NavigationViewService.NavigateTo<PersonalSceneToolPage>();
+                    break;
+            }
         }
 
         private void NavigationView_DisplayModeChanged(NavigationView sender, NavigationViewDisplayModeChangedEventArgs args)

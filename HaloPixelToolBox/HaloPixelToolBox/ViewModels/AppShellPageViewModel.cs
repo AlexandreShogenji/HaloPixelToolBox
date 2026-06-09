@@ -3,6 +3,7 @@ using HaloPixelToolBox.Core.Services.Device;
 using HaloPixelToolBox.Interface.Services;
 using HaloPixelToolBox.Profiles.CrossVersionProfiles;
 using HaloPixelToolBox.Utilities.Helpers;
+using HaloPixelToolBox.Views;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
@@ -144,7 +145,7 @@ public partial class AppShellPageViewModel : ViewModelBase
         }
         else
         {
-            Environment.Exit(0);
+            HaloPixelToolBox.App.ExitAfterBackgroundPersonalSceneRestore();
         }
     }
 
@@ -153,5 +154,20 @@ public partial class AppShellPageViewModel : ViewModelBase
         await UpgradeService.CheckUpgrade();
     }
 
-    private void NavigationService_Navigated(object? sender, NavigationEventArgs e) => CanGoBack = NavigationViewService.NavigationService.CanGoBack;
+    private void NavigationService_Navigated(object? sender, NavigationEventArgs e)
+    {
+        CanGoBack = NavigationViewService.NavigationService.CanGoBack;
+        if (e.SourcePageType is { } pageType && IsToolPage(pageType))
+            DisplayFeatureProfile.LastToolPageName = pageType.FullName ?? string.Empty;
+    }
+
+    private static bool IsToolPage(Type pageType)
+    {
+        return pageType == typeof(PersonalSceneToolPage)
+            || pageType == typeof(LightingToolPage)
+            || pageType == typeof(LyricsSubtitleToolPage)
+            || pageType == typeof(VideoSubtitleToolPage)
+            || pageType == typeof(BrowserTranslationSubtitleToolPage)
+            || pageType == typeof(CustomSubtitleToolPage);
+    }
 }

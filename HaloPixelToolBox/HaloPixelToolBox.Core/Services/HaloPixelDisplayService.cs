@@ -3,6 +3,7 @@ using HaloPixelToolBox.Core.Models.Display;
 using HaloPixelToolBox.Core.Models.Scenes;
 using HaloPixelToolBox.Core.Models.Subtitles;
 using HaloPixelToolBox.Core.Utilities;
+using System.Text;
 using System.Text.Json;
 
 namespace HaloPixelToolBox.Core.Services;
@@ -12,6 +13,10 @@ namespace HaloPixelToolBox.Core.Services;
 /// </summary>
 public class HaloPixelDisplayService
 {
+    private const int MaxTextDisplayUnits = 64;
+    private const int MaxTextUtf8Bytes = 55;
+    private static readonly TimeSpan MinimumSegmentDelay = TimeSpan.FromMilliseconds(450);
+    private static readonly TimeSpan MaximumSegmentDelay = TimeSpan.FromMilliseconds(1400);
     private static readonly HttpClient HttpClient = new();
 
     public static event EventHandler<DisplayContentChangedEventArgs>? ContentSent;
@@ -47,8 +52,26 @@ public class HaloPixelDisplayService
 
     public Task<bool> SendSubtitleCueAsync(SubtitleCue cue, DisplayTextOptions options, CancellationToken cancellationToken = default)
     {
-        options.Text = cue.Text;
-        return SendTextAsync(options, cancellationToken);
+        var segments = SplitTextSegments(cue.Text);
+        if (segments.Count <= 1)
+        {
+            options.Text = cue.Text;
+            return SendTextAsync(options, cancellationToken);
+        }
+
+        return SendSubtitleSegmentsAsync(cue, options, segments, cancellationToken);
+    }
+
+    public Task<bool> SetDeviceVolumeAsync(int volume, CancellationToken cancellationToken = default)
+    {
+        if (cancellationToken.IsCancellationRequested)
+            return Task.FromResult(false);
+
+        if (!EnsureDeviceReady())
+            return Task.FromResult(false);
+
+        Device.SetDeviceVolume(Math.Clamp(volume, 0, 16));
+        return Task.FromResult(true);
     }
 
     public void ShowBuiltInUi(HaloPixelUIModel uiModel, DisplayContentKind source = DisplayContentKind.System)
@@ -108,6 +131,28 @@ public class HaloPixelDisplayService
         return true;
     }
 
+    private async Task<bool> SendSubtitleSegmentsAsync(
+        SubtitleCue cue,
+        DisplayTextOptions options,
+        IReadOnlyList<string> segments,
+        CancellationToken cancellationToken)
+    {
+        var delay = ResolveSegmentDelay(cue, segments.Count);
+        for (var index = 0; index < segments.Count; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var segmentOptions = CloneTextOptions(options, segments[index]);
+            var sent = await SendTextAsync(segmentOptions, cancellationToken);
+            if (!sent)
+                return false;
+
+            if (index < segments.Count - 1)
+                await Task.Delay(delay, cancellationToken);
+        }
+
+        return true;
+    }
+
     private void SendTextCore(DisplayTextOptions options)
     {
         var layout = options.ScrollDirection switch
@@ -122,6 +167,177 @@ public class HaloPixelDisplayService
         var text = NormalizeText(options);
         Device.ShowText(text);
         NotifyContentSent(options.Source, text);
+    }
+
+    private static DisplayTextOptions CloneTextOptions(DisplayTextOptions source, string text)
+    {
+        return new DisplayTextOptions
+        {
+            Text = text,
+            Source = source.Source,
+            Layout = source.Layout,
+            ScrollDirection = source.ScrollDirection,
+            Speed = source.Speed,
+            Blink = source.Blink,
+            Color = source.Color,
+            MultiLine = source.MultiLine,
+            SendAt = source.SendAt
+        };
+    }
+
+    private static TimeSpan ResolveSegmentDelay(SubtitleCue cue, int segmentCount)
+    {
+        if (segmentCount <= 1)
+            return TimeSpan.Zero;
+
+        var duration = cue.End > cue.Start ? cue.End - cue.Start : TimeSpan.Zero;
+        if (duration <= TimeSpan.Zero)
+            return MinimumSegmentDelay;
+
+        var rawDelay = TimeSpan.FromMilliseconds(duration.TotalMilliseconds / segmentCount);
+        if (rawDelay < MinimumSegmentDelay)
+            return MinimumSegmentDelay;
+        if (rawDelay > MaximumSegmentDelay)
+            return MaximumSegmentDelay;
+
+        return rawDelay;
+    }
+
+    private static IReadOnlyList<string> SplitTextSegments(string text)
+    {
+        var normalized = text.ReplaceLineEndings(" ").Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+            return [string.Empty];
+
+        var segments = new List<string>();
+        var builder = new StringBuilder();
+        var units = 0;
+        var bytes = 0;
+        var lastBreakIndex = -1;
+        var lastBreakUnits = 0;
+        var lastBreakBytes = 0;
+
+        foreach (var rune in normalized.EnumerateRunes())
+        {
+            var runeText = rune.ToString();
+            var runeUnits = GetDisplayUnitWeight(rune);
+            var runeBytes = Encoding.UTF8.GetByteCount(runeText);
+            var wouldOverflow = builder.Length > 0
+                && (units + runeUnits > MaxTextDisplayUnits || bytes + runeBytes > MaxTextUtf8Bytes);
+
+            if (wouldOverflow)
+            {
+                if (lastBreakIndex > 0)
+                {
+                    AddSegment(segments, builder.ToString(0, lastBreakIndex).Trim());
+                    builder.Remove(0, lastBreakIndex);
+                    units -= lastBreakUnits;
+                    bytes -= lastBreakBytes;
+                }
+                else
+                {
+                    AddSegment(segments, builder.ToString().Trim());
+                    builder.Clear();
+                    units = 0;
+                    bytes = 0;
+                }
+
+                TrimLeadingBreaks(builder, ref units, ref bytes);
+                lastBreakIndex = -1;
+                lastBreakUnits = 0;
+                lastBreakBytes = 0;
+            }
+
+            builder.Append(runeText);
+            units += runeUnits;
+            bytes += runeBytes;
+
+            if (IsNaturalBreak(rune))
+            {
+                lastBreakIndex = builder.Length;
+                lastBreakUnits = units;
+                lastBreakBytes = bytes;
+            }
+        }
+
+        AddSegment(segments, builder.ToString().Trim());
+        return segments.Count == 0 ? [normalized] : segments;
+    }
+
+    private static void AddSegment(ICollection<string> segments, string text)
+    {
+        if (!string.IsNullOrWhiteSpace(text))
+            segments.Add(text);
+    }
+
+    private static void TrimLeadingBreaks(StringBuilder builder, ref int units, ref int bytes)
+    {
+        while (TryReadFirstRune(builder, out var rune, out var charCount) && IsNaturalBreak(rune))
+        {
+            builder.Remove(0, charCount);
+            units -= GetDisplayUnitWeight(rune);
+            bytes -= Encoding.UTF8.GetByteCount(rune.ToString());
+        }
+    }
+
+    private static bool TryReadFirstRune(StringBuilder builder, out Rune rune, out int charCount)
+    {
+        rune = default;
+        charCount = 0;
+        if (builder.Length == 0)
+            return false;
+
+        var first = builder[0];
+        if (char.IsHighSurrogate(first) && builder.Length > 1 && char.IsLowSurrogate(builder[1]))
+        {
+            rune = new Rune(first, builder[1]);
+            charCount = 2;
+            return true;
+        }
+
+        if (char.IsSurrogate(first))
+            return false;
+
+        rune = new Rune(first);
+        charCount = 1;
+        return true;
+    }
+
+    private static int GetDisplayUnitWeight(Rune rune)
+    {
+        return IsWideCharacter(rune.Value) ? 2 : 1;
+    }
+
+    private static bool IsWideCharacter(int value)
+    {
+        return value is >= 0x2e80 and <= 0x9fff
+            or >= 0xf900 and <= 0xfaff
+            or >= 0xac00 and <= 0xd7af
+            or >= 0xff01 and <= 0xff60
+            or >= 0xffe0 and <= 0xffe6;
+    }
+
+    private static bool IsNaturalBreak(Rune rune)
+    {
+        if (Rune.IsWhiteSpace(rune))
+            return true;
+
+        return rune.Value is ','
+            or '.'
+            or ';'
+            or ':'
+            or '!'
+            or '?'
+            or '，'
+            or '。'
+            or '、'
+            or '；'
+            or '：'
+            or '！'
+            or '？'
+            or '・'
+            or ' '
+            or '　';
     }
 
     private static void NotifyContentSent(DisplayContentKind source, string? text)

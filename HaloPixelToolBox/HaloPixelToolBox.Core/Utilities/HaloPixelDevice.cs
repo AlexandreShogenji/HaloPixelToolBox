@@ -134,6 +134,13 @@ public partial class HaloPixelDevice
         stream?.Close();
     }
 
+    public void SetDeviceVolume(int volume)
+    {
+        using var stream = CurrentDevice?.Open();
+        stream?.Write(HidPacketBuilder.BuildDeviceVolume((byte)Math.Clamp(volume, 0, 16)));
+        stream?.Close();
+    }
+
     private static bool PushPixelSceneResource(HidStream stream, byte[] resourceBytes, IProgress<PixelSceneUploadProgress>? uploadProgress, CancellationToken cancellationToken)
     {
         const int maxHidDataPayload = 53;

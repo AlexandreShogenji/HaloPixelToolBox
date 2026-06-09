@@ -252,6 +252,13 @@ public class HidPacketBuilder
         return BuildEdifierPacket(0x6b, [0x00, 0x00, 0x00, 0x00, mode, 0xff, 0xff]);
     }
 
+    /// <summary>
+    /// 构造字幕音箱音量包。协议参考 LiLyric 的 VolumeController.set_volume：
+    /// 2E AA EC 67 00 01 + volume(0-16) + checksum。
+    /// </summary>
+    public static byte[] BuildDeviceVolume(byte volume)
+        => BuildEdifierPacket(0x67, [(byte)Math.Clamp((int)volume, 0, 16)]);
+
     private static byte ConvertAmbientBrightness(AmbientLightBrightness brightness) => brightness switch
     {
         AmbientLightBrightness.Low => 0x14,

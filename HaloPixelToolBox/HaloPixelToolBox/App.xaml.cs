@@ -1,5 +1,7 @@
 ﻿using HaloPixelToolBox.Interface.Services;
 using HaloPixelToolBox.Profiles.CrossVersionProfiles;
+using HaloPixelToolBox.Core.Services;
+using HaloPixelToolBox.Core.Services.Scenes;
 using HaloPixelToolBox.Utilities;
 using Microsoft.UI.Dispatching;
 using Microsoft.Windows.AppLifecycle;
@@ -21,6 +23,8 @@ public partial class App : Application
     /// 主页窗口
     /// </summary>
     public static MainWindow MainWindow { get; set; } = new();
+    private static int hasScheduledPersonalSceneRestoreExit;
+    private static readonly TimeSpan BackgroundExitRestoreTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>
     /// Initializes the singleton application object.  This is the first line of authored code
@@ -98,6 +102,67 @@ public partial class App : Application
             }
         }
         Console.WriteLine("日志保存成功");
+    }
+
+    public static void ExitAfterBackgroundPersonalSceneRestore()
+    {
+        if (Interlocked.Exchange(ref hasScheduledPersonalSceneRestoreExit, 1) == 1)
+            return;
+
+        HideMainWindowForExit();
+        _ = Task.Run(RestorePersonalSceneThenExitAsync);
+    }
+
+    private static async Task RestorePersonalSceneThenExitAsync()
+    {
+        try
+        {
+            using var cancellationTokenSource = new CancellationTokenSource();
+            var restoreTask = new PersonalSceneRestoreService()
+                .RestoreAsync(new HaloPixelDisplayService(), cancellationTokenSource.Token);
+            var timeoutTask = Task.Delay(BackgroundExitRestoreTimeout);
+
+            if (await Task.WhenAny(restoreTask, timeoutTask) == restoreTask)
+            {
+                await restoreTask;
+                Console.WriteLine("已在后台恢复当前默认个性场景，准备退出");
+            }
+            else
+            {
+                cancellationTokenSource.Cancel();
+                Console.WriteLine("[WARN]后台恢复当前默认个性场景超时，准备强制退出");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            Console.WriteLine("[WARN]后台恢复当前默认个性场景已取消，准备退出");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[WARN]后台恢复当前默认个性场景失败：{ex.Message}");
+        }
+        finally
+        {
+            Environment.Exit(0);
+        }
+    }
+
+    private static void HideMainWindowForExit()
+    {
+        try
+        {
+            if (MainWindow.DispatcherQueue.HasThreadAccess)
+            {
+                MainWindow.AppWindow.Hide();
+            }
+            else
+            {
+                MainWindow.DispatcherQueue.TryEnqueue(() => MainWindow.AppWindow.Hide());
+            }
+        }
+        catch
+        {
+        }
     }
 
     private void App_UnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)

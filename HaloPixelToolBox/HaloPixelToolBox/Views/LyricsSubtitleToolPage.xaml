@@ -8,39 +8,113 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
     <ScrollViewer>
-        <StackPanel Spacing="10" Margin="0,0,0,24">
+        <StackPanel Spacing="12" Margin="0,0,0,24">
             <TextBlock Text="歌词字幕" Style="{StaticResource TitleTextBlockStyle}"/>
-            <controls:SettingsCard Header="歌词来源" Description="本地 LRC 已可用，平台 Provider 将继续适配">
-                <ComboBox ItemsSource="{x:Bind ViewModel.ProviderNames}"
-                          SelectedIndex="{x:Bind ViewModel.SelectedProviderIndex, Mode=TwoWay}"
-                          MinWidth="240"/>
-            </controls:SettingsCard>
-            <controls:SettingsCard Header="本地歌词文件" Description="支持 LRC 和纯文本歌词">
-                <Grid RowSpacing="8" HorizontalAlignment="Stretch">
+
+            <controls:SettingsCard Header="歌词来源" Description="选择当前歌词读取方式">
+                <Grid RowSpacing="8">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
-                    <TextBox Text="{x:Bind ViewModel.LocalLyricsFilePath, Mode=TwoWay}"
-                             PlaceholderText="请选择本地 LRC 歌词文件"
-                             TextWrapping="Wrap"
-                             AcceptsReturn="True"
-                             MinHeight="60"
-                             IsReadOnly="True"/>
-                    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
-                        <Button Content="选择并加载 LRC"
-                                Command="{x:Bind ViewModel.SelectLocalLyricsFileCommand}"
-                                Style="{StaticResource AccentButtonStyle}"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <ToggleButton Content="网易云桌面"
+                                      Command="{x:Bind ViewModel.SelectNetEaseProviderCommand}"
+                                      IsChecked="{x:Bind ViewModel.IsNetEaseProviderSelected, Mode=OneWay}"
+                                      MinWidth="116"
+                                      Padding="12,8"/>
+                        <ToggleButton Content="QQ 音乐"
+                                      Command="{x:Bind ViewModel.SelectQQMusicProviderCommand}"
+                                      IsChecked="{x:Bind ViewModel.IsQQMusicProviderSelected, Mode=OneWay}"
+                                      MinWidth="96"
+                                      Padding="12,8"/>
+                        <ToggleButton Content="Spotify"
+                                      Command="{x:Bind ViewModel.SelectSpotifyProviderCommand}"
+                                      IsChecked="{x:Bind ViewModel.IsSpotifyProviderSelected, Mode=OneWay}"
+                                      MinWidth="96"
+                                      Padding="12,8"/>
+                        <ToggleButton Content="本地 LRC"
+                                      Command="{x:Bind ViewModel.SelectLocalFileProviderCommand}"
+                                      IsChecked="{x:Bind ViewModel.IsLocalFileProviderSelected, Mode=OneWay}"
+                                      MinWidth="96"
+                                      Padding="12,8"/>
+                        <ToggleButton Content="自定义"
+                                      Command="{x:Bind ViewModel.SelectCustomProviderCommand}"
+                                      IsChecked="{x:Bind ViewModel.IsCustomProviderSelected, Mode=OneWay}"
+                                      MinWidth="96"
+                                      Padding="12,8"/>
+                    </StackPanel>
+                    <StackPanel Grid.Row="1"
+                                Orientation="Horizontal"
+                                Spacing="6"
+                                HorizontalAlignment="Right">
+                        <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="4" Padding="6,2">
+                            <TextBlock Text="{x:Bind ViewModel.NetEaseProviderStatus, Mode=OneWay}" FontSize="12" MaxWidth="180" TextTrimming="CharacterEllipsis"/>
+                        </Border>
+                        <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="4" Padding="6,2">
+                            <TextBlock Text="{x:Bind ViewModel.SpotifyProviderStatus, Mode=OneWay}" FontSize="12" MaxWidth="180" TextTrimming="CharacterEllipsis"/>
+                        </Border>
+                        <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="4" Padding="6,2">
+                            <TextBlock Text="{x:Bind ViewModel.LocalFileProviderStatus, Mode=OneWay}" FontSize="12" MaxWidth="120" TextTrimming="CharacterEllipsis"/>
+                        </Border>
+                        <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="4" Padding="6,2">
+                            <TextBlock Text="{x:Bind ViewModel.QqMusicProviderStatus, Mode=OneWay}" FontSize="12" MaxWidth="180" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </Border>
+                        <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="4" Padding="6,2">
+                            <TextBlock Text="{x:Bind ViewModel.CustomProviderStatus, Mode=OneWay}" FontSize="12" MaxWidth="140" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </Border>
                     </StackPanel>
                 </Grid>
             </controls:SettingsCard>
+
+            <controls:SettingsCard Header="字幕音箱音量" Description="{x:Bind ViewModel.VolumeStatusMessage, Mode=OneWay}">
+                <Grid ColumnSpacing="12" MinWidth="320">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="240"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Slider Minimum="0"
+                            Maximum="16"
+                            StepFrequency="1"
+                            SmallChange="1"
+                            LargeChange="2"
+                            Value="{x:Bind ViewModel.SubtitleSpeakerVolume, Mode=TwoWay}"/>
+                    <TextBlock Grid.Column="1"
+                               Text="{x:Bind ViewModel.SubtitleSpeakerVolumeText, Mode=OneWay}"
+                               VerticalAlignment="Center"
+                               MinWidth="72"/>
+                </Grid>
+            </controls:SettingsCard>
+
+            <controls:SettingsCard Header="本地歌词文件"
+                                   Description="支持 LRC 和纯文本歌词"
+                                   HorizontalContentAlignment="Stretch">
+                <Grid ColumnSpacing="8" HorizontalAlignment="Stretch">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox Text="{x:Bind ViewModel.LocalLyricsFilePath, Mode=TwoWay}"
+                             PlaceholderText="请选择本地LRC歌词文件，无资源时支持手动选择本地歌词"
+                             TextWrapping="Wrap"
+                             IsReadOnly="True"
+                             HorizontalAlignment="Stretch"/>
+                    <Button Grid.Column="1"
+                            Content="选择并加载 LRC"
+                            Command="{x:Bind ViewModel.SelectLocalLyricsFileCommand}"
+                            Style="{StaticResource AccentButtonStyle}"/>
+                </Grid>
+            </controls:SettingsCard>
+
             <controls:SettingsCard Header="歌曲关键字" Description="用于平台搜索；本地文件可选">
                 <TextBox Text="{x:Bind ViewModel.Keyword, Mode=TwoWay}" MinWidth="260"/>
             </controls:SettingsCard>
+
             <controls:SettingsCard Header="滚动歌词" Description="歌词过长时切换为滚动显示">
                 <ToggleSwitch IsOn="{x:Bind ViewModel.EnableScroll, Mode=TwoWay}"/>
             </controls:SettingsCard>
-            <controls:SettingsCard Header="播放进度" Description="拖动进度条松开后发送对应歌词，也可输入 00:42.550 后手动发送">
+
+            <controls:SettingsCard Header="播放进度" Description="拖动进度条松开后发送对应歌词，也可输入 00:42.550 后手动定位">
                 <Grid ColumnSpacing="12" HorizontalAlignment="Stretch">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -57,32 +131,64 @@
                              MinWidth="120"/>
                 </Grid>
             </controls:SettingsCard>
+
             <controls:SettingsCard Header="歌词时间偏移" Description="正数延后显示歌词，负数提前显示歌词，单位秒">
                 <NumberBox Value="{x:Bind ViewModel.OffsetSeconds, Mode=TwoWay}" SpinButtonPlacementMode="Compact" SmallChange="0.1" LargeChange="1"/>
             </controls:SettingsCard>
-            <controls:SettingsCard Header="歌词预览" Description="{x:Bind ViewModel.StatusMessage, Mode=OneWay}">
-                <Grid RowSpacing="8" HorizontalAlignment="Stretch">
+
+            <Border CornerRadius="6"
+                    BorderThickness="1"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    HorizontalAlignment="Stretch">
+                <Grid HorizontalAlignment="Stretch">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button Content="开始同步"
-                                Command="{x:Bind ViewModel.StartLyricsSyncCommand}"
-                                Style="{StaticResource AccentButtonStyle}"/>
-                        <Button Content="停止同步"
-                                Command="{x:Bind ViewModel.StopLyricsSyncCommand}"/>
-                        <Button Content="重新加载歌词" Command="{x:Bind ViewModel.LoadLyricsCommand}"/>
-                        <Button Content="发送当前行" Command="{x:Bind ViewModel.SendCurrentLineCommand}"/>
+                    <StackPanel Padding="16,12,16,10" Spacing="4">
+                        <TextBlock Text="歌词预览"
+                                   FontSize="16"
+                                   FontWeight="SemiBold"/>
+                        <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   TextWrapping="Wrap"/>
                     </StackPanel>
-                    <TextBox Grid.Row="1"
-                             Text="{x:Bind ViewModel.PreviewText, Mode=OneWay}"
-                             TextWrapping="Wrap"
-                             AcceptsReturn="True"
-                             MinHeight="180"
-                             IsReadOnly="True"/>
+                    <Border Grid.Row="1"
+                            Height="1"
+                            Background="{ThemeResource CardStrokeColorDefaultBrush}"
+                            Opacity="0.75"/>
+                    <StackPanel Grid.Row="2"
+                                Orientation="Horizontal"
+                                Spacing="16"
+                                Padding="16,10"
+                                VerticalAlignment="Center">
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.EnableLyricsSync, Mode=TwoWay}"
+                                      OnContent="开始同步"
+                                      OffContent="开始同步"/>
+                        <Button Content="重新加载歌词"
+                                Command="{x:Bind ViewModel.LoadLyricsCommand}"/>
+                    </StackPanel>
+                    <Border Grid.Row="3"
+                            Height="1"
+                            Background="{ThemeResource CardStrokeColorDefaultBrush}"
+                            Opacity="0.75"/>
+                    <Grid Grid.Row="4"
+                          MinHeight="220"
+                          Padding="18">
+                        <TextBlock Text="{x:Bind ViewModel.CurrentLyricLine, Mode=OneWay}"
+                                   TextWrapping="Wrap"
+                                   TextAlignment="Center"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   FontSize="22"
+                                   MaxWidth="720"/>
+                    </Grid>
                 </Grid>
-            </controls:SettingsCard>
+            </Border>
         </StackPanel>
     </ScrollViewer>
 </Page>

@@ -30,4 +30,10 @@ public partial class DisplayFeatureProfile : XFEProfile
 
     [ProfileProperty]
     private int browserSubtitleAsrEngineIndex = 1;
+
+    [ProfileProperty]
+    private string lastToolPageName = "HaloPixelToolBox.Views.PersonalSceneToolPage";
+
+    [ProfileProperty]
+    private int lyricsProviderIndex = 3;
 }

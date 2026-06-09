@@ -74,7 +74,7 @@ public partial class TrayIconService : GlobalServiceBase, ITrayIconService
     public void ExitApp()
     {
         _notifyIcon.Visible = false;
-        Environment.Exit(0);
+        App.ExitAfterBackgroundPersonalSceneRestore();
     }
 
     public void Dispose() => GC.SuppressFinalize(this);
