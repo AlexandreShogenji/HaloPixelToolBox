@@ -363,3 +363,6 @@ MigrationBackup/
 FodyWeavers.xsd
 /HaloPixelToolBox.Installer.Package/Source.zip
 /HaloPixelToolBox.Installer/Resources/Resource/Source.zip
+
+# Local development plans and scratch notes
+/docs/
