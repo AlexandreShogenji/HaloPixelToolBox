@@ -4,6 +4,10 @@ public static class HaloPixelCachePaths
 {
     public static string Root { get; } = Path.Combine(Path.GetTempPath(), "HaloPixelToolBox");
 
+    public static string StableRoot { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HaloPixelToolBox");
+
+    public static string ModelRoot { get; } = Path.Combine(StableRoot, "Models");
+
     public static string BrowserSubtitleAsrRoot { get; } = Path.Combine(Root, "BrowserSubtitleAsr");
 
     public static string BrowserSubtitleAsrWorkRoot { get; } = Path.Combine(BrowserSubtitleAsrRoot, "Work");
@@ -12,7 +16,7 @@ public static class HaloPixelCachePaths
 
     public static string BrowserSubtitleAsrSubtitleRoot { get; } = Path.Combine(BrowserSubtitleAsrRoot, "Subtitles");
 
-    public static string BrowserSubtitleAsrModelRoot { get; } = Path.Combine(BrowserSubtitleAsrRoot, "Models");
+    public static string BrowserSubtitleAsrModelRoot { get; } = Path.Combine(ModelRoot, "BrowserSubtitleAsr");
 
     public static string HuggingFaceRoot { get; } = Path.Combine(BrowserSubtitleAsrModelRoot, "HuggingFace");
 
@@ -42,6 +46,9 @@ public static class HaloPixelCachePaths
             ["HF_HOME"] = HuggingFaceRoot,
             ["HUGGINGFACE_HUB_CACHE"] = HuggingFaceHubCache,
             ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1",
+            ["HF_HUB_DISABLE_XET"] = "1",
+            ["HF_HUB_ETAG_TIMEOUT"] = "15",
+            ["HF_HUB_DOWNLOAD_TIMEOUT"] = "30",
             ["MODELSCOPE_CACHE"] = ModelScopeRoot,
             ["MODELSCOPE_CACHE_DIR"] = ModelScopeRoot,
             ["TORCH_HOME"] = TorchRoot

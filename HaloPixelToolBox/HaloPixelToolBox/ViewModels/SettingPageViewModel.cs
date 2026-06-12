@@ -1,5 +1,6 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using HaloPixelToolBox.Core.Utilities;
 using HaloPixelToolBox.Core.Utilities.Helpers;
 using HaloPixelToolBox.Interface.Services;
 using HaloPixelToolBox.Profiles.CrossVersionProfiles;
@@ -26,6 +27,10 @@ public partial class SettingPageViewModel : ViewModelBase
     string appCacheDirectory = AppPathHelper.AppCache;
     [ObservableProperty]
     string appCacheSize = FileHelper.GetDirectorySize(new(AppPathHelper.AppCache)).FileSize();
+    [ObservableProperty]
+    string asrModelCacheDirectory = HaloPixelCachePaths.BrowserSubtitleAsrModelRoot;
+    [ObservableProperty]
+    string asrModelCacheSize = FileHelper.GetDirectorySize(new(HaloPixelCachePaths.BrowserSubtitleAsrModelRoot)).FileSize();
     [ObservableProperty]
     string appDataDirectory = AppPathHelper.AppLocalData;
     [ObservableProperty]

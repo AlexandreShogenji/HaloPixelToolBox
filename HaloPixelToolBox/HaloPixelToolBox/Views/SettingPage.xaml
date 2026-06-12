@@ -85,6 +85,15 @@
                         <Button Grid.Column="1" Content="清除缓存" Command="{x:Bind ViewModel.ClearCacheCommand}"/>
                     </Grid>
                 </controls:SettingsCard>
+                <controls:SettingsCard Header="ASR 模型目录" Description="{x:Bind ViewModel.AsrModelCacheDirectory, Mode=OneWay}" IsClickEnabled="True" Command="{x:Bind ViewModel.OpenPathCommand}" CommandParameter="{x:Bind ViewModel.AsrModelCacheDirectory, Mode=OneWay}">
+                    <controls:SettingsCard.ActionIcon>
+                        <FontIcon Glyph="&#xE8A7;"/>
+                    </controls:SettingsCard.ActionIcon>
+                    <StackPanel Spacing="4">
+                        <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind ViewModel.AsrModelCacheSize, Mode=OneWay}" VerticalAlignment="Center"/>
+                        <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="长期保存 Whisper / SenseVoice 模型；清除上方缓存不会删除此目录。" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </controls:SettingsCard>
                 <controls:SettingsCard Header="程序日志" Description="{x:Bind ViewModel.AppLogDirectory, Mode=OneWay}" IsClickEnabled="True" Command="{x:Bind ViewModel.OpenPathCommand}" CommandParameter="{x:Bind ViewModel.AppLogDirectory, Mode=OneWay}">
                     <controls:SettingsCard.ActionIcon>
                         <FontIcon Glyph="&#xE8A7;"/>

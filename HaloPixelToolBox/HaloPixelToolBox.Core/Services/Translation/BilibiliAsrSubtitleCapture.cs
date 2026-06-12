@@ -53,7 +53,7 @@ public class BilibiliAsrSubtitleCapture
         try
         {
             progress?.Report("ASR 兜底：正在准备 B 站音频...");
-            var audioPath = await DownloadAudioAsync(videoUrl, tempDir, python, ytdlp, usePythonYtDlp, progress, cancellationToken);
+            var audioPath = await DownloadAudioAsync(videoUrl, tempDir, python, ytdlp, usePythonYtDlp, configuration.BrowserProcessName, progress, cancellationToken);
 
             progress?.Report("ASR 兜底：正在转码音频...");
             var wavPath = Path.Combine(tempDir, "audio.wav");
@@ -133,7 +133,7 @@ public class BilibiliAsrSubtitleCapture
         try
         {
             progress?.Report("ASR 流式：正在准备 B 站音频...");
-            var audioPath = await DownloadAudioAsync(videoUrl, tempDir, python, ytdlp, usePythonYtDlp, progress, cancellationToken);
+            var audioPath = await DownloadAudioAsync(videoUrl, tempDir, python, ytdlp, usePythonYtDlp, configuration.BrowserProcessName, progress, cancellationToken);
             var duration = ffprobe is null
                 ? null
                 : await TryGetAudioDurationAsync(ffprobe, audioPath, tempDir, cancellationToken);
@@ -251,15 +251,15 @@ public class BilibiliAsrSubtitleCapture
                 File.ReadAllText(cachePath, Encoding.UTF8),
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
-            var cues = cache?.Cues
-                .Where(cue => !string.IsNullOrWhiteSpace(cue.Text))
+            var cues = FilterAsrCues(cache?.Cues
+                .Where(cue => !string.IsNullOrWhiteSpace(cue.Text) && !IsLikelyAsrHallucination(cue.Text))
                 .Select(cue => new SubtitleCue
                 {
                     Start = TimeSpan.FromSeconds(Math.Max(0, cue.Start)),
                     End = TimeSpan.FromSeconds(Math.Max(cue.Start, cue.End)),
                     Text = cue.Text.Trim()
                 })
-                .ToList() ?? [];
+                .ToList() ?? []);
 
             if (cues.Count == 0)
                 return null;
@@ -289,12 +289,15 @@ public class BilibiliAsrSubtitleCapture
             Model = GetModelCacheIdentity(configuration.AsrEngine),
             Language = NormalizeLanguage(configuration.SourceLanguage),
             CachedAt = DateTimeOffset.Now,
-            Cues = cues.Select(cue => new CachedSubtitleCue
-            {
-                Start = cue.Start.TotalSeconds,
-                End = cue.End.TotalSeconds,
-                Text = cue.Text
-            }).ToList()
+            Cues = FilterAsrCues(cues)
+                .Where(cue => !string.IsNullOrWhiteSpace(cue.Text) && !IsLikelyAsrHallucination(cue.Text))
+                .Select(cue => new CachedSubtitleCue
+                {
+                    Start = cue.Start.TotalSeconds,
+                    End = cue.End.TotalSeconds,
+                    Text = cue.Text
+                })
+                .ToList()
         };
 
         var cachePath = Path.Combine(HaloPixelCachePaths.BrowserSubtitleAsrSubtitleRoot, $"{cacheKey}.json");
@@ -509,6 +512,7 @@ public class BilibiliAsrSubtitleCapture
         string python,
         string? ytdlp,
         bool usePythonYtDlp,
+        string browserProcessName,
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
@@ -525,15 +529,41 @@ public class BilibiliAsrSubtitleCapture
         {
             "-f", "ba",
             "--user-agent", UserAgent,
+            "--referer", "https://www.bilibili.com/",
+            "--add-header", "Origin:https://www.bilibili.com",
+            "--add-header", "Accept-Language:zh-CN,zh;q=0.9,en;q=0.8",
             "-o", outputTemplate,
             "--no-playlist",
             videoUrl
         };
 
-        if (usePythonYtDlp)
-            await RunProcessAsync(python, ["-m", "yt_dlp", .. commonArgs], tempDir, cancellationToken, progress);
-        else
-            await RunProcessAsync(ytdlp!, commonArgs, tempDir, cancellationToken, progress);
+        Exception? lastError = null;
+        foreach (var args in BuildYtDlpDownloadArgumentAttempts(commonArgs, browserProcessName))
+        {
+            try
+            {
+                if (usePythonYtDlp)
+                    await RunProcessAsync(python, ["-m", "yt_dlp", .. args], tempDir, cancellationToken, progress);
+                else
+                    await RunProcessAsync(ytdlp!, args, tempDir, cancellationToken, progress);
+
+                lastError = null;
+                break;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                lastError = ex;
+                DeletePartialAudioFiles(tempDir);
+                progress?.Report($"ASR 兜底：B 站音频下载尝试失败，正在切换下载参数：{ex.Message}");
+            }
+        }
+
+        if (lastError is not null)
+            throw lastError;
 
         var audioPath = Directory.EnumerateFiles(tempDir, "audio.*")
             .Where(path => !path.EndsWith(".part", StringComparison.OrdinalIgnoreCase))
@@ -544,6 +574,44 @@ public class BilibiliAsrSubtitleCapture
             throw new InvalidOperationException("yt-dlp 未生成音频文件");
 
         return await MoveAudioToCacheAsync(videoUrl, cacheKey, audioPath, cancellationToken);
+    }
+
+    private static IEnumerable<IReadOnlyList<string>> BuildYtDlpDownloadArgumentAttempts(IReadOnlyList<string> commonArgs, string browserProcessName)
+    {
+        var cookieBrowser = ResolveYtDlpCookieBrowser(browserProcessName);
+        if (!string.IsNullOrWhiteSpace(cookieBrowser))
+            yield return ["--cookies-from-browser", cookieBrowser, .. commonArgs];
+
+        yield return commonArgs;
+    }
+
+    private static string ResolveYtDlpCookieBrowser(string browserProcessName)
+    {
+        var normalized = (browserProcessName ?? string.Empty).Trim().ToLowerInvariant();
+        if (normalized.EndsWith(".exe", StringComparison.Ordinal))
+            normalized = normalized[..^4];
+
+        return normalized switch
+        {
+            "" => "chrome",
+            "chrome" or "chromium" or "brave" or "opera" or "vivaldi" or "firefox" or "safari" or "whale" => normalized,
+            "msedge" or "edge" or "microsoftedge" => "edge",
+            _ => "chrome"
+        };
+    }
+
+    private static void DeletePartialAudioFiles(string tempDir)
+    {
+        foreach (var path in Directory.EnumerateFiles(tempDir, "audio.*"))
+        {
+            try
+            {
+                File.Delete(path);
+            }
+            catch
+            {
+            }
+        }
     }
 
     private static string BuildAudioCacheKey(string videoUrl)
@@ -636,6 +704,19 @@ public class BilibiliAsrSubtitleCapture
             ["PYTHONIOENCODING"] = "utf-8"
         };
 
+        var hfToken = Environment.GetEnvironmentVariable("HF_TOKEN");
+        if (string.IsNullOrWhiteSpace(hfToken))
+            hfToken = Environment.GetEnvironmentVariable("HUGGINGFACE_HUB_TOKEN");
+        if (!string.IsNullOrWhiteSpace(hfToken))
+        {
+            environment["HF_TOKEN"] = hfToken;
+            environment["HUGGINGFACE_HUB_TOKEN"] = hfToken;
+        }
+
+        var hfEndpoint = Environment.GetEnvironmentVariable("HF_ENDPOINT");
+        if (!string.IsNullOrWhiteSpace(hfEndpoint))
+            environment["HF_ENDPOINT"] = hfEndpoint.Trim().TrimEnd('/');
+
         var cudaDllDirectories = FindCudaDllDirectories();
         if (cudaDllDirectories.Count > 0)
         {
@@ -715,8 +796,8 @@ public class BilibiliAsrSubtitleCapture
         var segments = JsonSerializer.Deserialize<List<AsrSegment>>(
             match.Groups["json"].Value,
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? [];
-        return segments
-            .Where(segment => !string.IsNullOrWhiteSpace(segment.Text))
+        var cues = segments
+            .Where(segment => !string.IsNullOrWhiteSpace(segment.Text) && !IsLikelyAsrHallucination(segment.Text))
             .Select(segment => new SubtitleCue
             {
                 Start = TimeSpan.FromSeconds(Math.Max(0, segment.Start)),
@@ -724,6 +805,86 @@ public class BilibiliAsrSubtitleCapture
                 Text = segment.Text.Trim()
             })
             .ToList();
+
+        return FilterAsrCues(cues);
+    }
+
+    private static IReadOnlyList<SubtitleCue> FilterAsrCues(IEnumerable<SubtitleCue> cues)
+    {
+        var filtered = new List<SubtitleCue>();
+        foreach (var cue in cues.OrderBy(cue => cue.Start))
+        {
+            if (string.IsNullOrWhiteSpace(cue.Text) || IsLikelyAsrHallucination(cue.Text))
+                continue;
+
+            var normalized = NormalizeAsrFilterText(cue.Text);
+            if (normalized.Length == 0)
+                continue;
+
+            var repeatedCount = 0;
+            for (var index = filtered.Count - 1; index >= 0 && index >= filtered.Count - 3; index--)
+            {
+                if (NormalizeAsrFilterText(filtered[index].Text).Equals(normalized, StringComparison.OrdinalIgnoreCase))
+                    repeatedCount++;
+            }
+
+            if (repeatedCount >= 2 && normalized.Length <= 24)
+                continue;
+
+            filtered.Add(cue);
+        }
+
+        return filtered;
+    }
+
+    private static bool IsLikelyAsrHallucination(string text)
+    {
+        var compact = NormalizeAsrFilterText(text);
+        if (compact.Length == 0)
+            return true;
+
+        if ((compact.Contains("ご視聴", StringComparison.Ordinal) || compact.Contains("ご清聴", StringComparison.Ordinal))
+            && (compact.Contains("ありがとう", StringComparison.Ordinal) || compact.Contains("有難う", StringComparison.Ordinal)))
+        {
+            return true;
+        }
+
+        if (compact.Contains("チャンネル登録", StringComparison.Ordinal)
+            && (compact.Contains("お願い", StringComparison.Ordinal) || compact.Contains("よろしく", StringComparison.Ordinal)))
+        {
+            return true;
+        }
+
+        if ((compact.Contains("高評価", StringComparison.Ordinal) || compact.Contains("いいね", StringComparison.Ordinal))
+            && compact.Contains("チャンネル登録", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if ((compact.Contains("感谢", StringComparison.Ordinal) || compact.Contains("感謝", StringComparison.Ordinal)
+             || compact.Contains("谢谢", StringComparison.Ordinal) || compact.Contains("謝謝", StringComparison.Ordinal))
+            && (compact.Contains("观看", StringComparison.Ordinal) || compact.Contains("觀看", StringComparison.Ordinal)
+                || compact.Contains("收看", StringComparison.Ordinal) || compact.Contains("订阅", StringComparison.Ordinal)
+                || compact.Contains("訂閱", StringComparison.Ordinal)))
+        {
+            return true;
+        }
+
+        if ((compact.Contains("点赞", StringComparison.Ordinal) || compact.Contains("點贊", StringComparison.Ordinal)
+             || compact.Contains("点个赞", StringComparison.Ordinal))
+            && (compact.Contains("订阅", StringComparison.Ordinal) || compact.Contains("訂閱", StringComparison.Ordinal)))
+        {
+            return true;
+        }
+
+        var normalized = Regex.Replace(text ?? string.Empty, @"\s+", " ").Trim().Trim('.', '!', '?').ToLowerInvariant();
+        return (normalized.Contains("thanks", StringComparison.Ordinal) || normalized.Contains("thank you", StringComparison.Ordinal))
+               && (normalized.Contains("watching", StringComparison.Ordinal) || normalized.Contains("subscribe", StringComparison.Ordinal));
+    }
+
+    private static string NormalizeAsrFilterText(string text)
+    {
+        return Regex.Replace(text ?? string.Empty, @"[\s　。.!！?？…、,，:：;；""'“”‘’（）()\[\]【】]+", string.Empty).Trim();
     }
 
     private static string NormalizeVideoUrl(string input)
@@ -1040,6 +1201,7 @@ import os
 import re
 import sys
 import time
+import inspect
 
 audio_file = sys.argv[1]
 language = sys.argv[2] if len(sys.argv) > 2 else "auto"
@@ -1071,6 +1233,28 @@ configure_windows_cuda_dll_search_path()
 
 def clean_text(raw):
     return re.sub(r"<\|[^|]+\|>", "", raw or "").strip()
+
+def compact_filter_text(raw):
+    return re.sub(r"[\s　。.!！?？…、,，:：;；\"'“”‘’（）()\[\]【】]+", "", raw or "").strip()
+
+def is_likely_asr_hallucination(raw):
+    compact = compact_filter_text(raw)
+    if not compact:
+        return True
+    if ("ご視聴" in compact or "ご清聴" in compact) and ("ありがとう" in compact or "有難う" in compact):
+        return True
+    if "チャンネル登録" in compact and ("お願い" in compact or "よろしく" in compact):
+        return True
+    if ("高評価" in compact or "いいね" in compact) and "チャンネル登録" in compact:
+        return True
+    if ("感谢" in compact or "感謝" in compact or "谢谢" in compact or "謝謝" in compact) and (
+        "观看" in compact or "觀看" in compact or "收看" in compact or "订阅" in compact or "訂閱" in compact
+    ):
+        return True
+    if ("点赞" in compact or "點贊" in compact or "点个赞" in compact) and ("订阅" in compact or "訂閱" in compact):
+        return True
+    lower = re.sub(r"\s+", " ", raw or "").strip(" .!?").lower()
+    return ("thanks" in lower or "thank you" in lower) and ("watching" in lower or "subscribe" in lower)
 
 def join_token(text, token):
     if not text:
@@ -1239,7 +1423,7 @@ def normalize_segments(segments):
     cleaned = []
     for segment in segments:
         text = clean_text(segment.get("text", ""))
-        if not text:
+        if not text or is_likely_asr_hallucination(text):
             continue
         start = max(0.0, float(segment.get("start", 0.0)))
         end = max(start + 0.5, float(segment.get("end", start + 0.5)))
@@ -1267,6 +1451,29 @@ def normalize_segments(segments):
 
     return merged
 
+def filter_transcribe_kwargs(model, kwargs):
+    try:
+        allowed = set(inspect.signature(model.transcribe).parameters.keys())
+        return {key: value for key, value in kwargs.items() if key in allowed}
+    except Exception:
+        return kwargs
+
+def is_low_confidence_whisper_entry(entry):
+    no_speech_prob = getattr(entry, "no_speech_prob", None)
+    avg_logprob = getattr(entry, "avg_logprob", None)
+    compression_ratio = getattr(entry, "compression_ratio", None)
+    try:
+        if no_speech_prob is not None and avg_logprob is not None and float(no_speech_prob) > 0.55 and float(avg_logprob) < -1.0:
+            return True
+    except Exception:
+        pass
+    try:
+        if compression_ratio is not None and float(compression_ratio) > 2.4:
+            return True
+    except Exception:
+        pass
+    return False
+
 def emit(segments):
     print("---RESULT---")
     print(json.dumps(normalize_segments(segments), ensure_ascii=False))
@@ -1277,6 +1484,7 @@ def run_sensevoice():
     device = resolve_sensevoice_device()
     print(f"ASR device: SenseVoice {device}", flush=True)
     try:
+        print(f"ASR model: loading/downloading iic/SenseVoiceSmall; cache={os.environ.get('MODELSCOPE_CACHE', '')}", flush=True)
         model = AutoModel(
             model="iic/SenseVoiceSmall",
             trust_remote_code=True,
@@ -1289,6 +1497,7 @@ def run_sensevoice():
         if device == "cpu":
             raise
         print(f"ASR device: SenseVoice CUDA unavailable, fallback to CPU ({exc})", flush=True)
+        print(f"ASR model: loading/downloading iic/SenseVoiceSmall; cache={os.environ.get('MODELSCOPE_CACHE', '')}", flush=True)
         model = AutoModel(
             model="iic/SenseVoiceSmall",
             trust_remote_code=True,
@@ -1332,33 +1541,224 @@ def run_sensevoice():
         segments.append({"start": round(start_s, 3), "end": round(max(end_s, start_s + 0.5), 3), "text": text})
     return segments
 
+def format_bytes(value):
+    units = ["B", "KB", "MB", "GB"]
+    size = float(value or 0)
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            return f"{size:.1f}{unit}"
+        size /= 1024
+
+def directory_size(path):
+    if not path or not os.path.isdir(path):
+        return 0
+    total = 0
+    for root, _, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                pass
+    return total
+
+def resolve_whisper_repo(model_name):
+    aliases = {
+        "large-v3-turbo": "h2oai/faster-whisper-large-v3-turbo",
+        "small": "Systran/faster-whisper-small",
+        "medium": "Systran/faster-whisper-medium",
+        "large-v3": "Systran/faster-whisper-large-v3",
+    }
+    return aliases.get(model_name, model_name)
+
+def resolve_whisper_model_path(model_name):
+    if os.path.isdir(model_name):
+        return model_name
+
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    repo_id = resolve_whisper_repo(model_name)
+    endpoint = (os.environ.get("HF_ENDPOINT") or "https://huggingface.co").rstrip("/")
+    hf_home = os.environ.get("HF_HOME") or os.environ.get("HUGGINGFACE_HUB_CACHE") or os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
+    model_dir = os.path.join(hf_home, "direct", repo_id.replace("/", "--"))
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN") or None
+    required_files = ["config.json", "tokenizer.json", "vocabulary.json", "preprocessor_config.json", "model.bin"]
+    os.makedirs(model_dir, exist_ok=True)
+    complete_marker = os.path.join(model_dir, "download-complete.json")
+
+    def has_complete_marker():
+        if not os.path.isfile(complete_marker):
+            return False
+        for filename in required_files:
+            path = os.path.join(model_dir, filename)
+            if not os.path.isfile(path) or os.path.getsize(path) <= 0:
+                return False
+        return True
+
+    if has_complete_marker():
+        print(f"ASR model: cached {repo_id}; path={model_dir}", flush=True)
+        return model_dir
+
+    def build_url(filename):
+        quoted_repo = "/".join(urllib.parse.quote(part) for part in repo_id.split("/"))
+        return f"{endpoint}/{quoted_repo}/resolve/main/{urllib.parse.quote(filename)}"
+
+    def remote_file_size(filename):
+        headers = {"User-Agent": "HaloPixelToolBox/ASR"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        request = urllib.request.Request(build_url(filename), headers=headers, method="HEAD")
+        with urllib.request.urlopen(request, timeout=30) as response:
+            for key in ("X-Linked-Size", "x-linked-size", "Content-Length", "content-length"):
+                value = response.headers.get(key)
+                if value:
+                    try:
+                        return int(value)
+                    except Exception:
+                        pass
+        return None
+
+    def expected_size_from_headers(response, resume_from):
+        content_range = response.headers.get("Content-Range") or response.headers.get("content-range")
+        if content_range and "/" in content_range:
+            try:
+                return int(content_range.rsplit("/", 1)[1])
+            except Exception:
+                pass
+        content_length = response.headers.get("Content-Length") or response.headers.get("content-length")
+        if content_length:
+            try:
+                return int(content_length) + resume_from
+            except Exception:
+                pass
+        return None
+
+    def download_file(filename):
+        path = os.path.join(model_dir, filename)
+        partial = path + ".partial"
+        expected_size = remote_file_size(filename)
+        if os.path.isfile(path) and os.path.getsize(path) > 0:
+            current_size = os.path.getsize(path)
+            if expected_size is None or current_size == expected_size:
+                print(f"ASR model: cached {filename} ({format_bytes(current_size)})", flush=True)
+                return
+
+            if current_size < expected_size:
+                partial_size = os.path.getsize(partial) if os.path.isfile(partial) else 0
+                print(f"ASR model: incomplete {filename} {format_bytes(current_size)}/{format_bytes(expected_size)}; resume download", flush=True)
+                if current_size > partial_size:
+                    if os.path.isfile(partial):
+                        os.remove(partial)
+                    os.replace(path, partial)
+                else:
+                    os.remove(path)
+            else:
+                print(f"ASR model: invalid oversized {filename} {format_bytes(current_size)}/{format_bytes(expected_size)}; redownload", flush=True)
+                os.remove(path)
+
+        resume_from = os.path.getsize(partial) if os.path.isfile(partial) else 0
+        url = build_url(filename)
+        headers = {"User-Agent": "HaloPixelToolBox/ASR"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        if resume_from > 0:
+            headers["Range"] = f"bytes={resume_from}-"
+
+        print(f"ASR model: downloading {filename} from {endpoint}; resume={format_bytes(resume_from)}", flush=True)
+        request = urllib.request.Request(url, headers=headers)
+        started = last_report = time.time()
+        downloaded = resume_from
+        with urllib.request.urlopen(request, timeout=30) as response:
+            total_size = expected_size_from_headers(response, resume_from)
+            if total_size is None:
+                total_size = expected_size
+            mode = "ab" if resume_from > 0 and response.status == 206 else "wb"
+            if mode == "wb":
+                downloaded = 0
+            with open(partial, mode) as output:
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    output.write(chunk)
+                    downloaded += len(chunk)
+                    now = time.time()
+                    if now - last_report >= 5:
+                        suffix = f"/{format_bytes(total_size)}" if total_size else ""
+                        speed = (downloaded - resume_from) / max(0.1, now - started)
+                        print(f"ASR model: {filename} {format_bytes(downloaded)}{suffix} at {format_bytes(speed)}/s", flush=True)
+                        last_report = now
+
+        if total_size is not None and downloaded != total_size:
+            print(f"ASR model: incomplete download {filename} {format_bytes(downloaded)}/{format_bytes(total_size)}; will resume next time", flush=True)
+            raise RuntimeError(f"{filename} incomplete: downloaded {downloaded} of {total_size} bytes")
+
+        os.replace(partial, path)
+        print(f"ASR model: ready file {filename} ({format_bytes(os.path.getsize(path))})", flush=True)
+
+    print(f"ASR model: resolving {repo_id}; endpoint={endpoint}; path={model_dir}", flush=True)
+    for filename in required_files:
+        try:
+            download_file(filename)
+        except urllib.error.HTTPError as exc:
+            if filename == "preprocessor_config.json" and exc.code == 404:
+                continue
+            print(f"ASR model: download failed {filename}: HTTP {exc.code} {exc.reason}", flush=True)
+            raise
+        except Exception as exc:
+            print(f"ASR model: download failed {filename}: {exc}", flush=True)
+            raise
+
+    with open(complete_marker, "w", encoding="utf-8") as marker:
+        json.dump({
+            "repo_id": repo_id,
+            "endpoint": endpoint,
+            "completed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "files": {filename: os.path.getsize(os.path.join(model_dir, filename)) for filename in required_files if os.path.isfile(os.path.join(model_dir, filename))}
+        }, marker, ensure_ascii=False, indent=2)
+
+    print(f"ASR model: ready {repo_id}; path={model_dir}", flush=True)
+    return model_dir
+
 def run_whisper(model_name, engine):
     from faster_whisper import WhisperModel
+    model_path = resolve_whisper_model_path(model_name)
 
     def transcribe_once(device, compute_type):
         print(f"ASR device: Whisper {device}/{compute_type}", flush=True)
+        print(f"ASR model: loading {model_path}", flush=True)
         model = WhisperModel(
-            model_name,
+            model_path,
             device=device,
             compute_type=compute_type,
             cpu_threads=max(1, os.cpu_count() or 4),
             num_workers=1,
         )
-        segments_iter, info = model.transcribe(
-            audio_file,
-            language=normalize_whisper_language(language, engine),
-            task="transcribe",
-            beam_size=5,
-            vad_filter=False,
-            word_timestamps=True,
-            condition_on_previous_text=True,
-            without_timestamps=False,
-        )
+        transcribe_kwargs = filter_transcribe_kwargs(model, {
+            "language": normalize_whisper_language(language, engine),
+            "task": "transcribe",
+            "beam_size": 1,
+            "vad_filter": True,
+            "vad_parameters": {"min_silence_duration_ms": 500, "speech_pad_ms": 200},
+            "word_timestamps": True,
+            "condition_on_previous_text": False,
+            "without_timestamps": False,
+            "temperature": 0.0,
+            "no_speech_threshold": 0.45,
+            "log_prob_threshold": -1.0,
+            "compression_ratio_threshold": 2.4,
+            "hallucination_silence_threshold": 2.0,
+        })
+        segments_iter, info = model.transcribe(audio_file, **transcribe_kwargs)
 
         segments = []
         for entry in segments_iter:
+            if is_low_confidence_whisper_entry(entry):
+                continue
+
             text = clean_text(getattr(entry, "text", ""))
-            if not text:
+            if not text or is_likely_asr_hallucination(text):
                 continue
 
             word_segments = split_whisper_words(getattr(entry, "words", None) or [])

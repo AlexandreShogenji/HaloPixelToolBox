@@ -32,6 +32,18 @@ public partial class DisplayFeatureProfile : XFEProfile
     private int browserSubtitleAsrEngineIndex = 1;
 
     [ProfileProperty]
+    private bool browserBilibiliMusicModeEnabled;
+
+    [ProfileProperty]
+    private string browserBilibiliMusicSongTitle = string.Empty;
+
+    [ProfileProperty]
+    private string browserBilibiliMusicArtist = string.Empty;
+
+    [ProfileProperty]
+    private double browserBilibiliMusicLyricsSyncOffsetMilliseconds;
+
+    [ProfileProperty]
     private string lastToolPageName = "HaloPixelToolBox.Views.PersonalSceneToolPage";
 
     [ProfileProperty]
