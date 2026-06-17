@@ -6,7 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <InvariantGlobalization>true</InvariantGlobalization>
-    <PublishAot>true</PublishAot>
+    <PublishAot>false</PublishAot>
+    <PublishSingleFile>true</PublishSingleFile>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 

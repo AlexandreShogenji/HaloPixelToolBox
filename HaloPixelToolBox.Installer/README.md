@@ -1,18 +1,25 @@
-# 如何使用
+# HaloPixelToolBox 安装器打包说明
 
-## 前置操作
+安装器项目负责把主程序发布目录中的文件安装到用户选择的位置。它依赖一个嵌入资源：`Resources\Resource\Source.zip`。该压缩包内部应直接包含 `HaloPixelToolBox.exe` 和运行所需文件，而不是再套一层目录。
 
-- 替换所有的`XFEstudio`为您的`主体`，其可以是您个人也可以是公司名称
-- 替换所有的`花再工具箱`为软件的`显示名称`
-- 替换所有的`HaloPixelToolBox`为软件的`exe可执行文件名称`
-- 将安装包图标放置在`Resources\Icon`目录下，命名为`Icon.ico`
-- 将软件本体图标放置在`Resources\Icon`目录下，命名为`Icon.png`
+推荐使用仓库根目录的发布脚本完成完整打包：
 
-## 将安装器兼更新器放入软件的exe可执行文件目录下
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/Build-Release.ps1 -Version 2.0.0 -Platform x64 -Runtime win-x64
+```
 
-- 执行完前置操作后，点击发布软件，在选择好发布配置（windows平台，独立的）后点击发布
-- 将发布后的所有文件全部复制到待您软件的exe可执行文件的目录下，与软件本体共处同一个文件夹
+脚本会自动完成：
 
-## 将软件压缩包放入安装器
+1. 发布主程序。
+2. 生成并嵌入安装器所需的 `Resources\Resource\Source.zip`。
+3. 发布安装器。
+4. 生成并嵌入 `HaloPixelToolBox.Installer.Package` 所需的 `Source.zip`。
+5. 输出最终安装器 EXE、便携 ZIP 和 SHA256 校验文件到 `release/v2.0.0/`。
 
-- 将完成上述操作后的软件打包为打包为`Source.zip`文件（请注意，压缩包内应为包含exe的直接目录，而非二级目录），并替换`Resources\Resource`目录下0KB的`Source.zip`文件
+如果必须手动打包，请按以下顺序操作：
+
+1. 发布 `HaloPixelToolBox/HaloPixelToolBox/HaloPixelToolBox.csproj`。
+2. 将发布目录中的全部内容压缩为 `Resources\Resource\Source.zip`。
+3. 发布 `HaloPixelToolBox.Installer/HaloPixelToolBox.Installer.csproj`。
+4. 将安装器发布目录中的全部内容压缩为 `HaloPixelToolBox.Installer.Package/Source.zip`。
+5. 发布 `HaloPixelToolBox.Installer.Package/HaloPixelToolBox.Installer.Package.csproj`，得到最终自解压安装器。
