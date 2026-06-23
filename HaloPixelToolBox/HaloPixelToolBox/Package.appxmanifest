@@ -10,7 +10,7 @@
   <Identity
     Name="449a555a-b6b8-44b1-9b17-592898649b32"
     Publisher="CN=XFEstudio"
-    Version="2.0.0.0" />
+    Version="2.1.0.0" />
 
   <mp:PhoneIdentity PhoneProductId="449a555a-b6b8-44b1-9b17-592898649b32" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 

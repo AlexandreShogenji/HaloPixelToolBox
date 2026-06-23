@@ -41,7 +41,7 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
     private readonly CancellationTokenSource providerReadinessMonitorCancellationTokenSource = new();
     private CancellationTokenSource? liveLineSyncCancellationTokenSource;
 
-    public List<string> ProviderNames { get; } = ["网易云音乐（桌面歌词）", "QQ 音乐（待适配）", "Spotify 当前播放", "本地 LRC", "自定义 Provider"];
+    public List<string> ProviderNames { get; } = ["网易云音乐（桌面歌词）", "QQ 音乐（桌面歌词）", "Spotify 当前播放", "本地 LRC", "自定义 Provider"];
 
     [ObservableProperty]
     private int selectedProviderIndex = Math.Clamp(DisplayFeatureProfile.LyricsProviderIndex, 0, 4);
@@ -151,6 +151,7 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
         StatusMessage = providerKind switch
         {
             LyricsProviderKind.NetEaseCloudMusic => "已切换到网易云桌面歌词，请确认网易云已开启桌面歌词并点重新加载",
+            LyricsProviderKind.QQMusic => "已切换到 QQ 音乐桌面歌词，请确认 QQ 音乐正在播放并开启桌面歌词",
             LyricsProviderKind.Spotify => "已切换到 Spotify 当前播放，可直接重新加载自动匹配歌词，也可先选择本地 LRC",
             LyricsProviderKind.LocalFile => "已切换到本地 LRC，请选择并加载歌词文件",
             _ => "该歌词来源尚未完成适配"
@@ -523,8 +524,8 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
                 ? $"网易云 就绪{FormatVersionSuffix(netEase.Version)}"
                 : "网易云 未运行";
             QqMusicProviderStatus = qqMusic.IsRunning
-                ? $"QQ 运行中{FormatVersionSuffix(qqMusic.Version)}（待适配）"
-                : "QQ 未运行（待适配）";
+                ? $"QQ 就绪{FormatVersionSuffix(qqMusic.Version)}"
+                : "QQ 未运行";
             SpotifyProviderStatus = spotifySnapshot?.HasTrack == true
                 ? $"Spotify 就绪{FormatVersionSuffix(spotifyProcess.Version)}"
                 : spotifyProcess.IsRunning
@@ -573,6 +574,8 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
         {
             case LyricsProviderKind.NetEaseCloudMusic:
                 return FindSoftware(["cloudmusic", "CloudMusic", "NeteaseMusic", "网易云音乐"]).IsRunning;
+            case LyricsProviderKind.QQMusic:
+                return FindSoftware(["QQMusic", "qqmusic", "QQMusicSvr"]).IsRunning;
             case LyricsProviderKind.Spotify:
             {
                 var snapshot = await spotifyPlaybackProvider.GetSnapshotAsync(cancellationToken);
@@ -652,13 +655,23 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
         return string.IsNullOrWhiteSpace(version) ? string.Empty : $" v{version}";
     }
 
+    private static string GetLiveProviderDisplayName(ILyricsLiveLineProvider liveLineProvider)
+    {
+        return liveLineProvider.ProviderKind switch
+        {
+            LyricsProviderKind.QQMusic => "QQ 音乐",
+            LyricsProviderKind.NetEaseCloudMusic => "网易云",
+            _ => liveLineProvider.ProviderKind.ToString()
+        };
+    }
+
     private void StartLiveLineSync(ILyricsLiveLineProvider liveLineProvider)
     {
         StopLyricsSync();
         lastSentCueKey = string.Empty;
         IsLyricsSyncRunning = true;
         liveLineSyncCancellationTokenSource = new CancellationTokenSource();
-        StatusMessage = "网易云实时歌词同步已启动，正在定位当前桌面歌词";
+        StatusMessage = $"{GetLiveProviderDisplayName(liveLineProvider)}实时歌词同步已启动，正在定位当前桌面歌词";
         _ = RunLiveLineSyncAsync(liveLineProvider, liveLineSyncCancellationTokenSource.Token);
     }
 
@@ -681,7 +694,7 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
                         {
                             PreviewText = cue.Text;
                             CurrentLyricLine = cue.Text;
-                            StatusMessage = $"网易云实时同步：{cue.Text}";
+                            StatusMessage = $"{GetLiveProviderDisplayName(liveLineProvider)}实时同步：{cue.Text}";
                         });
                     }
                 }
@@ -696,9 +709,9 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
         {
             RunOnUiThread(() =>
             {
-                StatusMessage = $"网易云实时同步失败：{ex.Message}";
-                PreviewText = $"网易云实时同步失败：{ex.Message}";
-                CurrentLyricLine = "网易云实时同步失败";
+                StatusMessage = $"{GetLiveProviderDisplayName(liveLineProvider)}实时同步失败：{ex.Message}";
+                PreviewText = $"{GetLiveProviderDisplayName(liveLineProvider)}实时同步失败：{ex.Message}";
+                CurrentLyricLine = $"{GetLiveProviderDisplayName(liveLineProvider)}实时同步失败";
                 IsLyricsSyncRunning = false;
             });
         }
@@ -716,7 +729,7 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
             var cue = track?.Lines.FirstOrDefault();
             if (cue is null || string.IsNullOrWhiteSpace(cue.Text))
             {
-                StatusMessage = "没有读取到网易云当前桌面歌词";
+                StatusMessage = $"没有读取到{GetLiveProviderDisplayName(liveLineProvider)}当前桌面歌词";
                 return;
             }
 
@@ -724,12 +737,12 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
             lastSentCueKey = BuildCueKey(cue);
             PreviewText = cue.Text;
             CurrentLyricLine = cue.Text;
-            StatusMessage = $"已发送网易云当前歌词：{cue.Text}";
+            StatusMessage = $"已发送{GetLiveProviderDisplayName(liveLineProvider)}当前歌词：{cue.Text}";
         }
         catch (Exception ex)
         {
-            PreviewText = $"网易云当前歌词读取失败：{ex.Message}";
-            StatusMessage = $"网易云当前歌词读取失败：{ex.Message}";
+            PreviewText = $"{GetLiveProviderDisplayName(liveLineProvider)}当前歌词读取失败：{ex.Message}";
+            StatusMessage = $"{GetLiveProviderDisplayName(liveLineProvider)}当前歌词读取失败：{ex.Message}";
         }
     }
 

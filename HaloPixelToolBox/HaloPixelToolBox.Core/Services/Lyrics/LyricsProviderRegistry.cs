@@ -14,7 +14,7 @@ public class LyricsProviderRegistry
     public LyricsProviderRegistry(IPlaybackMetadataProvider spotifyPlaybackProvider)
     {
         Register(new NetEaseCloudMusicLiveLineProvider());
-        Register(new PlaceholderLyricsProvider(LyricsProviderKind.QQMusic));
+        Register(new QQMusicLiveLineProvider(new QQMusicMediaSessionPlaybackProvider()));
         Register(new SpotifyLyricsProvider(spotifyPlaybackProvider));
         Register(new LocalFileLyricsProvider());
         Register(new PlaceholderLyricsProvider(LyricsProviderKind.Custom));
