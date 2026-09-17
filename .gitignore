@@ -367,7 +367,6 @@ FodyWeavers.xsd
 
 # Local development plans and scratch notes
 /docs/*
-!/docs/VSCode-Debug-Development.md
 !/docs/images/
 !/docs/images/*.jpg
 
