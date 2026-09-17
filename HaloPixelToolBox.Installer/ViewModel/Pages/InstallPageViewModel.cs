@@ -50,7 +50,7 @@ namespace HaloPixelToolBox.Installer.ViewModel.Pages
             if (Assembly.GetExecutingAssembly().GetManifestResourceStream("HaloPixelToolBox.Installer.Resources.Resource.EULA.txt") is Stream stream && new StreamReader(stream).ReadToEnd() is string agreementText)
                 PopupHelper.ShowDialog(new AgreementDialogPopupPage
                 {
-                    Title = "软件最终用户许可协议",
+                    Title = "MIT 软件许可",
                     Agreement = agreementText
                 }, 480, 420);
         }
@@ -61,7 +61,7 @@ namespace HaloPixelToolBox.Installer.ViewModel.Pages
             if (Assembly.GetExecutingAssembly().GetManifestResourceStream("HaloPixelToolBox.Installer.Resources.Resource.PrivateService.txt") is Stream stream && new StreamReader(stream).ReadToEnd() is string agreementText)
                 PopupHelper.ShowDialog(new AgreementDialogPopupPage
                 {
-                    Title = "用户隐私协议",
+                    Title = "隐私说明",
                     Agreement = agreementText
                 }, 480, 420);
         }

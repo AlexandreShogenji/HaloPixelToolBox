@@ -21,6 +21,8 @@ public class HaloPixelDisplayService
 
     public static event EventHandler<DisplayContentChangedEventArgs>? ContentSent;
 
+    public static DisplayContentChangedEventArgs? LastContentSent { get; private set; }
+
     public HaloPixelDevice Device { get; }
 
     public HaloPixelDisplayService() : this(new HaloPixelDevice())
@@ -62,33 +64,75 @@ public class HaloPixelDisplayService
         return SendSubtitleSegmentsAsync(cue, options, segments, cancellationToken);
     }
 
-    public Task<bool> SetDeviceVolumeAsync(int volume, CancellationToken cancellationToken = default)
+    public async Task<bool> SetDeviceVolumeAsync(int volume, CancellationToken cancellationToken = default)
     {
         if (cancellationToken.IsCancellationRequested)
-            return Task.FromResult(false);
+            return false;
 
-        if (!EnsureDeviceReady())
-            return Task.FromResult(false);
-
-        Device.SetDeviceVolume(Math.Clamp(volume, 0, 16));
-        return Task.FromResult(true);
+        return await Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return EnsureDeviceReady()
+                && Device.SetDeviceVolume(Math.Clamp(volume, 0, 16));
+        }, cancellationToken);
     }
 
-    public void ShowBuiltInUi(HaloPixelUIModel uiModel, DisplayContentKind source = DisplayContentKind.System)
+    public async Task<(bool Success, int Maximum, int Current)> GetDeviceVolumeAsync(CancellationToken cancellationToken = default)
+    {
+        if (cancellationToken.IsCancellationRequested)
+            return (false, 0, 0);
+
+        return await Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!EnsureDeviceReady()
+                || !Device.TryGetDeviceVolume(out var maximum, out var current))
+            {
+                return (false, 0, 0);
+            }
+
+            return (true, maximum, current);
+        }, cancellationToken);
+    }
+
+    public async Task<bool> CalibrateDeviceTimeAsync(DateTime localTime, CancellationToken cancellationToken = default)
+    {
+        if (cancellationToken.IsCancellationRequested)
+            return false;
+
+        return await Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return EnsureDeviceReady() && Device.CalibrateTime(localTime);
+        }, cancellationToken);
+    }
+
+    public void ShowBuiltInUi(
+        HaloPixelUIModel uiModel,
+        DisplayContentKind source = DisplayContentKind.System,
+        PersonalSceneDefinition? scene = null)
     {
         if (EnsureDeviceReady())
         {
             Device.SetUIModel(uiModel);
-            NotifyContentSent(source, uiModel.ToString());
+            if (source == DisplayContentKind.Scene)
+                NotifySceneSent(scene, uiModel.ToString());
+            else
+                NotifyContentSent(source, uiModel.ToString());
         }
     }
 
-    public void ShowScreenScene(byte group, byte category, byte index, byte option)
+    public void ShowScreenScene(
+        byte group,
+        byte category,
+        byte index,
+        byte option,
+        PersonalSceneDefinition? scene = null)
     {
         if (EnsureDeviceReady())
         {
             Device.SetScreenScene(group, category, index, option);
-            NotifyContentSent(DisplayContentKind.Scene, $"{group}-{category}-{index}-{option}");
+            NotifySceneSent(scene, $"{group}-{category}-{index}-{option}");
         }
     }
 
@@ -97,7 +141,7 @@ public class HaloPixelDisplayService
         if (EnsureDeviceReady())
         {
             Device.SetPersonalScene((byte)scene.CategoryIndex, (byte)scene.SceneIndex, scene.ResourceRemoteUrl);
-            NotifyContentSent(DisplayContentKind.Scene, $"{scene.CategoryIndex}-{scene.SceneIndex}");
+            NotifySceneSent(scene, $"{scene.CategoryIndex}-{scene.SceneIndex}");
         }
     }
 
@@ -116,7 +160,7 @@ public class HaloPixelDisplayService
             cancellationToken);
 
         if (result)
-            NotifyContentSent(DisplayContentKind.Scene, $"{scene.CategoryIndex}-{scene.SceneIndex}");
+            NotifySceneSent(scene, $"{scene.CategoryIndex}-{scene.SceneIndex}");
 
         return result;
     }
@@ -340,8 +384,68 @@ public class HaloPixelDisplayService
             or '　';
     }
 
-    private static void NotifyContentSent(DisplayContentKind source, string? text)
-        => ContentSent?.Invoke(null, new DisplayContentChangedEventArgs(source, text));
+    private static void NotifyContentSent(
+        DisplayContentKind source,
+        string? text,
+        string? scenePreviewSource = null,
+        string? sceneName = null)
+    {
+        var args = new DisplayContentChangedEventArgs(source, text, scenePreviewSource, sceneName);
+        LastContentSent = args;
+        ContentSent?.Invoke(null, args);
+    }
+
+    private static void NotifySceneSent(PersonalSceneDefinition? scene, string fallbackText)
+        => NotifyContentSent(
+            DisplayContentKind.Scene,
+            fallbackText,
+            ResolveScenePreviewSource(scene),
+            scene?.Name);
+
+    /// <summary>
+    /// 为控制台创建场景预览快照，不会向设备发送任何指令。
+    /// </summary>
+    public static DisplayContentChangedEventArgs CreateScenePreviewSnapshot(PersonalSceneDefinition scene)
+        => new(
+            DisplayContentKind.Scene,
+            $"{scene.CategoryIndex}-{scene.SceneIndex}",
+            ResolveScenePreviewSource(scene),
+            scene.Name);
+
+    private static string? ResolveScenePreviewSource(PersonalSceneDefinition? scene)
+    {
+        if (scene is null)
+            return null;
+
+        if (!string.IsNullOrWhiteSpace(scene.PreviewPath))
+        {
+            var previewPath = scene.PreviewPath.Trim();
+            if (Uri.TryCreate(previewPath, UriKind.Absolute, out var previewUri)
+                && !previewUri.IsFile)
+            {
+                return previewUri.AbsoluteUri;
+            }
+
+            try
+            {
+                var fullPath = Path.GetFullPath(previewPath);
+                if (File.Exists(fullPath))
+                    return new Uri(fullPath).AbsoluteUri;
+            }
+            catch (Exception exception) when (exception is ArgumentException or NotSupportedException)
+            {
+                // 外部场景缓存可能残留无效路径；继续尝试远程预览地址，不能影响场景发送。
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(scene.PreviewRemoteUrl)
+            && Uri.TryCreate(scene.PreviewRemoteUrl, UriKind.Absolute, out var remoteUri))
+        {
+            return remoteUri.AbsoluteUri;
+        }
+
+        return null;
+    }
 
     private static async Task<byte[]?> ResolvePixelSceneResourceAsync(PersonalSceneDefinition scene, CancellationToken cancellationToken)
     {

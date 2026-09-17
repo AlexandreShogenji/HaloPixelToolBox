@@ -7,207 +7,122 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
-    <ScrollViewer>
-        <StackPanel Spacing="10" Margin="0,0,0,24">
-            <TextBlock Text="浏览器实时翻译字幕" Style="{StaticResource TitleTextBlockStyle}"/>
-
-            <controls:SettingsCard Header="Chrome CDP 浏览器" Description="启动独立 Chrome 实例，用于读取 B 站播放进度并自动同步字幕">
-                <Button Command="{x:Bind ViewModel.LaunchCdpBrowserCommand}" ToolTipService.ToolTip="启动 Chrome CDP 实例">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <FontIcon Glyph="&#xE774;" FontSize="15"/>
-                        <TextBlock Text="启动 CDP 浏览器"/>
-                    </StackPanel>
-                </Button>
-            </controls:SettingsCard>
-
-            <controls:SettingsCard Header="B 站视频 URL / BV" Description="填写后优先打开对应视频；留空时尝试从 CDP 浏览器捕获">
-                <TextBox Text="{x:Bind ViewModel.BilibiliVideoUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                         PlaceholderText="https://www.bilibili.com/video/BV... 或 BV..."
-                         Width="160"
-                         MinHeight="64"
-                         TextWrapping="Wrap"
-                         HorizontalAlignment="Left"
-                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
-            </controls:SettingsCard>
-
-            <controls:SettingsCard Header="B 站音乐模式" Description="{x:Bind ViewModel.BrowserMusicDetectedTitle, Mode=OneWay}">
-                <StackPanel Spacing="8">
-                    <StackPanel Spacing="4">
-                        <ToggleSwitch IsOn="{x:Bind ViewModel.IsBilibiliMusicModeEnabled, Mode=TwoWay}"/>
-                        <TextBlock Text="优先加载同步歌词；找不到歌词时回退 ASR"
-                                   TextWrapping="Wrap"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    </StackPanel>
-                    <Grid ColumnSpacing="8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition/>
-                            <ColumnDefinition/>
-                        </Grid.ColumnDefinitions>
-                        <TextBox Header="歌名"
-                                 IsEnabled="{x:Bind ViewModel.IsBilibiliMusicModeEnabled, Mode=OneWay}"
-                                 Text="{x:Bind ViewModel.BrowserMusicSongTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                 PlaceholderText="可从 B 站标题识别，也可手动修正"
-                                 MinWidth="180"/>
-                        <TextBox Grid.Column="1"
-                                 Header="歌手"
-                                 IsEnabled="{x:Bind ViewModel.IsBilibiliMusicModeEnabled, Mode=OneWay}"
-                                 Text="{x:Bind ViewModel.BrowserMusicArtist, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                 PlaceholderText="可留空，命中率会略低"
-                                 MinWidth="180"/>
-                    </Grid>
-                    <Grid ColumnSpacing="8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition/>
-                        </Grid.ColumnDefinitions>
-                        <Button Content="发送手动修改"
-                                IsEnabled="{x:Bind ViewModel.IsBilibiliMusicModeEnabled, Mode=OneWay}"
-                                Command="{x:Bind ViewModel.SendManualBilibiliMusicCommand}"/>
-                        <TextBlock Grid.Column="1"
-                                   Text="{x:Bind ViewModel.BrowserMusicSourceUrl, Mode=OneWay}"
-                                   VerticalAlignment="Center"
-                                   TextWrapping="Wrap"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    </Grid>
-                    <Grid ColumnSpacing="8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="歌词同步偏移"
-                                   VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="1"
-                                   Text="{x:Bind ViewModel.BrowserMusicLyricsSyncOffsetText, Mode=OneWay}"
-                                   VerticalAlignment="Center"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    </Grid>
-                    <Slider Minimum="0"
-                            Maximum="6000"
-                            Value="{x:Bind ViewModel.BrowserMusicLyricsSyncOffsetSliderValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                            StepFrequency="50"
-                            SmallChange="50"
-                            IsEnabled="{x:Bind ViewModel.IsBilibiliMusicModeEnabled, Mode=OneWay}"/>
+    <Page.Resources>
+        <Style x:Key="BrowserPreviewCardStyle" TargetType="Border">
+            <Setter Property="Padding" Value="20"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+    </Page.Resources>
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="16" Margin="0,0,24,24" MaxWidth="1280">
+            <Grid ColumnSpacing="16">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Chrome · 实时捕获" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock Text="浏览器字幕" Style="{StaticResource TitleTextBlockStyle}"/>
+                    <TextBlock Text="捕获 B 站字幕或音频，翻译后实时发送到字幕屏。" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </StackPanel>
-            </controls:SettingsCard>
-
-            <controls:SettingsCard Header="发送内容" Description="选择发送到字幕屏的字幕内容">
-                <StackPanel Spacing="8">
-                    <ComboBox ItemsSource="{x:Bind ViewModel.OutputModeNames}"
-                              SelectedIndex="{x:Bind ViewModel.SelectedOutputModeIndex, Mode=TwoWay}"
-                              MinWidth="180"/>
-                    <Grid ColumnSpacing="8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition/>
-                            <ColumnDefinition/>
-                        </Grid.ColumnDefinitions>
-                        <ComboBox Header="源语言"
-                                  ItemsSource="{x:Bind ViewModel.LanguageOptions}"
-                                  DisplayMemberPath="Name"
-                                  SelectedValuePath="Value"
-                                  SelectedValue="{x:Bind ViewModel.SourceLanguage, Mode=TwoWay}"
-                                  MinWidth="140"/>
-                        <ComboBox Grid.Column="1"
-                                  Header="目标语言"
-                                  ItemsSource="{x:Bind ViewModel.LanguageOptions}"
-                                  DisplayMemberPath="Name"
-                                  SelectedValuePath="Value"
-                                  SelectedValue="{x:Bind ViewModel.TargetLanguage, Mode=TwoWay}"
-                                  MinWidth="140"/>
-                    </Grid>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom">
+                    <Button Command="{x:Bind ViewModel.LaunchCdpBrowserCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE774;" FontSize="15"/><TextBlock Text="启动浏览器"/></StackPanel>
+                    </Button>
+                    <Button Content="停止" Command="{x:Bind ViewModel.StopCaptureCommand}"/>
+                    <Button Content="开始捕获" Command="{x:Bind ViewModel.StartCaptureCommand}" Style="{StaticResource AccentButtonStyle}"/>
                 </StackPanel>
-            </controls:SettingsCard>
+            </Grid>
 
-            <controls:SettingsCard Header="ASR 引擎" Description="无 B 站 CC 字幕时使用的语音识别模型">
-                <ComboBox ItemsSource="{x:Bind ViewModel.AsrEngineNames}"
-                          SelectedIndex="{x:Bind ViewModel.SelectedAsrEngineIndex, Mode=TwoWay}"
-                          MinWidth="260"/>
-            </controls:SettingsCard>
-
-            <controls:SettingsCard Header="实时链路" Description="{x:Bind ViewModel.StatusMessage, Mode=OneWay}">
-                <StackPanel Spacing="8">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button Content="启动捕获" Command="{x:Bind ViewModel.StartCaptureCommand}" Style="{StaticResource AccentButtonStyle}"/>
-                        <Button Content="停止" Command="{x:Bind ViewModel.StopCaptureCommand}"/>
+            <controls:SettingsCard Header="字幕来源" Description="">
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="1.55*"/><ColumnDefinition Width="0.7*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <TextBox Header="B 站视频 URL / BV" Text="{x:Bind ViewModel.BilibiliVideoUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="https://www.bilibili.com/video/BV... 或 BV..."/>
+                    <StackPanel Grid.Column="1" Spacing="6" VerticalAlignment="Bottom">
+                        <TextBlock Text="音乐歌词模式" FontSize="12" FontWeight="SemiBold"/>
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.IsBilibiliMusicModeEnabled, Mode=TwoWay}"
+                                      OnContent=""
+                                      OffContent=""
+                                      Width="40"
+                                      MinWidth="40"
+                                      HorizontalAlignment="Left"/>
                     </StackPanel>
-                    <Grid ColumnSpacing="8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="220"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <Slider Minimum="0"
-                                Maximum="{x:Bind ViewModel.ManualSubtitleMaximum, Mode=OneWay}"
-                                Value="{x:Bind ViewModel.ManualSubtitleIndex, Mode=TwoWay}"
-                                StepFrequency="1"
-                                SmallChange="1"
-                                LargeChange="10"
-                                IsEnabled="{x:Bind ViewModel.IsManualSubtitleSeekEnabled, Mode=OneWay}"/>
-                        <TextBlock Grid.Column="1"
-                                   Text="{x:Bind ViewModel.ManualSubtitlePositionText, Mode=OneWay}"
-                                   VerticalAlignment="Center"/>
-                        <Button Grid.Column="2"
-                                Content="上一条"
-                                Command="{x:Bind ViewModel.SendPreviousSubtitleCommand}"
-                                IsEnabled="{x:Bind ViewModel.IsManualSubtitleSeekEnabled, Mode=OneWay}"/>
-                        <Button Grid.Column="3"
-                                Content="下一条"
-                                Command="{x:Bind ViewModel.SendNextSubtitleCommand}"
-                                IsEnabled="{x:Bind ViewModel.IsManualSubtitleSeekEnabled, Mode=OneWay}"/>
-                    </Grid>
-                </StackPanel>
+                    <!-- <Border Grid.Column="2" Padding="12" CornerRadius="8" Background="{ThemeResource SubtleFillColorSecondaryBrush}" VerticalAlignment="Bottom">
+                        <StackPanel Spacing="3"><TextBlock Text="当前链路" FontWeight="SemiBold"/><TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+                    </Border> -->
+                </Grid>
             </controls:SettingsCard>
 
-            <controls:SettingsCard Header="原文预览">
-                <TextBlock Text="{x:Bind ViewModel.OriginalText, Mode=OneWay}" TextWrapping="Wrap"/>
-            </controls:SettingsCard>
-
-            <controls:SettingsCard Header="译文预览">
-                <TextBlock Text="{x:Bind ViewModel.TranslatedText, Mode=OneWay}" TextWrapping="Wrap"/>
-            </controls:SettingsCard>
-
-            <controls:SettingsCard Header="发送预览">
-                <TextBlock Text="{x:Bind ViewModel.CapturedText, Mode=OneWay}" TextWrapping="Wrap"/>
-            </controls:SettingsCard>
-
-            <controls:SettingsCard Header="腾讯翻译 API" Description="配置腾讯 TMT 密钥，保存后可测试：こんにちは -> 中文">
-                <StackPanel Spacing="8">
-                    <TextBox Header="TENCENTCLOUD_SECRET_ID"
-                             Text="{x:Bind ViewModel.TencentCloudSecretId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                             MinWidth="360"/>
-                    <PasswordBox Header="TENCENTCLOUD_SECRET_KEY"
-                                 Password="{x:Bind ViewModel.TencentCloudSecretKey, Mode=TwoWay}"
-                                 MinWidth="360"/>
-                    <TextBlock Text="SecretKey 与 HF_TOKEN 会以遮盖形式回显，并写入当前进程与用户环境变量。"
-                               TextWrapping="Wrap"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <PasswordBox Header="HF_TOKEN"
-                                 Password="{x:Bind ViewModel.HuggingFaceToken, Mode=TwoWay}"
-                                 MinWidth="360"/>
-                    <TextBox Header="HF_ENDPOINT"
-                             Text="{x:Bind ViewModel.HuggingFaceEndpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                             PlaceholderText="可选，例如 https://hf-mirror.com"
-                             MinWidth="360"/>
-                    <TextBlock Text="{x:Bind ViewModel.HuggingFaceTokenStatus, Mode=OneWay}"
-                               TextWrapping="Wrap"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <TextBlock Text="SecretId/SecretKey 只用于写入环境变量，保存后不会回显。"
-                               Visibility="Collapsed"
-                               TextWrapping="Wrap"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <TextBox Header="Endpoint | Region"
-                             Text="{x:Bind ViewModel.TranslationApiEndpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                             PlaceholderText="tmt.tencentcloudapi.com|ap-shanghai"
-                             MinWidth="360"/>
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button Content="保存 API 环境变量" Command="{x:Bind ViewModel.ConfigureApiEnvironmentCommand}"/>
-                        <Button Content="测试腾讯翻译" Command="{x:Bind ViewModel.TestTranslationCommand}"/>
+            <Grid ColumnSpacing="10">
+                <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+                <Border Style="{StaticResource BrowserPreviewCardStyle}">
+                    <StackPanel Spacing="14">
+                        <Grid><StackPanel Spacing="3"><TextBlock Text="原文" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="捕获内容" Style="{StaticResource SubtitleTextBlockStyle}"/></StackPanel><Border HorizontalAlignment="Right" Padding="8,4" CornerRadius="999" Background="{ThemeResource SubtleFillColorSecondaryBrush}"><TextBlock Text="SOURCE" FontSize="10"/></Border></Grid>
+                        <TextBlock Text="{x:Bind ViewModel.OriginalText, Mode=OneWay}" TextWrapping="Wrap" MinHeight="116" FontSize="18"/>
                     </StackPanel>
-                    <TextBlock Text="{x:Bind ViewModel.TencentTranslationTestResult, Mode=OneWay}"
-                               TextWrapping="Wrap"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                </StackPanel>
+                </Border>
+                <Border Grid.Column="1" Style="{StaticResource BrowserPreviewCardStyle}">
+                    <StackPanel Spacing="14">
+                        <Grid><StackPanel Spacing="3"><TextBlock Text="译文" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="翻译结果" Style="{StaticResource SubtitleTextBlockStyle}"/></StackPanel><Border HorizontalAlignment="Right" Padding="8,4" CornerRadius="999" Background="{ThemeResource SubtleFillColorSecondaryBrush}"><TextBlock Text="TARGET" FontSize="10"/></Border></Grid>
+                        <TextBlock Text="{x:Bind ViewModel.TranslatedText, Mode=OneWay}" TextWrapping="Wrap" MinHeight="116" FontSize="18"/>
+                    </StackPanel>
+                </Border>
+                <Border Grid.Column="2" Style="{StaticResource BrowserPreviewCardStyle}">
+                    <StackPanel Spacing="14">
+                        <Grid><StackPanel Spacing="3"><TextBlock Text="设备输出" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="最终发送" Style="{StaticResource SubtitleTextBlockStyle}"/></StackPanel><Ellipse HorizontalAlignment="Right" Width="8" Height="8" Fill="#FF4CD964"/></Grid>
+                        <Border MinHeight="116" Padding="16" CornerRadius="9" Background="#FF05080D" BorderBrush="#FF203349" BorderThickness="1">
+                            <TextBlock Text="{x:Bind ViewModel.CapturedText, Mode=OneWay}" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" FontFamily="Consolas" FontSize="17" Foreground="#FF60A0F0"/>
+                        </Border>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <controls:SettingsCard Header="字幕时间轴" Description="捕获到字幕列表后，可手动选择上一条或下一条并立即发送">
+                <Grid ColumnSpacing="10">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <Button Content="上一条" Command="{x:Bind ViewModel.SendPreviousSubtitleCommand}" IsEnabled="{x:Bind ViewModel.IsManualSubtitleSeekEnabled, Mode=OneWay}"/>
+                    <Slider Grid.Column="1" Minimum="0" Maximum="{x:Bind ViewModel.ManualSubtitleMaximum, Mode=OneWay}" Value="{x:Bind ViewModel.ManualSubtitleIndex, Mode=TwoWay}" StepFrequency="1" IsEnabled="{x:Bind ViewModel.IsManualSubtitleSeekEnabled, Mode=OneWay}"/>
+                    <TextBlock Grid.Column="2" Text="{x:Bind ViewModel.ManualSubtitlePositionText, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                    <Button Grid.Column="3" Content="下一条" Command="{x:Bind ViewModel.SendNextSubtitleCommand}" IsEnabled="{x:Bind ViewModel.IsManualSubtitleSeekEnabled, Mode=OneWay}"/>
+                    <Button Grid.Column="4" Content="立即发送" Command="{x:Bind ViewModel.SendManualBilibiliMusicCommand}" IsEnabled="{x:Bind ViewModel.IsBilibiliMusicModeEnabled, Mode=OneWay}"/>
+                </Grid>
             </controls:SettingsCard>
+
+            <controls:SettingsExpander Header="翻译与识别设置" Description="发送内容、语言、识别引擎与音乐歌词校准">
+                <FontIcon Glyph="&#xE8C1;"/>
+                <controls:SettingsExpander.Items>
+                    <controls:SettingsCard Header="基本设置">
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+                            <ComboBox Header="发送内容" ItemsSource="{x:Bind ViewModel.OutputModeNames}" SelectedIndex="{x:Bind ViewModel.SelectedOutputModeIndex, Mode=TwoWay}"/>
+                            <ComboBox Grid.Column="1" Header="源语言" ItemsSource="{x:Bind ViewModel.LanguageOptions}" DisplayMemberPath="Name" SelectedValuePath="Value" SelectedValue="{x:Bind ViewModel.SourceLanguage, Mode=TwoWay}"/>
+                            <ComboBox Grid.Column="2" Header="目标语言" ItemsSource="{x:Bind ViewModel.LanguageOptions}" DisplayMemberPath="Name" SelectedValuePath="Value" SelectedValue="{x:Bind ViewModel.TargetLanguage, Mode=TwoWay}"/>
+                            <ComboBox Grid.Column="3" Header="ASR 引擎" ItemsSource="{x:Bind ViewModel.AsrEngineNames}" SelectedIndex="{x:Bind ViewModel.SelectedAsrEngineIndex, Mode=TwoWay}"/>
+                        </Grid>
+                    </controls:SettingsCard>
+                    <controls:SettingsCard Header="音乐歌词" Description="{x:Bind ViewModel.BrowserMusicDetectedTitle, Mode=OneWay}">
+                        <StackPanel Spacing="10">
+                            <Grid ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions><TextBox Header="歌名" IsEnabled="{x:Bind ViewModel.IsBilibiliMusicModeEnabled, Mode=OneWay}" Text="{x:Bind ViewModel.BrowserMusicSongTitle, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="可自动识别或手动修正"/><TextBox Grid.Column="1" Header="歌手" IsEnabled="{x:Bind ViewModel.IsBilibiliMusicModeEnabled, Mode=OneWay}" Text="{x:Bind ViewModel.BrowserMusicArtist, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="可留空"/></Grid>
+                            <Grid ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Slider Minimum="0" Maximum="6000" Value="{x:Bind ViewModel.BrowserMusicLyricsSyncOffsetSliderValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" StepFrequency="50" IsEnabled="{x:Bind ViewModel.IsBilibiliMusicModeEnabled, Mode=OneWay}"/><TextBlock Grid.Column="1" Text="{x:Bind ViewModel.BrowserMusicLyricsSyncOffsetText, Mode=OneWay}" VerticalAlignment="Center"/></Grid>
+                            <TextBlock Text="{x:Bind ViewModel.BrowserMusicSourceUrl, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                    </controls:SettingsCard>
+                </controls:SettingsExpander.Items>
+            </controls:SettingsExpander>
+
+            <controls:SettingsExpander Header="ASR 模型下载" Description="腾讯云凭据在“设置 → 集成”管理；这里配置模型下载来源">
+                <FontIcon Glyph="&#xE896;"/>
+                <controls:SettingsExpander.Items>
+                    <controls:SettingsCard Header="Hugging Face">
+                        <StackPanel Spacing="8">
+                            <PasswordBox Header="访问令牌" Password="{x:Bind ViewModel.HuggingFaceToken, Mode=TwoWay}"/>
+                            <TextBox Header="镜像地址" Text="{x:Bind ViewModel.HuggingFaceEndpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="可选，例如 https://hf-mirror.com"/>
+                            <TextBlock Text="{x:Bind ViewModel.HuggingFaceTokenStatus, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <Button Content="保存下载配置" HorizontalAlignment="Left" Command="{x:Bind ViewModel.ConfigureApiEnvironmentCommand}"/>
+                        </StackPanel>
+                    </controls:SettingsCard>
+                </controls:SettingsExpander.Items>
+            </controls:SettingsExpander>
         </StackPanel>
     </ScrollViewer>
 </Page>

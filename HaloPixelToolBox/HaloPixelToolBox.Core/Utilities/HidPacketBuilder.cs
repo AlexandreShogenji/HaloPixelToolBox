@@ -216,14 +216,30 @@ public class HidPacketBuilder
 
     /// <summary>
     /// 构造像素屏主题颜色包。
-    /// 协议来自 LiLyric 的 RGBController.set_pixel_color：2E AA EC EF 00 04 03 + RGB + checksum。
+    /// 经实机回读验证，主机请求使用 ED，并保留完整的 9 字节像素设置 payload。
     /// </summary>
     public static byte[] BuildPixelScreenColor(HaloPixelColor color)
-        => BuildEdifierPacket(0xef, [0x03, color.Red, color.Green, color.Blue]);
+        => BuildEdifierHostRequestPacket(
+            0xef,
+            [0x03, color.Red, color.Green, color.Blue, 0x00, 0x00, 0xff, 0xff, 0xff]);
 
     /// <summary>
-    /// 构造氛围灯效果包。
-    /// 协议来自 LiLyric 的 RGBController._set_light_color：2E AA EC 6B 00 07 13 + effect + RGB + brightness + speed + checksum。
+    /// 构造像素屏独立电源开关包。该 EC 格式已通过 EF 回包和 EE 状态查询实机验证。
+    /// 颜色随包保留，关闭屏幕不会把主题色改成黑色。
+    /// </summary>
+    public static byte[] BuildPixelScreenPower(HaloPixelColor color, bool enabled)
+        => BuildEdifierPacket(
+            0xef,
+            [0x01, color.Red, color.Green, color.Blue, 0x00, 0x03, 0x00, enabled ? (byte)0x01 : (byte)0x00, 0x00]);
+
+    /// <summary>
+    /// 查询像素屏当前场景与电源状态。
+    /// </summary>
+    public static byte[] BuildPixelScreenStateQuery()
+        => BuildEdifierPacket(0xee, []);
+
+    /// <summary>
+    /// 构造氛围灯效果包。主机请求使用 ED，设备回包使用 EC。
     /// </summary>
     public static byte[] BuildAmbientLight(AmbientLightOptions options)
     {
@@ -239,25 +255,72 @@ public class HidPacketBuilder
             speed
         ];
 
-        return BuildEdifierPacket(0x6b, payload);
+        return BuildEdifierHostRequestPacket(0x6b, payload);
     }
 
     /// <summary>
-    /// 构造氛围灯开关包。
-    /// 协议来自 TempoHub 的 mood_lighting_splice/set_device_light：B 字段 1=开启、0=关闭。
+    /// 构造氛围灯独立电源开关包。该 EC 格式已通过 6B 回包和 6A 状态查询实机验证。
     /// </summary>
     public static byte[] BuildAmbientLightPower(bool enabled)
     {
         byte mode = enabled ? (byte)0x01 : (byte)0x00;
-        return BuildEdifierPacket(0x6b, [0x00, 0x00, 0x00, 0x00, mode, 0xff, 0xff]);
+        return BuildEdifierPacket(0x6b, [0x13, 0x07, 0x00, 0x00, mode, 0xff, 0xff]);
     }
 
     /// <summary>
-    /// 构造字幕音箱音量包。协议参考 LiLyric 的 VolumeController.set_volume：
-    /// 2E AA EC 67 00 01 + volume(0-16) + checksum。
+    /// 查询氛围灯全部参数与电源状态。
+    /// </summary>
+    public static byte[] BuildAmbientLightStateQuery()
+        => BuildEdifierPacket(0x6a, []);
+
+    /// <summary>
+    /// 构造设备时间校准包。日历字段使用普通二进制数值，年份为大端。
+    /// 倒数第二字段保留为 00；最后一字段按已验证的 12 小时边界标记上午/下午。
+    /// </summary>
+    public static byte[] BuildDeviceTime(DateTime localTime)
+        => BuildEdifierPacket(
+            0x77,
+            [
+                (byte)(localTime.Year >> 8),
+                (byte)(localTime.Year & 0xff),
+                (byte)localTime.Month,
+                (byte)localTime.Day,
+                (byte)localTime.Hour,
+                (byte)localTime.Minute,
+                (byte)localTime.Second,
+                0x00,
+                localTime.Hour >= 12 ? (byte)0x01 : (byte)0x00
+            ]);
+
+    /// <summary>
+    /// 构造字幕音箱音量查询包。音量控制通道的主机请求设备类型是 ED，
+    /// 设备回包才使用 EC。
+    /// </summary>
+    public static byte[] BuildDeviceVolumeQuery()
+        => BuildEdifierHostRequestPacket(0x66, []);
+
+    /// <summary>
+    /// 构造字幕音箱音量设置包：
+    /// 2E AA ED 67 00 01 + volume(0-16) + checksum。
     /// </summary>
     public static byte[] BuildDeviceVolume(byte volume)
-        => BuildEdifierPacket(0x67, [(byte)Math.Clamp((int)volume, 0, 16)]);
+        => BuildEdifierHostRequestPacket(0x67, [(byte)Math.Clamp((int)volume, 0, 16)]);
+
+    private static byte[] BuildEdifierHostRequestPacket(byte commandIndex, IReadOnlyCollection<byte> payload)
+    {
+        var packet = new List<byte>(6 + payload.Count + 1)
+        {
+            0x2e,
+            0xaa,
+            0xed,
+            commandIndex,
+            (byte)((payload.Count >> 8) & 0xff),
+            (byte)(payload.Count & 0xff)
+        };
+        packet.AddRange(payload);
+        packet.Add(CalculateEdifierChecksum(packet));
+        return Build(packet);
+    }
 
     private static byte ConvertAmbientBrightness(AmbientLightBrightness brightness) => brightness switch
     {

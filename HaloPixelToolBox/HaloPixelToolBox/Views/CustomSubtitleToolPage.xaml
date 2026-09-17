@@ -7,89 +7,65 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
-    <ScrollViewer>
-        <StackPanel Spacing="12" Margin="0,0,0,24">
-            <TextBlock Text="自定义字幕" Style="{StaticResource TitleTextBlockStyle}"/>
-
-            <controls:SettingsCard Header="字幕内容" Description="{x:Bind ViewModel.TextLimitStatus, Mode=OneWay}">
-                <Grid RowSpacing="8" MinWidth="420">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <TextBox Text="{x:Bind ViewModel.Text, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                             PlaceholderText="输入要发送到字幕屏的文字"
-                             TextWrapping="NoWrap"
-                             AcceptsReturn="False"
-                             MinWidth="420"/>
-                    <TextBlock Grid.Row="1"
-                               Text="{x:Bind ViewModel.TextLimitStatus, Mode=OneWay}"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                               TextWrapping="Wrap"/>
-                </Grid>
-            </controls:SettingsCard>
-
-            <Grid ColumnSpacing="10">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition/>
-                    <ColumnDefinition/>
-                </Grid.ColumnDefinitions>
-
-                <controls:SettingsCard Header="布局"
-                                       Description="未开启滚动时生效"
-                                       IsEnabled="{x:Bind ViewModel.IsLayoutSelectionEnabled, Mode=OneWay}">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <ToggleButton Content="左对齐"
-                                      Command="{x:Bind ViewModel.SelectLeftLayoutCommand}"
-                                      IsChecked="{x:Bind ViewModel.IsLeftLayoutSelected, Mode=OneWay}"
-                                      MinWidth="82"
-                                      Padding="12,8"/>
-                        <ToggleButton Content="居中"
-                                      Command="{x:Bind ViewModel.SelectCenterLayoutCommand}"
-                                      IsChecked="{x:Bind ViewModel.IsCenterLayoutSelected, Mode=OneWay}"
-                                      MinWidth="82"
-                                      Padding="12,8"/>
-                        <ToggleButton Content="右对齐"
-                                      Command="{x:Bind ViewModel.SelectRightLayoutCommand}"
-                                      IsChecked="{x:Bind ViewModel.IsRightLayoutSelected, Mode=OneWay}"
-                                      MinWidth="82"
-                                      Padding="12,8"/>
-                    </StackPanel>
-                </controls:SettingsCard>
-
-                <controls:SettingsCard Grid.Column="1" Header="滚动方向" Description="选择向左/向右后会覆盖布局设置">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <ToggleButton Content="不滚动"
-                                      Command="{x:Bind ViewModel.SelectNoScrollCommand}"
-                                      IsChecked="{x:Bind ViewModel.IsNoScrollSelected, Mode=OneWay}"
-                                      MinWidth="82"
-                                      Padding="12,8"/>
-                        <ToggleButton Content="向左"
-                                      Command="{x:Bind ViewModel.SelectScrollRightToLeftCommand}"
-                                      IsChecked="{x:Bind ViewModel.IsScrollRightToLeftSelected, Mode=OneWay}"
-                                      MinWidth="82"
-                                      Padding="12,8"/>
-                        <ToggleButton Content="向右"
-                                      Command="{x:Bind ViewModel.SelectScrollLeftToRightCommand}"
-                                      IsChecked="{x:Bind ViewModel.IsScrollLeftToRightSelected, Mode=OneWay}"
-                                      MinWidth="82"
-                                      Padding="12,8"/>
-                    </StackPanel>
-                </controls:SettingsCard>
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="18" Margin="0,0,24,24" MaxWidth="1280">
+            <Grid ColumnSpacing="16">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <StackPanel Spacing="4">
+                    <!-- <TextBlock Text="即时输出" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/> -->
+                    <TextBlock Text="自定义字幕" Style="{StaticResource TitleTextBlockStyle}"/>
+                    <!-- <TextBlock Text="编辑文字、确认设备预览，再按当前显示方式发送。" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/> -->
+                </StackPanel>
+                <!-- <Button Grid.Column="1" Content="发送到字幕屏" Command="{x:Bind ViewModel.SendCommand}" Style="{StaticResource AccentButtonStyle}" VerticalAlignment="Bottom"/> -->
             </Grid>
 
-            <controls:SettingsExpander Header="定时发送" Description="延迟指定秒数后发送到字幕屏">
-                <ToggleSwitch IsOn="{x:Bind ViewModel.EnableTimedSend, Mode=TwoWay}"/>
-                <controls:SettingsExpander.Items>
-                    <controls:SettingsCard Header="延迟秒数" IsEnabled="{x:Bind ViewModel.EnableTimedSend, Mode=OneWay}">
-                        <NumberBox Value="{x:Bind ViewModel.DelaySeconds, Mode=TwoWay}" Minimum="0" SpinButtonPlacementMode="Compact"/>
+            <Grid ColumnSpacing="14">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="1.08*"/><ColumnDefinition Width="0.92*"/></Grid.ColumnDefinitions>
+                <StackPanel Spacing="10">
+                    <controls:SettingsCard Header="字幕内容" Description="{x:Bind ViewModel.TextLimitStatus, Mode=OneWay}">
+                        <TextBox Text="{x:Bind ViewModel.Text, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="输入要发送到字幕屏的文字" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="118" MinWidth="360"/>
                     </controls:SettingsCard>
-                </controls:SettingsExpander.Items>
-            </controls:SettingsExpander>
+                    <controls:SettingsCard Header="对齐方式" Description="" IsEnabled="{x:Bind ViewModel.IsLayoutSelectionEnabled, Mode=OneWay}">
+                        <Grid ColumnSpacing="8" MinWidth="360">
+                            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+                            <ToggleButton Content="左对齐" Command="{x:Bind ViewModel.SelectLeftLayoutCommand}" IsChecked="{x:Bind ViewModel.IsLeftLayoutSelected, Mode=OneWay}" HorizontalAlignment="Stretch"/>
+                            <ToggleButton Grid.Column="1" Content="居中" Command="{x:Bind ViewModel.SelectCenterLayoutCommand}" IsChecked="{x:Bind ViewModel.IsCenterLayoutSelected, Mode=OneWay}" HorizontalAlignment="Stretch"/>
+                            <ToggleButton Grid.Column="2" Content="右对齐" Command="{x:Bind ViewModel.SelectRightLayoutCommand}" IsChecked="{x:Bind ViewModel.IsRightLayoutSelected, Mode=OneWay}" HorizontalAlignment="Stretch"/>
+                        </Grid>
+                    </controls:SettingsCard>
+                    <controls:SettingsCard Header="滚动方式" Description="滚动时会覆盖对齐设置">
+                        <Grid ColumnSpacing="8" MinWidth="360">
+                            <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+                            <ToggleButton Content="不滚动" Command="{x:Bind ViewModel.SelectNoScrollCommand}" IsChecked="{x:Bind ViewModel.IsNoScrollSelected, Mode=OneWay}" HorizontalAlignment="Stretch"/>
+                            <ToggleButton Grid.Column="1" Content="向左滚动" Command="{x:Bind ViewModel.SelectScrollRightToLeftCommand}" IsChecked="{x:Bind ViewModel.IsScrollRightToLeftSelected, Mode=OneWay}" HorizontalAlignment="Stretch"/>
+                            <ToggleButton Grid.Column="2" Content="向右滚动" Command="{x:Bind ViewModel.SelectScrollLeftToRightCommand}" IsChecked="{x:Bind ViewModel.IsScrollLeftToRightSelected, Mode=OneWay}" HorizontalAlignment="Stretch"/>
+                        </Grid>
+                    </controls:SettingsCard>
+                    <controls:SettingsCard Header="定时发送" Description="延迟指定时间后发送">
+                        <Grid ColumnSpacing="14" MinWidth="360">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="100"/></Grid.ColumnDefinitions>
+                            <ToggleSwitch IsOn="{x:Bind ViewModel.EnableTimedSend, Mode=TwoWay}" OnContent="已开启" OffContent="已关闭"/>
+                            <NumberBox Grid.Column="1" Header="秒" Value="{x:Bind ViewModel.DelaySeconds, Mode=TwoWay}" Minimum="0" SpinButtonPlacementMode="Compact" IsEnabled="{x:Bind ViewModel.EnableTimedSend, Mode=OneWay}"/>
+                        </Grid>
+                    </controls:SettingsCard>
+                </StackPanel>
 
-            <controls:SettingsCard Header="发送" Description="{x:Bind ViewModel.StatusMessage, Mode=OneWay}">
-                <Button Content="发送到字幕屏" Command="{x:Bind ViewModel.SendCommand}" Style="{StaticResource AccentButtonStyle}"/>
-            </controls:SettingsCard>
+                <Border Grid.Column="1" Padding="24" CornerRadius="12" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                    <StackPanel Spacing="18">
+                        <StackPanel Spacing="4"><TextBlock Text="256 × 32" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="设备预览" Style="{StaticResource SubtitleTextBlockStyle}"/></StackPanel>
+                        <Border MinHeight="150" Padding="28" CornerRadius="14" Background="#FF05080D" BorderBrush="#FF203349" BorderThickness="1">
+                            <Grid>
+                                <Grid.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#1400A0FF" Offset="0"/><GradientStop Color="#00101821" Offset="0.55"/><GradientStop Color="#169898E7" Offset="1"/></LinearGradientBrush></Grid.Background>
+                                <TextBlock Text="{x:Bind ViewModel.Text, Mode=OneWay}" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" FontFamily="Consolas" FontSize="20" FontWeight="SemiBold" Foreground="#FF60A0F0"/>
+                            </Grid>
+                        </Border>
+                        <Border Padding="12" CornerRadius="8" Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                            <StackPanel Spacing="3"><TextBlock Text="发送状态" FontWeight="SemiBold"/><TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+                        </Border>
+                        <Button Content="发送到字幕屏" Command="{x:Bind ViewModel.SendCommand}" Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Stretch"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
         </StackPanel>
     </ScrollViewer>
 </Page>

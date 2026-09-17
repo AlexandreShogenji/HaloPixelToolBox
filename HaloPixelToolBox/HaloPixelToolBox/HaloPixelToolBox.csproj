@@ -49,6 +49,9 @@
     <Content Include="Assets\icon.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="Assets\Fonts\**\*.*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="Assets\PersonalScenes\**\*.*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
@@ -82,7 +85,6 @@
     <PackageReference Include="XFEExtension.NetCore" Version="3.3.*" />
     <PackageReference Include="XFEExtension.NetCore.AutoConfig" Version="2.0.*" />
     <PackageReference Include="XFEExtension.NetCore.InputSimulator" Version="2.3.0" />
-    <PackageReference Include="XFEExtension.NetCore.UpgradeHelper" Version="1.0.1" />
     <PackageReference Include="XFEExtension.NetCore.WinUIHelper" Version="1.2.*" />
     <PackageReference Include="XFEExtension.NetCore.XFEConsole" Version="1.2.1" />
   </ItemGroup>

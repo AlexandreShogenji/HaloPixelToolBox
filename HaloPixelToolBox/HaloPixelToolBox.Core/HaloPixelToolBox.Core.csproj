@@ -11,7 +11,7 @@
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="HidSharp" Version="2.6.4" />
     <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
-    <PackageReference Include="TencentCloudSDK" Version="3.*" />
+    <PackageReference Include="TencentCloudSDK" Version="3.0.1450" />
     <PackageReference Include="XFEExtension.NetCore" Version="3.3.*" />
     <PackageReference Include="XFEExtension.NetCore.MemoryEditor" Version="2.1.0" />
     <PackageReference Include="XFEExtension.NetCore.XFEConsole" Version="1.1.2" />

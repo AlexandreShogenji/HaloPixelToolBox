@@ -18,6 +18,15 @@ public sealed class PersonalSceneRestoreService
             currentScene = CloneScene(scene);
     }
 
+    /// <summary>
+    /// 返回当前可恢复场景的副本，仅用于 UI 预览等无副作用场景。
+    /// </summary>
+    public PersonalSceneDefinition GetCurrentScene()
+    {
+        lock (SyncRoot)
+            return CloneScene(currentScene);
+    }
+
     public async Task<bool> RestoreAsync(HaloPixelDisplayService displayService, CancellationToken cancellationToken = default)
     {
         PersonalSceneDefinition scene;
@@ -31,13 +40,13 @@ public sealed class PersonalSceneRestoreService
 
         if (scene.ScreenSettingParameters is { Length: 4 } parameters)
         {
-            displayService.ShowScreenScene(parameters[0], parameters[1], parameters[2], parameters[3]);
+            displayService.ShowScreenScene(parameters[0], parameters[1], parameters[2], parameters[3], scene);
             return true;
         }
 
         if (scene.BuiltInUiModel is not null)
         {
-            displayService.ShowBuiltInUi(scene.BuiltInUiModel.Value, DisplayContentKind.Scene);
+            displayService.ShowBuiltInUi(scene.BuiltInUiModel.Value, DisplayContentKind.Scene, scene);
             return true;
         }
 
@@ -73,6 +82,12 @@ public sealed class PersonalSceneRestoreService
             CategoryIndex = 0,
             SceneIndex = 9,
             ScreenSettingParameters = [0x01, 0x00, 0x09, 0xff],
+            PreviewPath = Path.Combine(
+                AppContext.BaseDirectory,
+                "Assets",
+                "PersonalScenes",
+                "ClockPreviews",
+                "0_9.png"),
             ContentKind = DisplayContentKind.Scene
         };
 }

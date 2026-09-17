@@ -32,11 +32,5 @@ public partial class SystemProfile : XFEProfile
     /// </summary>
     [ProfileProperty]
     private bool neverAskAgainWhenClose = false;
-    /// <summary>
-    /// 忽略的版本号
-    /// </summary>
-    [ProfileProperty]
-    private string ignoreVersion = string.Empty;
-
     static partial void SetThemeProperty(ref ElementTheme value) => AppThemeHelper.ChangeTheme(value);
 }

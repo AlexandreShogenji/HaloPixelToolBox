@@ -17,6 +17,7 @@ public partial class AppShellPageViewModel : ViewModelBase
 {
     private readonly HaloPixelDeviceConnectionMonitor deviceConnectionMonitor = new();
     private readonly DispatcherTimer deviceStatusTimer = new() { Interval = TimeSpan.FromSeconds(2) };
+    private bool isCheckingForUpdates;
 
     [ObservableProperty]
     private int selectedIndex;
@@ -52,66 +53,56 @@ public partial class AppShellPageViewModel : ViewModelBase
         deviceStatusTimer.Start();
 
         NavigationViewService.NavigationService.Navigated += NavigationService_Navigated;
-        PageService.CurrentPageLoaded += CurrentPage_Loaded;
         if (CloseWindowService is not null)
             CloseWindowService.Closed += CloseWindowService_Closed;
-        UpgradeService.Initialize(async () =>
+        UpgradeService.Initialize(CheckForUpdatesAsync);
+    }
+
+    private async Task CheckForUpdatesAsync()
+    {
+        if (isCheckingForUpdates)
+            return;
+
+        isCheckingForUpdates = true;
+        try
         {
-            try
+            MessageService.ShowMessage("正在查询 GitHub Releases...", "检查更新", InfoBarSeverity.Informational);
+            Console.WriteLine("正在手动检查 GitHub Releases...");
+            var upgradeInfo = await UpgradeHelper.GetLatestReleaseAsync();
+            if (upgradeInfo == null)
             {
-                MessageService.ShowMessage("正在检查更新...", "检查更新", InfoBarSeverity.Informational);
-                Console.WriteLine("正在检查更新...");
-                var upgradeInfo = await UpgradeHelper.GetReleaseNotes();
-                if (upgradeInfo == null)
-                {
-                    MessageService.ShowMessage("检查更新失败，请稍后重试", "检查更新", InfoBarSeverity.Error);
-                    Console.WriteLine("[ERROR]获取更新信息失败");
-                    return;
-                }
-                if (upgradeInfo.IsLatest)
-                {
-                    MessageService.ShowMessage("当前已是最新版本", "检查更新", InfoBarSeverity.Success);
-                    Console.WriteLine("当前已是最新版本");
-                }
-                else
-                {
-                    if (upgradeInfo.LatestVersion == SystemProfile.IgnoreVersion)
-                    {
-                        MessageService.ShowMessage("当前版本已被忽略", "检查更新", InfoBarSeverity.Informational);
-                        Console.WriteLine("当前版本已被忽略");
-                    }
-                    else
-                    {
-                        MessageService.ShowMessage("检测到新版本", "检查更新", InfoBarSeverity.Informational);
-                        Console.WriteLine("检测到新版本");
-                        Console.WriteLine($"[DEBUG]最新版本: {upgradeInfo.LatestVersion}");
-                        Console.WriteLine($"[DEBUG]当前版本: {UpgradeHelper.Version}");
-                        Console.WriteLine($"[DEBUG]更新信息：{upgradeInfo.ReleaseNotes}");
-                        UpgradeContentText = upgradeInfo.ReleaseNotes;
-                        switch (await DialogService.ShowDialog("upgradeDialog"))
-                        {
-                            case ContentDialogResult.None:
-                                Console.WriteLine("用户取消了更新");
-                                break;
-                            case ContentDialogResult.Primary:
-                                Console.WriteLine("用户选择开始更新...");
-                                UpgradeHelper.StartUpdate(upgradeInfo.DownloadUrl);
-                                break;
-                            case ContentDialogResult.Secondary:
-                                Console.WriteLine("用户选择忽略当前版本");
-                                SystemProfile.IgnoreVersion = upgradeInfo.LatestVersion;
-                                break;
-                            default:
-                                break;
-                        }
-                    }
-                }
+                MessageService.ShowMessage("无法连接 GitHub，请检查网络后重试", "检查更新", InfoBarSeverity.Error);
+                Console.WriteLine("[ERROR]获取 GitHub Release 信息失败");
+                return;
             }
-            catch (Exception ex)
+
+            if (upgradeInfo.IsLatest)
             {
-                Console.WriteLine($"[ERROR]检查更新时发生错误：{ex}");
+                MessageService.ShowMessage($"当前 v{UpgradeHelper.Version.ToString(3)} 已是最新版本", "检查更新", InfoBarSeverity.Success);
+                Console.WriteLine("当前已是最新版本");
+                return;
             }
-        });
+
+            MessageService.ShowMessage($"检测到新版本 {upgradeInfo.LatestVersion}", "检查更新", InfoBarSeverity.Informational);
+            Console.WriteLine($"[DEBUG]最新版本: {upgradeInfo.LatestVersion}");
+            Console.WriteLine($"[DEBUG]当前版本: {UpgradeHelper.Version.ToString(3)}");
+            UpgradeContentText = $"{upgradeInfo.LatestVersion}\n\n{upgradeInfo.ReleaseNotes}";
+            if (await DialogService.ShowDialog("upgradeDialog") == ContentDialogResult.Primary)
+            {
+                Console.WriteLine("用户选择打开安装器下载链接");
+                if (!await UpgradeHelper.OpenDownloadPageAsync(upgradeInfo.DownloadUrl))
+                    MessageService.ShowMessage("无法打开下载链接，请前往 GitHub Releases 手动下载", "检查更新", InfoBarSeverity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageService.ShowMessage("检查更新失败，请稍后重试", "检查更新", InfoBarSeverity.Error);
+            Console.WriteLine($"[ERROR]检查更新时发生错误：{ex}");
+        }
+        finally
+        {
+            isCheckingForUpdates = false;
+        }
     }
 
     private void RefreshDeviceConnectionStatus()
@@ -149,11 +140,6 @@ public partial class AppShellPageViewModel : ViewModelBase
         }
     }
 
-    private async void CurrentPage_Loaded(object sender, RoutedEventArgs e)
-    {
-        await UpgradeService.CheckUpgrade();
-    }
-
     private void NavigationService_Navigated(object? sender, NavigationEventArgs e)
     {
         CanGoBack = NavigationViewService.NavigationService.CanGoBack;
@@ -163,7 +149,8 @@ public partial class AppShellPageViewModel : ViewModelBase
 
     private static bool IsToolPage(Type pageType)
     {
-        return pageType == typeof(PersonalSceneToolPage)
+        return pageType == typeof(MainPage)
+            || pageType == typeof(PersonalSceneToolPage)
             || pageType == typeof(LightingToolPage)
             || pageType == typeof(LyricsSubtitleToolPage)
             || pageType == typeof(VideoSubtitleToolPage)

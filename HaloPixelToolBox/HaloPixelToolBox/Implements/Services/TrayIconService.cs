@@ -17,7 +17,7 @@ public partial class TrayIconService : GlobalServiceBase, ITrayIconService
         _notifyIcon = new NotifyIcon
         {
             Text = "花再音响工具箱",
-            Icon = new Icon("Assets/appicon.ico"), // 一定要是 .ico
+            Icon = new Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "appicon.ico")), // 一定要是 .ico
             Visible = true
         };
 

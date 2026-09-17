@@ -44,8 +44,56 @@ public partial class DisplayFeatureProfile : XFEProfile
     private double browserBilibiliMusicLyricsSyncOffsetMilliseconds;
 
     [ProfileProperty]
-    private string lastToolPageName = "HaloPixelToolBox.Views.PersonalSceneToolPage";
+    private string lastToolPageName = "HaloPixelToolBox.Views.MainPage";
 
     [ProfileProperty]
     private int lyricsProviderIndex = 3;
+
+    [ProfileProperty]
+    private int ambientLightRed = 45;
+
+    [ProfileProperty]
+    private int ambientLightGreen;
+
+    [ProfileProperty]
+    private int ambientLightBlue = 179;
+
+    [ProfileProperty]
+    private bool ambientLightEnabled = true;
+
+    [ProfileProperty]
+    private int ambientLightEffectIndex = 2;
+
+    [ProfileProperty]
+    private int ambientLightBrightnessIndex = 2;
+
+    [ProfileProperty]
+    private double ambientLightSpeed = 10;
+
+    [ProfileProperty]
+    private bool syncAmbientWithPixel;
+
+    [ProfileProperty]
+    private int pixelScreenRed;
+
+    [ProfileProperty]
+    private int pixelScreenGreen = 85;
+
+    [ProfileProperty]
+    private int pixelScreenBlue = 170;
+
+    [ProfileProperty]
+    private bool pixelScreenEnabled = true;
+
+    [ProfileProperty]
+    private int quickActionSlotOneIndex;
+
+    [ProfileProperty]
+    private int quickActionSlotTwoIndex = 1;
+
+    [ProfileProperty]
+    private int quickActionSlotThreeIndex = 2;
+
+    [ProfileProperty]
+    private int quickActionSlotFourIndex = 5;
 }

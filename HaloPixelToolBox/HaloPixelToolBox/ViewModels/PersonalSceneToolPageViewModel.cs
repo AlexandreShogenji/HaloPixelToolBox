@@ -54,7 +54,7 @@ public partial class PersonalSceneToolPageViewModel : ViewModelBase
     private PersonalSceneDefinition? generatedCustomScene;
 
     [ObservableProperty]
-    private string customSceneGenerationStatus = "拖入或选择 1 到 5 张 256×32 PNG 图像";
+    private string customSceneGenerationStatus = "拖入或选择 1 到 5 张 256×32 PNG/JPG 图像";
 
     [ObservableProperty]
     private bool isGeneratingCustomScene;
@@ -111,9 +111,9 @@ public partial class PersonalSceneToolPageViewModel : ViewModelBase
         SceneCountText = $"已加载 {scenes.Count} 个场景，{previewCount} 张预览图";
         SelectedCategoryIndex = Math.Clamp(SelectedCategoryIndex, 0, Math.Max(0, Categories.Count - 1));
         UpdateSelectedScenes();
-        StatusMessage = previewCount > 0
-            ? "已从 TempoHub 缓存解包官方预览图，并按官方分类重新编排"
-            : "未找到 TempoHub 预览缓存，已退回到内置参数列表";
+        // StatusMessage = previewCount > 0
+        //     ? "已从 TempoHub 缓存解包官方预览图，并按官方分类重新编排"
+        //     : "未找到 TempoHub 预览缓存，已退回到内置参数列表";
     }
 
     public void SelectCategory(PersonalSceneCategoryGroup category)
@@ -185,9 +185,12 @@ public partial class PersonalSceneToolPageViewModel : ViewModelBase
             return;
         }
 
-        if (!Path.GetExtension(imagePath).Equals(".png", StringComparison.OrdinalIgnoreCase))
+        var extension = Path.GetExtension(imagePath);
+        if (!extension.Equals(".png", StringComparison.OrdinalIgnoreCase)
+            && !extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
+            && !extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase))
         {
-            CustomSceneGenerationStatus = "仅支持 PNG 图像";
+            CustomSceneGenerationStatus = "仅支持 PNG/JPG 图像";
             return;
         }
 
@@ -262,7 +265,7 @@ public partial class PersonalSceneToolPageViewModel : ViewModelBase
             return;
         }
 
-        StatusMessage = "已删除自定义场景，并重新编排自定义类索引";
+        StatusMessage = "已删除自定义场景；后续新增场景将继续使用递增索引";
         ReloadScenes();
         SelectCustomCategory();
     }
@@ -390,5 +393,5 @@ public partial class CustomSceneFrameSlot : ObservableObject
 
     public double PlaceholderOpacity => HasImage ? 0 : 1;
 
-    public string StatusText => HasImage ? Path.GetFileName(ImagePath) ?? "PNG 图像" : "拖入 256×32 PNG";
+    public string StatusText => HasImage ? Path.GetFileName(ImagePath) ?? "预览图像" : "拖入 256×32 PNG/JPG";
 }

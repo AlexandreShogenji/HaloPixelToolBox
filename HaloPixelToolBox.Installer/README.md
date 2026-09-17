@@ -5,7 +5,7 @@
 推荐使用仓库根目录的发布脚本完成完整打包：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/Build-Release.ps1 -Version 2.1.0 -Platform x64 -Runtime win-x64
+powershell -ExecutionPolicy Bypass -File scripts/Build-Release.ps1 -Platform x64 -Runtime win-x64
 ```
 
 脚本会自动完成：
@@ -14,7 +14,7 @@ powershell -ExecutionPolicy Bypass -File scripts/Build-Release.ps1 -Version 2.1.
 2. 生成并嵌入安装器所需的 `Resources\Resource\Source.zip`。
 3. 发布安装器。
 4. 生成并嵌入 `HaloPixelToolBox.Installer.Package` 所需的 `Source.zip`。
-5. 输出最终安装器 EXE、便携 ZIP 和 SHA256 校验文件到 `release/v2.1.0/`。
+5. 按 `Directory.Build.props` 中的当前版本，把最终安装器 EXE、便携 ZIP 和 SHA256 校验文件输出到 `release/v<版本号>/`。
 
 如果必须手动打包，请按以下顺序操作：
 

@@ -9,6 +9,7 @@
 *.user
 *.userosscache
 *.sln.docstates
+.claude/settings.local.json
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
@@ -365,4 +366,10 @@ FodyWeavers.xsd
 /HaloPixelToolBox.Installer/Resources/Resource/Source.zip
 
 # Local development plans and scratch notes
-/docs/
+/docs/*
+!/docs/VSCode-Debug-Development.md
+!/docs/images/
+!/docs/images/*.jpg
+
+# Local UI prototype; the production interface lives in the WinUI project
+/ui-demo/

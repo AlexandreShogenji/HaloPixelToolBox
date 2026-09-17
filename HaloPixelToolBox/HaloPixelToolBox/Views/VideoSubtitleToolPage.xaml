@@ -7,35 +7,64 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
-    <ScrollViewer>
-        <StackPanel Spacing="10" Margin="0,0,0,24">
-            <TextBlock Text="视频字幕" Style="{StaticResource TitleTextBlockStyle}"/>
-            <controls:SettingsCard Header="PotPlayer 实时同步" Description="{x:Bind ViewModel.PotPlayerSyncStatus, Mode=OneWay}">
-                <ToggleSwitch IsOn="{x:Bind ViewModel.IsPotPlayerSyncEnabled, Mode=TwoWay}"
-                              OnContent="已启用"
-                              OffContent="已禁用"/>
-            </controls:SettingsCard>
-            <controls:SettingsCard Header="字幕输出文件" Description="选择 PotPlayer 实时写入的字幕文件，支持 TXT / SRT / WebVTT / ASS / SSA / LRC / SUB">
-                <Grid RowSpacing="8" HorizontalAlignment="Stretch">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <TextBox Text="{x:Bind ViewModel.PotPlayerSubtitleOutputPath, Mode=TwoWay}"
-                             PlaceholderText="请选择字幕输出文件"
-                             TextWrapping="Wrap"
-                             AcceptsReturn="True"
-                             MinHeight="60"
-                             IsReadOnly="True"/>
-                    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
-                        <Button Content="选择文件"
-                                Command="{x:Bind ViewModel.SelectSubtitleOutputFileCommand}"/>
-                        <Button Content="重新同步"
-                                Command="{x:Bind ViewModel.RestartPotPlayerSyncCommand}"/>
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="18" Margin="0,0,24,24" MaxWidth="1280">
+            <Grid ColumnSpacing="16">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <StackPanel Spacing="4">
+                    <TextBlock Text="PotPlayer · 实时同步" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock Text="视频字幕" Style="{StaticResource TitleTextBlockStyle}"/>
+                    <TextBlock Text="跟随播放器时间轴，将本地字幕持续同步到设备。" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Bottom">
+                    <Button Content="重新检测" Command="{x:Bind ViewModel.RestartPotPlayerSyncCommand}"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <TextBlock Text="实时同步" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.IsPotPlayerSyncEnabled, Mode=TwoWay}" OnContent="" OffContent="" Width="40" MinWidth="40" VerticalAlignment="Center"/>
                     </StackPanel>
-                </Grid>
-            </controls:SettingsCard>
-            <TextBox Text="{x:Bind ViewModel.PreviewText, Mode=OneWay}" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="180" IsReadOnly="True"/>
+                </StackPanel>
+            </Grid>
+
+            <Grid ColumnSpacing="14">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="0.9*"/><ColumnDefinition Width="1.1*"/></Grid.ColumnDefinitions>
+                <StackPanel Spacing="10">
+                    <controls:SettingsCard Header="播放器状态" Description="{x:Bind ViewModel.PotPlayerSyncStatus, Mode=OneWay}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Ellipse Width="9" Height="9" Fill="#FFF7CF5D" VerticalAlignment="Center"/>
+                            <TextBlock Text="等待播放器输出" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                    </controls:SettingsCard>
+                    <controls:SettingsCard Header="字幕文件" Description="支持 TXT、SRT、WebVTT、ASS、SSA、LRC 和 SUB">
+                        <StackPanel Spacing="10" MinWidth="320">
+                            <TextBox Text="{x:Bind ViewModel.PotPlayerSubtitleOutputPath, Mode=TwoWay}" PlaceholderText="请选择字幕输出文件" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="76" IsReadOnly="True"/>
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+                                <Button Content="选择字幕文件" Command="{x:Bind ViewModel.SelectSubtitleOutputFileCommand}" Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Stretch"/>
+                                <Button Grid.Column="1" Content="重新同步" Command="{x:Bind ViewModel.RestartPotPlayerSyncCommand}" HorizontalAlignment="Stretch"/>
+                            </Grid>
+                        </StackPanel>
+                    </controls:SettingsCard>
+                </StackPanel>
+
+                <Border Grid.Column="1" Padding="24" CornerRadius="12" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                    <StackPanel Spacing="18">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="设备输出" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock Text="当前字幕" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                        </StackPanel>
+                        <Border MinHeight="150" Padding="28" CornerRadius="14" Background="#FF05080D" BorderBrush="#FF203349" BorderThickness="1">
+                            <Grid>
+                                <Grid.Background><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#1400A0FF" Offset="0"/><GradientStop Color="#00101821" Offset="0.55"/><GradientStop Color="#169898E7" Offset="1"/></LinearGradientBrush></Grid.Background>
+                                <TextBlock Text="{x:Bind ViewModel.PreviewText, Mode=OneWay}" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="22" FontWeight="SemiBold" Foreground="#FFF4F8FC"/>
+                            </Grid>
+                        </Border>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Ellipse Width="8" Height="8" Fill="#FF4CD964" VerticalAlignment="Center"/>
+                            <TextBlock Text="预览会随 PotPlayer 字幕文件变化" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </Grid>
         </StackPanel>
     </ScrollViewer>
 </Page>

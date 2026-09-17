@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using System.Diagnostics;
 using HaloPixelToolBox.Core.Models.Scenes;
 using Windows.Graphics.Imaging;
@@ -15,10 +14,9 @@ public sealed class CustomSceneResourceGenerationService
     private const int FramesPerImage = 8;
     private const int CustomCategoryIndex = 9;
     private const int CustomSceneIndex = 0;
+    private const int BundledCustomPreviewMaxIndex = 1;
     private const int CustomUploadCategoryIndex = 1;
     private const byte FrameParam = 0x64;
-
-    private static readonly byte[] PngSignature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
     public string GeneratedDirectory => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -27,7 +25,8 @@ public sealed class CustomSceneResourceGenerationService
 
     public string GeneratedResourcePath => Path.Combine(GeneratedDirectory, "custom_0.bin");
 
-    public string GeneratedPreviewPath => Path.Combine(GeneratedDirectory, "custom_0.png");
+    public string GeneratedPreviewPath => ResolvePreviewSidecar(GeneratedResourcePath)
+                                          ?? Path.Combine(GeneratedDirectory, "custom_0.png");
 
     public string PinnedDirectory => Path.Combine(GeneratedDirectory, "Pinned");
 
@@ -40,10 +39,11 @@ public sealed class CustomSceneResourceGenerationService
 
     public PersonalSceneDefinition? LoadGeneratedScene()
     {
-        if (!File.Exists(GeneratedResourcePath) || !File.Exists(GeneratedPreviewPath))
+        var previewPath = ResolvePreviewSidecar(GeneratedResourcePath);
+        if (!File.Exists(GeneratedResourcePath) || previewPath is null)
             return null;
 
-        return CreateGeneratedSceneDefinition(GeneratedResourcePath, GeneratedPreviewPath);
+        return CreateGeneratedSceneDefinition(GeneratedResourcePath, previewPath);
     }
 
     public IReadOnlyList<PersonalSceneDefinition> LoadPinnedScenes()
@@ -51,19 +51,24 @@ public sealed class CustomSceneResourceGenerationService
         if (!Directory.Exists(PinnedDirectory))
             return [];
 
-        return Directory.EnumerateFiles(PinnedDirectory, "custom_*.bin")
+        return Directory.EnumerateFiles(PinnedDirectory, "*.bin")
             .Select(path => new
             {
                 ResourcePath = path,
                 SceneIndex = TryGetPinnedSceneIndex(path)
             })
             .Where(item => item.SceneIndex > CustomSceneIndex)
+            .GroupBy(item => item.SceneIndex)
+            .Select(group => group
+                .OrderByDescending(item => IsCurrentPinnedFileName(item.ResourcePath))
+                .ThenBy(item => item.ResourcePath, StringComparer.OrdinalIgnoreCase)
+                .First())
             .OrderBy(item => item.SceneIndex)
             .Select(item => CreatePinnedSceneDefinition(
                 item.SceneIndex,
                 item.ResourcePath,
-                Path.ChangeExtension(item.ResourcePath, ".png")))
-            .Where(scene => File.Exists(scene.PreviewPath))
+                ResolvePinnedPreviewPath(item.SceneIndex, item.ResourcePath)))
+            .Where(scene => !string.IsNullOrWhiteSpace(scene.PreviewPath) && File.Exists(scene.PreviewPath))
             .ToList();
     }
 
@@ -79,14 +84,14 @@ public sealed class CustomSceneResourceGenerationService
             .ToList();
 
         if (frames.Count == 0)
-            return new(false, "请先拖入或选择 1 到 5 张 256×32 PNG 图像");
+            return new(false, "请先拖入或选择 1 到 5 张 256×32 PNG/JPG 图像");
 
         if (frames.Count > MaxFrameCount)
             return new(false, "最多只能生成 5 帧动画资源");
 
         foreach (var frame in frames)
         {
-            var validation = ValidatePngFrame(frame);
+            var validation = await ValidateImageFrameAsync(frame, cancellationToken);
             if (!validation.Success)
                 return validation;
         }
@@ -96,7 +101,11 @@ public sealed class CustomSceneResourceGenerationService
             return new(false, $"未找到生成脚本：{generatorScript}");
 
         Directory.CreateDirectory(GeneratedDirectory);
-        File.Copy(frames[0], GeneratedPreviewPath, overwrite: true);
+        DeletePreviewSidecars(GeneratedResourcePath);
+        var generatedPreviewPath = Path.ChangeExtension(
+            GeneratedResourcePath,
+            NormalizePreviewExtension(frames[0]));
+        File.Copy(frames[0], generatedPreviewPath, overwrite: true);
         if (File.Exists(GeneratedResourcePath))
             File.Delete(GeneratedResourcePath);
 
@@ -109,35 +118,36 @@ public sealed class CustomSceneResourceGenerationService
         }
 
         return File.Exists(GeneratedResourcePath)
-            ? new(true, frames.Count == 1 ? "静态自定义资源已就绪" : $"{frames.Count} 帧自定义动画资源已就绪", GeneratedResourcePath, GeneratedPreviewPath)
+            ? new(true, frames.Count == 1 ? "静态自定义资源已就绪" : $"{frames.Count} 帧自定义动画资源已就绪", GeneratedResourcePath, generatedPreviewPath)
             : new(false, "脚本运行完成，但未生成 bin 文件");
     }
 
     public void DeleteGeneratedScene()
     {
         DeleteIfExists(GeneratedResourcePath);
-        DeleteIfExists(GeneratedPreviewPath);
+        DeletePreviewSidecars(GeneratedResourcePath);
     }
 
     public PersonalSceneDefinition? PinGeneratedScene()
     {
-        if (!File.Exists(GeneratedResourcePath) || !File.Exists(GeneratedPreviewPath))
+        var generatedPreviewPath = ResolvePreviewSidecar(GeneratedResourcePath);
+        if (!File.Exists(GeneratedResourcePath) || generatedPreviewPath is null)
             return null;
 
         Directory.CreateDirectory(PinnedDirectory);
-        var nextIndex = LoadPinnedScenes()
-            .Select(scene => scene.SceneIndex)
-            .DefaultIfEmpty(CustomSceneIndex)
-            .Max() + 1;
-        var resourcePath = Path.Combine(PinnedDirectory, $"custom_{nextIndex}.bin");
-        var previewPath = Path.Combine(PinnedDirectory, $"custom_{nextIndex}.png");
+        var nextIndex = GetNextPinnedSceneIndex();
+        var resourcePath = Path.Combine(PinnedDirectory, $"{CustomCategoryIndex}_{nextIndex}.bin");
+        var previewPath = Path.Combine(
+            PinnedDirectory,
+            $"{CustomCategoryIndex}_{nextIndex}{NormalizePreviewExtension(generatedPreviewPath)}");
 
         File.Copy(GeneratedResourcePath, resourcePath, overwrite: true);
-        File.Copy(GeneratedPreviewPath, previewPath, overwrite: true);
+        // The first uploaded frame is the card preview and follows the same 9_N index as its resource.
+        File.Copy(generatedPreviewPath, previewPath, overwrite: true);
         DeleteGeneratedScene();
-        ReindexPinnedScenes();
 
-        return LoadPinnedScenes().LastOrDefault();
+        return LoadPinnedScenes().FirstOrDefault(scene =>
+            string.Equals(scene.ResourcePath, resourcePath, StringComparison.OrdinalIgnoreCase));
     }
 
     public bool DeletePinnedScene(PersonalSceneDefinition scene)
@@ -151,8 +161,7 @@ public sealed class CustomSceneResourceGenerationService
             return false;
 
         DeleteIfExists(resourcePath);
-        DeleteIfExists(Path.ChangeExtension(resourcePath, ".png"));
-        ReindexPinnedScenes();
+        DeletePreviewSidecars(resourcePath);
         return true;
     }
 
@@ -185,51 +194,28 @@ public sealed class CustomSceneResourceGenerationService
             CanDelete = true
         };
 
-    private void ReindexPinnedScenes()
+    private int GetNextPinnedSceneIndex()
     {
-        if (!Directory.Exists(PinnedDirectory))
-            return;
-
-        var entries = Directory.EnumerateFiles(PinnedDirectory, "custom_*.bin")
-            .Select(path => new
-            {
-                ResourcePath = path,
-                PreviewPath = Path.ChangeExtension(path, ".png"),
-                SceneIndex = TryGetPinnedSceneIndex(path)
-            })
-            .Where(item => item.SceneIndex > CustomSceneIndex && File.Exists(item.PreviewPath))
-            .OrderBy(item => item.SceneIndex)
-            .ToList();
-
-        var tempDirectory = Path.Combine(PinnedDirectory, ".reindex");
-        if (Directory.Exists(tempDirectory))
-            Directory.Delete(tempDirectory, recursive: true);
-        Directory.CreateDirectory(tempDirectory);
-
-        for (var index = 0; index < entries.Count; index++)
-        {
-            File.Copy(entries[index].ResourcePath, Path.Combine(tempDirectory, $"{index + 1}.bin"), overwrite: true);
-            File.Copy(entries[index].PreviewPath, Path.Combine(tempDirectory, $"{index + 1}.png"), overwrite: true);
-        }
-
-        foreach (var file in Directory.EnumerateFiles(PinnedDirectory, "custom_*.*"))
-            File.Delete(file);
-
-        for (var index = 0; index < entries.Count; index++)
-        {
-            var sceneIndex = index + 1;
-            File.Copy(Path.Combine(tempDirectory, $"{sceneIndex}.bin"), Path.Combine(PinnedDirectory, $"custom_{sceneIndex}.bin"), overwrite: true);
-            File.Copy(Path.Combine(tempDirectory, $"{sceneIndex}.png"), Path.Combine(PinnedDirectory, $"custom_{sceneIndex}.png"), overwrite: true);
-        }
-
-        Directory.Delete(tempDirectory, recursive: true);
+        var pinnedIndexes = Directory.EnumerateFiles(PinnedDirectory, "*.bin")
+            .Select(TryGetPinnedSceneIndex)
+            .Where(index => index > CustomSceneIndex);
+        var bundledIndexes = EnumerateBundledCustomPreviewIndexes();
+        return pinnedIndexes
+            .Concat(bundledIndexes)
+            .Append(BundledCustomPreviewMaxIndex)
+            .Max() + 1;
     }
 
     private static int TryGetPinnedSceneIndex(string path)
     {
         var name = Path.GetFileNameWithoutExtension(path);
-        if (name.StartsWith("custom_", StringComparison.OrdinalIgnoreCase)
-            && int.TryParse(name["custom_".Length..], out var index))
+        var prefix = name.StartsWith("custom_", StringComparison.OrdinalIgnoreCase)
+            ? "custom_"
+            : name.StartsWith($"{CustomCategoryIndex}_", StringComparison.OrdinalIgnoreCase)
+                ? $"{CustomCategoryIndex}_"
+                : null;
+
+        if (prefix is not null && int.TryParse(name[prefix.Length..], out var index))
         {
             return index;
         }
@@ -237,30 +223,100 @@ public sealed class CustomSceneResourceGenerationService
         return -1;
     }
 
-    private static CustomSceneGenerationResult ValidatePngFrame(string path)
+    private static bool IsCurrentPinnedFileName(string path)
+        => Path.GetFileNameWithoutExtension(path)
+            .StartsWith($"{CustomCategoryIndex}_", StringComparison.OrdinalIgnoreCase);
+
+    private static string ResolvePinnedPreviewPath(int sceneIndex, string resourcePath)
+    {
+        var localPreview = ResolvePreviewSidecar(resourcePath);
+        // Only the legacy second card intentionally adopts the new packaged 9_1 artwork.
+        // New 9_N resources must keep showing the first frame uploaded by the user.
+        if (!IsCurrentPinnedFileName(resourcePath) && sceneIndex == BundledCustomPreviewMaxIndex)
+            return ResolveBundledCustomPreviewPath(sceneIndex)
+                   ?? localPreview
+                   ?? Path.ChangeExtension(resourcePath, ".png");
+
+        return localPreview
+               ?? ResolveBundledCustomPreviewPath(sceneIndex)
+               ?? Path.ChangeExtension(resourcePath, ".png");
+    }
+
+    private static string? ResolveBundledCustomPreviewPath(int sceneIndex)
+    {
+        var previewDirectory = Path.Combine(
+            AppContext.BaseDirectory,
+            "Assets",
+            "PersonalScenes",
+            "Previews");
+
+        return PreviewExtensions
+            .Select(extension => Path.Combine(previewDirectory, $"{CustomCategoryIndex}_{sceneIndex}{extension}"))
+            .FirstOrDefault(File.Exists);
+    }
+
+    private static IEnumerable<int> EnumerateBundledCustomPreviewIndexes()
+    {
+        var previewDirectory = Path.Combine(
+            AppContext.BaseDirectory,
+            "Assets",
+            "PersonalScenes",
+            "Previews");
+        if (!Directory.Exists(previewDirectory))
+            return [];
+
+        return Directory.EnumerateFiles(previewDirectory, $"{CustomCategoryIndex}_*.*")
+            .Where(path => PreviewExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
+            .Select(TryGetPinnedSceneIndex)
+            .Where(index => index >= CustomSceneIndex)
+            .Distinct()
+            .ToList();
+    }
+
+    private static string? ResolvePreviewSidecar(string resourcePath)
+        => PreviewExtensions
+            .Select(extension => Path.ChangeExtension(resourcePath, extension))
+            .FirstOrDefault(File.Exists);
+
+    private static void DeletePreviewSidecars(string resourcePath)
+    {
+        foreach (var extension in PreviewExtensions)
+            DeleteIfExists(Path.ChangeExtension(resourcePath, extension));
+    }
+
+    private static readonly string[] PreviewExtensions = [".png", ".jpg", ".jpeg"];
+
+    private static string NormalizePreviewExtension(string path)
+        => Path.GetExtension(path).Equals(".png", StringComparison.OrdinalIgnoreCase)
+            ? ".png"
+            : ".jpg";
+
+    private static async Task<CustomSceneGenerationResult> ValidateImageFrameAsync(
+        string path,
+        CancellationToken cancellationToken)
     {
         if (!File.Exists(path))
-            return new(false, $"PNG 文件不存在：{path}");
+            return new(false, $"图像文件不存在：{path}");
 
-        if (!Path.GetExtension(path).Equals(".png", StringComparison.OrdinalIgnoreCase))
-            return new(false, $"仅支持 PNG 图像：{Path.GetFileName(path)}");
+        if (!PreviewExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
+            return new(false, $"仅支持 PNG/JPG 图像：{Path.GetFileName(path)}");
 
         try
         {
-            using var stream = File.OpenRead(path);
-            Span<byte> header = stackalloc byte[24];
-            if (stream.Read(header) != header.Length || !header[..8].SequenceEqual(PngSignature))
-                return new(false, $"不是有效 PNG 图像：{Path.GetFileName(path)}");
-
-            var width = BinaryPrimitives.ReadInt32BigEndian(header.Slice(16, 4));
-            var height = BinaryPrimitives.ReadInt32BigEndian(header.Slice(20, 4));
+            cancellationToken.ThrowIfCancellationRequested();
+            var file = await StorageFile.GetFileFromPathAsync(path);
+            using var stream = await file.OpenReadAsync();
+            var decoder = await BitmapDecoder.CreateAsync(stream);
+            cancellationToken.ThrowIfCancellationRequested();
+            var width = decoder.PixelWidth;
+            var height = decoder.PixelHeight;
             return width == RequiredWidth && height == RequiredHeight
-                ? new(true, "PNG 图像可用")
-                : new(false, $"{Path.GetFileName(path)} 尺寸为 {width}×{height}，请使用 256×32 PNG");
+                ? new(true, "图像可用")
+                : new(false, $"{Path.GetFileName(path)} 尺寸为 {width}×{height}，请使用 256×32 PNG/JPG");
         }
         catch (Exception ex)
         {
-            return new(false, $"读取 PNG 失败：{ex.Message}");
+            return new(false, $"读取图像失败：{ex.Message}");
         }
     }
 

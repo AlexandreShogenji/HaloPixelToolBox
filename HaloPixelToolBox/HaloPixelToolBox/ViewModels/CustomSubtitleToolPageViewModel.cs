@@ -31,7 +31,7 @@ public partial class CustomSubtitleToolPageViewModel : ViewModelBase
     public List<string> ScrollDirectionNames { get; } = ["不滚动", "向左滚动", "向右滚动"];
 
     public int TextDisplayUnits => CountTextDisplayUnits(Text);
-    public string TextLimitStatus => $"字数：{TextDisplayUnits}/{MaxTextDisplayUnits}（英文/数字 1，中文/日文等宽字符 2）";
+    public string TextLimitStatus => $"字数：{TextDisplayUnits}/{MaxTextDisplayUnits}";
 
     public bool IsLeftLayoutSelected => ResolveSelectedLayout() == HaloPixelTextLayout.Left;
     public bool IsCenterLayoutSelected => ResolveSelectedLayout() == HaloPixelTextLayout.Center;

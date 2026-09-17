@@ -36,7 +36,6 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
     private bool isSeekingPlaybackPosition;
     private bool isSpotifyAutoReloading;
     private bool isProviderReadinessMonitorSyncing;
-    private int lastSentDeviceVolume = -1;
     private DateTimeOffset lastAutoSyncAttemptAt;
     private readonly CancellationTokenSource providerReadinessMonitorCancellationTokenSource = new();
     private CancellationTokenSource? liveLineSyncCancellationTokenSource;
@@ -90,14 +89,6 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool enableLyricsSync = true;
-
-    [ObservableProperty]
-    private double subtitleSpeakerVolume = 14;
-
-    public string SubtitleSpeakerVolumeText => $"音量：{Math.Clamp((int)Math.Round(SubtitleSpeakerVolume), 0, 16)}/16";
-
-    [ObservableProperty]
-    private string volumeStatusMessage = "字幕音箱音量范围 0-16";
 
     [ObservableProperty]
     private string previewText = "尚未加载歌词";
@@ -167,12 +158,6 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
             _ = ResumeLyricsSyncAsync();
         else
             _ = StopLyricsSyncAndRestoreSceneAsync();
-    }
-
-    partial void OnSubtitleSpeakerVolumeChanged(double value)
-    {
-        OnPropertyChanged(nameof(SubtitleSpeakerVolumeText));
-        _ = SetSubtitleSpeakerVolumeAsync(value);
     }
 
     [RelayCommand]
@@ -467,19 +452,6 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
         }
     }
 
-
-    private async Task SetSubtitleSpeakerVolumeAsync(double value)
-    {
-        var volume = Math.Clamp((int)Math.Round(value), 0, 16);
-        if (volume == lastSentDeviceVolume)
-            return;
-
-        lastSentDeviceVolume = volume;
-        var sent = await displayService.SetDeviceVolumeAsync(volume);
-        VolumeStatusMessage = sent
-            ? $"字幕音箱音量已设置为 {volume}/16"
-            : "未检测到字幕音箱，请确认设备已连接";
-    }
 
     private async Task RunProviderReadinessMonitorAsync(CancellationToken cancellationToken)
     {

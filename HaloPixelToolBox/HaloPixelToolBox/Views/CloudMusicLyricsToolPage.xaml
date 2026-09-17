@@ -8,7 +8,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
     <ScrollViewer>
-        <StackPanel Spacing="10" Margin="0,0,0,24">
+        <StackPanel Spacing="10" Margin="0,0,24,24">
             <TextBlock Text="网易云歌词旧入口" Style="{StaticResource TitleTextBlockStyle}"/>
             <controls:SettingsCard Header="功能迁移" Description="多平台歌词字幕已迁移到“歌词字幕”页面，旧入口保留以兼容托盘与历史导航。">
                 <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}" TextWrapping="Wrap"/>

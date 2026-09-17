@@ -1,16 +1,313 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="HaloPixelToolBox.Views.MainPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    mc:Ignorable="d">
-    <Grid>
-        <StackPanel Orientation="Vertical" Spacing="20">
-            <TextBlock Text="Halo Pixel ToolBox" FontSize="24" HorizontalAlignment="Center" Margin="20"/>
-            <TextBlock Text="{x:Bind ViewModel.ClickCount, Mode=OneWay, Converter={StaticResource StringFormatConverter}, ConverterParameter='Clicked Times: (0)'}"/>
-            <Button Content="Click" Command="{x:Bind ViewModel.IncrementClickCountCommand}"/>
+    mc:Ignorable="d"
+    Loaded="Page_Loaded"
+    Unloaded="Page_Unloaded">
+
+    <Page.Resources>
+        <FontFamily x:Key="PixelPreviewFontFamily">ms-appx:///Assets/Fonts/fusion-pixel-12px-proportional-zh_hans.ttf#Fusion Pixel 12px Prop zh_hans</FontFamily>
+        <Style x:Key="DashboardCardStyle" TargetType="Border">
+            <Setter Property="Padding" Value="24"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style x:Key="DashboardCaptionStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="CharacterSpacing" Value="80"/>
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
+        </Style>
+        <Style x:Key="QuickActionButtonStyle" TargetType="Button">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+            <Setter Property="Padding" Value="18"/>
+            <Setter Property="MinHeight" Value="108"/>
+        </Style>
+    </Page.Resources>
+
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="20" Margin="0,0,24,28" MaxWidth="1280" HorizontalAlignment="Stretch">
+            <Grid ColumnSpacing="20">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Spacing="5">
+                    <TextBlock Text="设备运行中心" Style="{StaticResource DashboardCaptionStyle}"/>
+                    <TextBlock Text="设备控制台" Style="{StaticResource TitleTextBlockStyle}"/>
+                    <TextBlock Text="集中查看设备状态、调节字幕音箱并快速进入各项显示任务。"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+                <Border Grid.Column="1"
+                        VerticalAlignment="Center"
+                        Padding="12,7"
+                        CornerRadius="999"
+                        Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Ellipse Width="8" Height="8" Fill="{x:Bind ViewModel.DeviceConnectionBrush, Mode=OneWay}"/>
+                        <TextBlock Text="{x:Bind ViewModel.DeviceConnectionStatusText, Mode=OneWay}"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Grid x:Name="DashboardGrid" ColumnSpacing="16" RowSpacing="16">
+                <VisualStateManager.VisualStateGroups>
+                    <VisualStateGroup>
+                        <VisualState x:Name="NarrowDashboard">
+                            <VisualState.StateTriggers>
+                                <AdaptiveTrigger MinWindowWidth="0"/>
+                            </VisualState.StateTriggers>
+                            <VisualState.Setters>
+                                <Setter Target="DashboardPrimaryColumn.Width" Value="*"/>
+                                <Setter Target="DashboardSecondaryColumn.Width" Value="0"/>
+                                <Setter Target="DeviceCard.(Grid.Row)" Value="1"/>
+                                <Setter Target="DeviceCard.(Grid.Column)" Value="0"/>
+                                <Setter Target="QuickActionsCard.(Grid.Row)" Value="2"/>
+                                <Setter Target="QuickActionsCard.(Grid.ColumnSpan)" Value="1"/>
+                            </VisualState.Setters>
+                        </VisualState>
+                        <VisualState x:Name="WideDashboard">
+                            <VisualState.StateTriggers>
+                                <AdaptiveTrigger MinWindowWidth="1000"/>
+                            </VisualState.StateTriggers>
+                            <VisualState.Setters>
+                                <Setter Target="DashboardPrimaryColumn.Width" Value="1.65*"/>
+                                <Setter Target="DashboardSecondaryColumn.Width" Value="*"/>
+                                <Setter Target="DeviceCard.(Grid.Row)" Value="0"/>
+                                <Setter Target="DeviceCard.(Grid.Column)" Value="1"/>
+                                <Setter Target="QuickActionsCard.(Grid.Row)" Value="1"/>
+                                <Setter Target="QuickActionsCard.(Grid.ColumnSpan)" Value="2"/>
+                            </VisualState.Setters>
+                        </VisualState>
+                    </VisualStateGroup>
+                </VisualStateManager.VisualStateGroups>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition x:Name="DashboardPrimaryColumn" Width="1.65*"/>
+                    <ColumnDefinition x:Name="DashboardSecondaryColumn" Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <Border x:Name="CurrentOutputCard" Style="{StaticResource DashboardCardStyle}">
+                    <StackPanel Spacing="18">
+                        <Grid>
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="当前输出" Style="{StaticResource DashboardCaptionStyle}"/>
+                                <TextBlock Text="HaloPixel 实时预览" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                            </StackPanel>
+                            <Button HorizontalAlignment="Right"
+                                    VerticalAlignment="Center"
+                                    Content="恢复默认场景"
+                                    Command="{x:Bind ViewModel.RestoreDefaultSceneCommand}"/>
+                        </Grid>
+
+                        <Border Height="136"
+                                Padding="6"
+                                CornerRadius="10"
+                                Background="#FF05080D"
+                                BorderBrush="#FF203349"
+                                BorderThickness="1">
+                            <Grid x:Name="DevicePreviewFrame"
+                                  SizeChanged="DevicePreviewFrame_SizeChanged">
+                                <Grid.Background>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Color="#1200A0FF" Offset="0"/>
+                                        <GradientStop Color="#00101821" Offset="0.55"/>
+                                        <GradientStop Color="#189898E7" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Grid.Background>
+                                <Image Margin="56,22,56,18"
+                                       Source="{x:Bind ViewModel.CurrentScenePreviewSource, Mode=OneWay}"
+                                       Visibility="{x:Bind ViewModel.CurrentScenePreviewVisibility, Mode=OneWay}"
+                                       Stretch="Uniform"
+                                       HorizontalAlignment="Stretch"
+                                       VerticalAlignment="Stretch"
+                                       IsHitTestVisible="False"/>
+                                <Polygon x:Name="PreviewFrameOuter"
+                                         Stroke="{x:Bind ViewModel.AmbientPreviewBrush, Mode=OneWay}"
+                                         StrokeThickness="7"
+                                         Opacity="1.0"
+                                         StrokeLineJoin="Miter"
+                                         IsHitTestVisible="False"/>
+                                <Polygon x:Name="PreviewFrameMiddleOuter"
+                                         Stroke="{x:Bind ViewModel.AmbientPreviewBrush, Mode=OneWay}"
+                                         StrokeThickness="6"
+                                         Opacity="0.8"
+                                         StrokeLineJoin="Miter"
+                                         IsHitTestVisible="False"/>
+                                <Polygon x:Name="PreviewFrameMiddleInner"
+                                         Stroke="{x:Bind ViewModel.AmbientPreviewBrush, Mode=OneWay}"
+                                         StrokeThickness="4"
+                                         Opacity="0.6"
+                                         StrokeLineJoin="Miter"
+                                         IsHitTestVisible="False"/>
+                                <Polygon x:Name="PreviewFrameInner"
+                                         Stroke="{x:Bind ViewModel.AmbientPreviewBrush, Mode=OneWay}"
+                                         StrokeThickness="2"
+                                         Opacity="0.4"
+                                         StrokeLineJoin="Miter"
+                                         IsHitTestVisible="False"/>
+                                <TextBlock Margin="60,30,60,22"
+                                           Text="{x:Bind ViewModel.CurrentOutputText, Mode=OneWay}"
+                                           Visibility="{x:Bind ViewModel.CurrentOutputTextVisibility, Mode=OneWay}"
+                                           Foreground="{x:Bind ViewModel.PixelPreviewBrush, Mode=OneWay}"
+                                           FontFamily="{StaticResource PixelPreviewFontFamily}"
+                                           FontSize="18"
+                                           FontWeight="Normal"
+                                           LineHeight="18"
+                                           LineStackingStrategy="BlockLineHeight"
+                                           TextAlignment="Center"
+                                           HorizontalAlignment="Stretch"
+                                           VerticalAlignment="Center"
+                                           TextWrapping="NoWrap"
+                                           MaxLines="1"
+                                           TextTrimming="CharacterEllipsis"/>
+                            </Grid>
+                        </Border>
+
+                        <StackPanel Orientation="Horizontal" Spacing="18">
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                <Border Width="14" Height="14" CornerRadius="3" Background="{x:Bind ViewModel.AmbientPreviewBrush, Mode=OneWay}" VerticalAlignment="Center"/>
+                                <TextBlock Text="氛围灯" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <TextBlock Text="{x:Bind ViewModel.AmbientPreviewColorText, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                <Border Width="14" Height="14" CornerRadius="3" Background="{x:Bind ViewModel.PixelPreviewBrush, Mode=OneWay}" VerticalAlignment="Center"/>
+                                <TextBlock Text="字幕主题" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <TextBlock Text="{x:Bind ViewModel.PixelPreviewColorText, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{x:Bind ViewModel.CurrentOutputStatusText, Mode=OneWay}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap"
+                                       VerticalAlignment="Center"/>
+                            <Button Grid.Column="1"
+                                    Content="测试设备连接"
+                                    Command="{x:Bind ViewModel.TestDeviceConnectionCommand}"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="DeviceCard" Grid.Column="1" Style="{StaticResource DashboardCardStyle}">
+                    <StackPanel Spacing="18">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="设备" Style="{StaticResource DashboardCaptionStyle}"/>
+                            <TextBlock Text="字幕音箱" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                        </StackPanel>
+
+                        <Grid RowSpacing="10">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Text="连接方式" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock HorizontalAlignment="Right" Text="USB HID" FontWeight="SemiBold"/>
+                            <TextBlock Grid.Row="1" Text="设备状态" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock Grid.Row="1" HorizontalAlignment="Right" Text="{x:Bind ViewModel.DeviceConnectionDetailText, Mode=OneWay}" FontWeight="SemiBold"/>
+                            <!-- <TextBlock Grid.Row="2" Text="音量范围" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock Grid.Row="2" HorizontalAlignment="Right" Text="0–16 级" FontWeight="SemiBold"/> -->
+                        </Grid>
+
+                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+
+                        <StackPanel Spacing="8">
+                            <Grid>
+                                <StackPanel Spacing="2">
+                                    <TextBlock Text="字幕音箱音量" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{x:Bind ViewModel.VolumeStatusMessage, Mode=OneWay}"
+                                               FontSize="12"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                               TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <TextBlock HorizontalAlignment="Right"
+                                           VerticalAlignment="Top"
+                                           Text="{x:Bind ViewModel.SubtitleSpeakerVolumeText, Mode=OneWay}"
+                                           FontWeight="SemiBold"/>
+                            </Grid>
+                            <Slider Minimum="0"
+                                    Maximum="16"
+                                    StepFrequency="1"
+                                    SmallChange="1"
+                                    LargeChange="2"
+                                    Value="{x:Bind ViewModel.SubtitleSpeakerVolume, Mode=TwoWay}"
+                                    AutomationProperties.Name="字幕音箱音量"/>
+                        </StackPanel>
+
+                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="设备时间" FontWeight="SemiBold"/>
+                                <TextBlock Text="{x:Bind ViewModel.CurrentSystemTimeText, Mode=OneWay}"
+                                           FontFamily="Consolas"
+                                           FontSize="12"/>
+                                <TextBlock Text="{x:Bind ViewModel.DeviceTimeStatusMessage, Mode=OneWay}"
+                                           FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <Button Grid.Column="1"
+                                    VerticalAlignment="Center"
+                                    Content="校准时间"
+                                    Command="{x:Bind ViewModel.CalibrateDeviceTimeCommand}"
+                                    AutomationProperties.Name="校准设备时间"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="QuickActionsCard" Grid.Row="1" Grid.ColumnSpan="2" Style="{StaticResource DashboardCardStyle}">
+                    <StackPanel Spacing="14">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="快速开始" Style="{StaticResource DashboardCaptionStyle}"/>
+                            <TextBlock Text="选择一个显示任务" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                        </StackPanel>
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Button Style="{StaticResource QuickActionButtonStyle}" Command="{x:Bind ViewModel.OpenQuickActionOneCommand}">
+                                <StackPanel Spacing="7"><FontIcon Glyph="{x:Bind ViewModel.QuickActionOne.Glyph, Mode=OneWay}" FontSize="22" Foreground="{x:Bind ViewModel.QuickActionOne.AccentBrush, Mode=OneWay}"/><TextBlock Text="{x:Bind ViewModel.QuickActionOne.Title, Mode=OneWay}" FontWeight="SemiBold"/><TextBlock Text="{x:Bind ViewModel.QuickActionOne.Description, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/></StackPanel>
+                            </Button>
+                            <Button Grid.Column="1" Style="{StaticResource QuickActionButtonStyle}" Command="{x:Bind ViewModel.OpenQuickActionTwoCommand}">
+                                <StackPanel Spacing="7"><FontIcon Glyph="{x:Bind ViewModel.QuickActionTwo.Glyph, Mode=OneWay}" FontSize="22" Foreground="{x:Bind ViewModel.QuickActionTwo.AccentBrush, Mode=OneWay}"/><TextBlock Text="{x:Bind ViewModel.QuickActionTwo.Title, Mode=OneWay}" FontWeight="SemiBold"/><TextBlock Text="{x:Bind ViewModel.QuickActionTwo.Description, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/></StackPanel>
+                            </Button>
+                            <Button Grid.Column="2" Style="{StaticResource QuickActionButtonStyle}" Command="{x:Bind ViewModel.OpenQuickActionThreeCommand}">
+                                <StackPanel Spacing="7"><FontIcon Glyph="{x:Bind ViewModel.QuickActionThree.Glyph, Mode=OneWay}" FontSize="22" Foreground="{x:Bind ViewModel.QuickActionThree.AccentBrush, Mode=OneWay}"/><TextBlock Text="{x:Bind ViewModel.QuickActionThree.Title, Mode=OneWay}" FontWeight="SemiBold"/><TextBlock Text="{x:Bind ViewModel.QuickActionThree.Description, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/></StackPanel>
+                            </Button>
+                            <Button Grid.Column="3" Style="{StaticResource QuickActionButtonStyle}" Command="{x:Bind ViewModel.OpenQuickActionFourCommand}">
+                                <StackPanel Spacing="7"><FontIcon Glyph="{x:Bind ViewModel.QuickActionFour.Glyph, Mode=OneWay}" FontSize="22" Foreground="{x:Bind ViewModel.QuickActionFour.AccentBrush, Mode=OneWay}"/><TextBlock Text="{x:Bind ViewModel.QuickActionFour.Title, Mode=OneWay}" FontWeight="SemiBold"/><TextBlock Text="{x:Bind ViewModel.QuickActionFour.Description, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/></StackPanel>
+                            </Button>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </Grid>
         </StackPanel>
-    </Grid>
+    </ScrollViewer>
 </Page>

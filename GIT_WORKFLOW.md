@@ -18,18 +18,17 @@
 
 ## 版本与 Release
 
-1. 统一版本定义在 `Directory.Build.props`；MSIX 版本同时更新 `HaloPixelToolBox/Package.appxmanifest`。
+1. 统一版本定义在 `Directory.Build.props`。使用下列命令修改版本，脚本会同时更新程序集版本与 `Package.appxmanifest`：
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts/Set-Version.ps1 -Version <版本号>
+   ```
+
 2. 从已推送的发布提交构建：
 
    ```powershell
-   powershell -ExecutionPolicy Bypass -File scripts/Build-Release.ps1 -Version <版本号> -Platform x64 -Runtime win-x64
+   powershell -ExecutionPolicy Bypass -File scripts/Build-Release.ps1 -Platform x64 -Runtime win-x64
    ```
 
 3. 上传 `release/v<版本号>/` 中的安装器 EXE、便携 ZIP 和 `SHA256SUMS.txt` 到同名 GitHub Release。
 4. Release 说明须列出用户可见功能、支持范围/兼容性、已验证场景和已知限制。
-
-## 本次 v2.1.0
-
-- QQ 音乐歌词同步采用 QQMusicLyricNew 本地 QRC 缓存。
-- QRC 通过 QQ 的非标准 DES 位序解密，并按媒体会话播放进度输出当前歌词行。
-- 已在 QQ 音乐桌面歌词场景中验证加载、拖动进度和切歌后的自动重试。

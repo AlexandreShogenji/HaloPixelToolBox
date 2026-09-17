@@ -8,6 +8,13 @@ using Windows.Storage.Pickers;
 
 public sealed partial class PersonalSceneToolPage : Page
 {
+    private const double ScenePreviewMinimumWidth = 400;
+    private const double ScenePreviewMaximumWidth = 600;
+    private const double ScenePreviewSpacing = 12;
+    private const double ScenePreviewColumnFitTolerance = 24;
+    private const double ScenePreviewAspectRatio = 256.0 / 32.0;
+    private const int ScenePreviewMaximumColumns = 3;
+
     public PersonalSceneToolPageViewModel ViewModel { get; } = new();
 
     public PersonalSceneToolPage()
@@ -41,8 +48,8 @@ public sealed partial class PersonalSceneToolPage : Page
             return;
 
         var items = await e.DataView.GetStorageItemsAsync();
-        if (items.FirstOrDefault(item => item is StorageFile file && file.FileType.Equals(".png", StringComparison.OrdinalIgnoreCase)) is StorageFile png)
-            await ViewModel.SetCustomFrameAsync(slot, png.Path);
+        if (items.FirstOrDefault(item => item is StorageFile file && IsSupportedFrame(file.FileType)) is StorageFile image)
+            await ViewModel.SetCustomFrameAsync(slot, image.Path);
     }
 
     private async void CustomFrameChoose_Click(object sender, RoutedEventArgs e)
@@ -55,6 +62,8 @@ public sealed partial class PersonalSceneToolPage : Page
             SuggestedStartLocation = PickerLocationId.PicturesLibrary
         };
         picker.FileTypeFilter.Add(".png");
+        picker.FileTypeFilter.Add(".jpg");
+        picker.FileTypeFilter.Add(".jpeg");
 
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
         WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
@@ -77,4 +86,48 @@ public sealed partial class PersonalSceneToolPage : Page
         if (sender is FrameworkElement { Tag: PersonalSceneDefinition scene })
             ViewModel.DeleteScene(scene);
     }
+
+    private void ScenePreviewGrid_Loaded(object sender, RoutedEventArgs e)
+    {
+        UpdateScenePreviewLayout(ScenePreviewGrid.ActualWidth);
+        DispatcherQueue.TryEnqueue(() => UpdateScenePreviewLayout(ScenePreviewGrid.ActualWidth));
+    }
+
+    private void ScenePreviewItemsPanel_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is ItemsWrapGrid itemsPanel)
+            UpdateScenePreviewLayout(ScenePreviewGrid.ActualWidth, itemsPanel);
+    }
+
+    private void ScenePreviewGrid_SizeChanged(object sender, SizeChangedEventArgs e)
+        => UpdateScenePreviewLayout(e.NewSize.Width);
+
+    private void UpdateScenePreviewLayout(double availableWidth, ItemsWrapGrid? itemsPanel = null)
+    {
+        itemsPanel ??= ScenePreviewGrid.ItemsPanelRoot as ItemsWrapGrid;
+        if (availableWidth <= 0 || itemsPanel is null)
+            return;
+
+        var columnCount = Math.Clamp(
+            (int)Math.Floor(
+                (availableWidth + ScenePreviewSpacing + ScenePreviewColumnFitTolerance) /
+                (ScenePreviewMinimumWidth + ScenePreviewSpacing)),
+            1,
+            ScenePreviewMaximumColumns);
+        var itemSlotWidth = Math.Min(
+            ScenePreviewMaximumWidth + ScenePreviewSpacing,
+            Math.Floor(availableWidth / columnCount));
+        var previewWidth = Math.Max(0, itemSlotWidth - ScenePreviewSpacing);
+        var previewHeight = previewWidth / ScenePreviewAspectRatio;
+        var horizontalInset = Math.Max(0, Math.Floor((availableWidth - itemSlotWidth * columnCount) / 2));
+
+        ScenePreviewGrid.Padding = new Thickness(horizontalInset, 0, horizontalInset, 0);
+        itemsPanel.ItemWidth = itemSlotWidth;
+        itemsPanel.ItemHeight = Math.Ceiling(previewHeight + ScenePreviewSpacing);
+    }
+
+    private static bool IsSupportedFrame(string extension)
+        => extension.Equals(".png", StringComparison.OrdinalIgnoreCase)
+           || extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
+           || extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase);
 }

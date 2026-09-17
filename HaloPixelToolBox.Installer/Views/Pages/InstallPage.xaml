@@ -49,16 +49,16 @@
                     <StackPanel VerticalAlignment="Center" Margin="10,0,0,0">
                         <TextBlock VerticalAlignment="Center">
                             <Span>
-                                <Run Text="勾选则代表同意"/>
+                                <Run Text="勾选表示已阅读"/>
                             </Span>
                             <Hyperlink Foreground="{DynamicResource MainColor}" Command="{Binding ViewEULAAgreementCommand}">
-                                <Run Text="软件最终用户许可协议"/>
+                                <Run Text="MIT 软件许可"/>
                             </Hyperlink>
                             <Span>
                                 <Run Text="和"/>
                             </Span>
                             <Hyperlink Foreground="{DynamicResource MainColor}" Command="{Binding ViewUserPrivateAgreementCommand}">
-                                <Run Text="用户隐私协议"/>
+                                <Run Text="隐私说明"/>
                             </Hyperlink>
                         </TextBlock>
                     </StackPanel>

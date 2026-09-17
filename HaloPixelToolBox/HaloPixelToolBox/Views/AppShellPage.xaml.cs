@@ -16,6 +16,7 @@ namespace HaloPixelToolBox.Views
             this.InitializeComponent();
             App.MainWindow?.SetTitleBar(appTitleBar);
             ViewModel.NavigationViewService.Initialize(navigationView, navigationFrame);
+            ViewModel.NavigationViewService.NavigationService.Navigated += (_, _) => navigationView.Header = null;
             ViewModel.MessageService.Initialize(messageStackPanel, DispatcherQueue);
             ViewModel.DialogService.RegisterDialog(upgradeDialog);
             ViewModel.DialogService.RegisterDialog(closeDialog);
@@ -28,6 +29,9 @@ namespace HaloPixelToolBox.Views
         {
             switch (DisplayFeatureProfile.LastToolPageName)
             {
+                case "HaloPixelToolBox.Views.MainPage":
+                    ViewModel.NavigationViewService.NavigateTo<MainPage>();
+                    break;
                 case "HaloPixelToolBox.Views.LightingToolPage":
                     ViewModel.NavigationViewService.NavigateTo<LightingToolPage>();
                     break;
@@ -44,8 +48,10 @@ namespace HaloPixelToolBox.Views
                     ViewModel.NavigationViewService.NavigateTo<CustomSubtitleToolPage>();
                     break;
                 case "HaloPixelToolBox.Views.PersonalSceneToolPage":
-                default:
                     ViewModel.NavigationViewService.NavigateTo<PersonalSceneToolPage>();
+                    break;
+                default:
+                    ViewModel.NavigationViewService.NavigateTo<MainPage>();
                     break;
             }
         }

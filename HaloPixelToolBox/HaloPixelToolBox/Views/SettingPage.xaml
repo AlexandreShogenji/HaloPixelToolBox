@@ -23,7 +23,12 @@
     <Grid>
         <ContentDialog x:Name="cleanCacheContentDialog" Title="清除应用缓存" Content="是否清除应用的所有缓存文件（可以定期清理）" IsPrimaryButtonEnabled="True" IsSecondaryButtonEnabled="True" PrimaryButtonText="确定" SecondaryButtonText="取消" DefaultButton="Primary"/>
         <ScrollView>
-            <StackPanel Orientation="Vertical" Spacing="4" Margin="0,0,0,20">
+            <StackPanel Orientation="Vertical" Spacing="4" Margin="0,0,24,20" MaxWidth="1000">
+                <StackPanel Spacing="4" Margin="0,0,0,8">
+                    <!-- <TextBlock Text="应用设置" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/> -->
+                    <TextBlock Text="设置" Style="{StaticResource TitleTextBlockStyle}"/>
+                    <!-- <TextBlock Text="管理应用外观、行为、翻译服务、存储与更新。" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/> -->
+                </StackPanel>
                 <TextBlock Text="外观 &amp; 行为" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"/>
                 <controls:SettingsCard Header="色彩模式" Description="软件显示的主题颜色">
                     <controls:SettingsCard.HeaderIcon>
@@ -57,19 +62,92 @@
                         <ComboBoxItem Content="直接退出程序"/>
                     </ComboBox>
                 </controls:SettingsCard>
+                <TextBlock Text="设备控制台" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"/>
+                <controls:SettingsExpander Header="快速开始入口"
+                                           Description="自定义设备控制台显示的四个快捷任务"
+                                           HorizontalContentAlignment="Stretch">
+                    <controls:SettingsExpander.HeaderIcon>
+                        <FontIcon Glyph="&#xE8A7;"/>
+                    </controls:SettingsExpander.HeaderIcon>
+                    <TextBlock Text="选择后返回设备控制台即可生效；允许重复选择同一个工具。"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap"/>
+                    <controls:SettingsExpander.Items>
+                        <controls:SettingsCard Header="入口 1" Description="">
+                            <ComboBox ItemsSource="{x:Bind ViewModel.QuickActionOptions}"
+                                      SelectedIndex="{x:Bind ViewModel.QuickActionSlotOneIndex, Mode=TwoWay}"/>
+                        </controls:SettingsCard>
+                        <controls:SettingsCard Header="入口 2" Description="">
+                            <ComboBox ItemsSource="{x:Bind ViewModel.QuickActionOptions}"
+                                      SelectedIndex="{x:Bind ViewModel.QuickActionSlotTwoIndex, Mode=TwoWay}"/>
+                        </controls:SettingsCard>
+                        <controls:SettingsCard Header="入口 3" Description="">
+                            <ComboBox ItemsSource="{x:Bind ViewModel.QuickActionOptions}"
+                                      SelectedIndex="{x:Bind ViewModel.QuickActionSlotThreeIndex, Mode=TwoWay}"/>
+                        </controls:SettingsCard>
+                        <controls:SettingsCard Header="入口 4" Description="">
+                            <ComboBox ItemsSource="{x:Bind ViewModel.QuickActionOptions}"
+                                      SelectedIndex="{x:Bind ViewModel.QuickActionSlotFourIndex, Mode=TwoWay}"/>
+                        </controls:SettingsCard>
+                    </controls:SettingsExpander.Items>
+                </controls:SettingsExpander>
+                <TextBlock Text="集成" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"/>
+                <controls:SettingsExpander Header="腾讯云翻译"
+                                           Description="{x:Bind ViewModel.TencentTranslationStatus, Mode=OneWay}"
+                                           HorizontalContentAlignment="Stretch">
+                    <controls:SettingsExpander.HeaderIcon>
+                        <FontIcon Glyph="&#xE8C4;"/>
+                    </controls:SettingsExpander.HeaderIcon>
+                    <TextBlock Text="浏览器字幕会使用这里保存的腾讯云翻译配置。"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap"/>
+                    <controls:SettingsExpander.Items>
+                        <controls:SettingsCard Header="凭据与区域"
+                                               Description="SecretId / SecretKey 仅保存在本机；保存后界面不会回显。"
+                                               HorizontalContentAlignment="Stretch">
+                            <StackPanel Spacing="10">
+                                <TextBox Header="SecretId"
+                                         Text="{x:Bind ViewModel.TencentCloudSecretId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         PlaceholderText="已配置时留空可保持原凭据"/>
+                                <PasswordBox Header="SecretKey"
+                                             Password="{x:Bind ViewModel.TencentCloudSecretKey, Mode=TwoWay}"
+                                             PlaceholderText="已配置时留空可保持原凭据"/>
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="1.5*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox Header="Endpoint"
+                                             Text="tmt.tencentcloudapi.com"
+                                             IsReadOnly="True"/>
+                                    <ComboBox Grid.Column="1"
+                                              Header="Region"
+                                              ItemsSource="{x:Bind ViewModel.TencentRegions}"
+                                              SelectedIndex="{x:Bind ViewModel.SelectedTencentRegionIndex, Mode=TwoWay}"/>
+                                </Grid>
+                                <TextBlock Text="字幕原文会发送到腾讯云机器翻译服务；目标语言由浏览器字幕页选择。"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           FontSize="12"
+                                           TextWrapping="Wrap"/>
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Content="保存配置"
+                                            Style="{StaticResource AccentButtonStyle}"
+                                            Command="{x:Bind ViewModel.SaveTencentTranslationCommand}"/>
+                                    <Button Content="测试连接"
+                                            Command="{x:Bind ViewModel.TestTencentTranslationCommand}"/>
+                                    <Button Content="清除凭据"
+                                            Command="{x:Bind ViewModel.ClearTencentTranslationCommand}"/>
+                                </StackPanel>
+                                <TextBlock Text="{x:Bind ViewModel.TencentTranslationDetail, Mode=OneWay}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </controls:SettingsCard>
+                    </controls:SettingsExpander.Items>
+                </controls:SettingsExpander>
                 <TextBlock Text="下载 &amp; 更新" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"/>
-                <controls:SettingsCard Header="检查新的更新" Description="检查是否有新的更新">
-                    <Button Content="检查更新" Command="{x:Bind ViewModel.CheckUpgradeCommand}"/>
-                </controls:SettingsCard>
-                <controls:SettingsCard Header="忽略的版本号" Description="忽略该次更新的版本号">
-                    <Grid ColumnSpacing="20">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition/>
-                            <ColumnDefinition/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Style="{ThemeResource CaptionTextBlockStyle}" Text="{x:Bind ViewModel.IgnoreVersion, Mode=OneWay}" VerticalAlignment="Center"/>
-                        <Button Grid.Column="1" Content="删除" IsEnabled="{x:Bind ViewModel.IgnoreVersion, Mode=OneWay, Converter={StaticResource StringEmptyBooleanConverter}, ConverterParameter='inverse'}" Command="{x:Bind ViewModel.ClearIgnoreVersionCommand}"/>
-                    </Grid>
+                <controls:SettingsCard Header="检查新的更新" Description="仅在手动点击时查询 GitHub Releases，启动软件不会自动检查">
+                    <Button Content="检查 GitHub 更新" Command="{x:Bind ViewModel.CheckUpgradeCommand}"/>
                 </controls:SettingsCard>
                 <TextBlock Text="路径 &amp; 存储" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"/>
                 <controls:SettingsCard Header="缓存目录" Description="{x:Bind ViewModel.AppCacheDirectory, Mode=OneWay}" IsClickEnabled="True" Command="{x:Bind ViewModel.OpenPathCommand}" CommandParameter="{x:Bind ViewModel.AppCacheDirectory, Mode=OneWay}">
@@ -122,7 +200,7 @@
                         </controls:SettingsCard>
                         <controls:SettingsCard Header="联系我们" HorizontalContentAlignment="Left" ContentAlignment="Vertical">
                             <StackPanel Margin="-12,0,0,0" Orientation="Vertical">
-                                <HyperlinkButton Content="Github 项目主页" NavigateUri="https://github.com/AlexandreShogenji/HaloPixelToolBox/tree/codex/refine-subtitle-features?tab=readme-ov-file"/>
+                                <HyperlinkButton Content="Github 项目主页" NavigateUri="https://github.com/AlexandreShogenji/HaloPixelToolBox"/>
                                 <HyperlinkButton Content="Issues 问题反馈" NavigateUri="https://github.com/AlexandreShogenji/HaloPixelToolBox/issues"/>
                             </StackPanel>
                         </controls:SettingsCard>

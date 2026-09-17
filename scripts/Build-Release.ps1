@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "2.1.0",
+    [string]$Version = "",
     [ValidateSet("x64", "x86", "ARM64")]
     [string]$Platform = "x64",
     [string]$Runtime = "win-x64",
@@ -9,6 +9,19 @@ param(
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+$VersionPropsPath = Join-Path $RepoRoot "Directory.Build.props"
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    [xml]$versionProps = Get-Content -LiteralPath $VersionPropsPath
+    $Version = [string]$versionProps.Project.PropertyGroup.Version
+}
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    throw "Could not read the product version from $VersionPropsPath"
+}
+$ConfiguredVersion = [string]([xml](Get-Content -LiteralPath $VersionPropsPath)).Project.PropertyGroup.Version
+$RequestedVersion = $Version.TrimStart("v")
+if ($RequestedVersion -ne $ConfiguredVersion) {
+    throw "Requested version $RequestedVersion does not match Directory.Build.props ($ConfiguredVersion). Run scripts/Set-Version.ps1 first."
+}
 $ReleaseRoot = Join-Path $RepoRoot "release"
 $VersionTag = if ($Version.StartsWith("v")) { $Version } else { "v$Version" }
 $VersionValue = $Version.TrimStart("v")
@@ -20,6 +33,7 @@ $AssemblyVersion = "{0}.{1}.{2}.0" -f $ParsedVersion.Major, $ParsedVersion.Minor
 $AppProject = Join-Path $RepoRoot "HaloPixelToolBox\HaloPixelToolBox\HaloPixelToolBox.csproj"
 $InstallerProject = Join-Path $RepoRoot "HaloPixelToolBox.Installer\HaloPixelToolBox.Installer.csproj"
 $PackageProject = Join-Path $RepoRoot "HaloPixelToolBox.Installer.Package\HaloPixelToolBox.Installer.Package.csproj"
+$LicenseFile = Join-Path $RepoRoot "LICENSE.txt"
 $InstallerSourceZip = Join-Path $RepoRoot "HaloPixelToolBox.Installer\Resources\Resource\Source.zip"
 $PackageSourceZip = Join-Path $RepoRoot "HaloPixelToolBox.Installer.Package\Source.zip"
 
@@ -106,6 +120,7 @@ Remove-DirectoryIfExists -Path $PackagePublishDir -ExpectedParent $VersionReleas
 
 Write-Host "Publishing HaloPixelToolBox $VersionTag for $Runtime..."
 Invoke-DotNet publish $AppProject "-c" $Configuration "-p:Platform=$Platform" "-p:PublishProfile=" "-r" $Runtime "--self-contained" "false" "-o" $AppPublishDir @VersionProperties
+Copy-Item -LiteralPath $LicenseFile -Destination (Join-Path $AppPublishDir "LICENSE.txt") -Force
 
 Write-Host "Creating embedded app payload: $InstallerSourceZip"
 New-ZipFromDirectory -SourceDirectory $AppPublishDir -DestinationPath $InstallerSourceZip

@@ -9,12 +9,17 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
     <Grid>
-        <ScrollViewer>
-            <StackPanel Spacing="14" Margin="0,0,0,24">
-                <TextBlock Text="个性场景" Style="{StaticResource TitleTextBlockStyle}"/>
-                <TextBlock Text="{x:Bind ViewModel.SceneCountText, Mode=OneWay}"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                           TextWrapping="Wrap"/>
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="14" Margin="0,0,24,24" MaxWidth="1280">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <StackPanel Spacing="4">
+                        <!-- <TextBlock Text="设备内容" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/> -->
+                        <TextBlock Text="个性场景" Style="{StaticResource TitleTextBlockStyle}"/>
+                        <TextBlock Text="{x:Bind ViewModel.SceneCountText, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" Content="重新扫描" Command="{x:Bind ViewModel.ReloadScenesCommand}" VerticalAlignment="Bottom"/>
+                </Grid>
 
                 <GridView ItemsSource="{x:Bind ViewModel.Categories, Mode=OneWay}"
                           SelectionMode="None"
@@ -42,26 +47,41 @@
                     </GridView.ItemTemplate>
                 </GridView>
 
-                <GridView ItemsSource="{x:Bind ViewModel.SelectedScenes, Mode=OneWay}"
+                <GridView x:Name="ScenePreviewGrid"
+                          ItemsSource="{x:Bind ViewModel.SelectedScenes, Mode=OneWay}"
                           SelectionMode="None"
-                          MaxHeight="900">
+                          HorizontalAlignment="Stretch"
+                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                          ScrollViewer.HorizontalScrollMode="Disabled"
+                          ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                          ScrollViewer.VerticalScrollMode="Disabled"
+                          Loaded="ScenePreviewGrid_Loaded"
+                          SizeChanged="ScenePreviewGrid_SizeChanged">
+                    <GridView.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <ItemsWrapGrid Orientation="Horizontal"
+                                           Loaded="ScenePreviewItemsPanel_Loaded"/>
+                        </ItemsPanelTemplate>
+                    </GridView.ItemsPanel>
                     <GridView.ItemContainerStyle>
                         <Style TargetType="GridViewItem">
                             <Setter Property="Margin" Value="0,0,12,12"/>
                             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="VerticalContentAlignment" Value="Stretch"/>
                         </Style>
                     </GridView.ItemContainerStyle>
                     <GridView.ItemTemplate>
                         <DataTemplate x:DataType="scenes:PersonalSceneDefinition">
-                            <Grid Width="520" Height="62">
+                            <Grid>
                                 <Button Click="SceneButton_Click"
                                         Tag="{Binding}"
                                         Padding="0"
                                         BorderThickness="1"
                                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                         Background="Transparent"
-                                        HorizontalAlignment="Stretch">
-                                    <Grid Width="520" Height="62" CornerRadius="6" Background="Black">
+                                        HorizontalAlignment="Stretch"
+                                        VerticalAlignment="Stretch">
+                                    <Grid CornerRadius="6" Background="Black">
                                         <Image Source="{x:Bind PreviewSource, Mode=OneWay}" Stretch="UniformToFill"/>
                                         <Border Background="#F0FFB15A"
                                                 CornerRadius="0,0,0,4"
@@ -100,7 +120,7 @@
                     <StackPanel Spacing="14">
                         <StackPanel Spacing="4">
                             <TextBlock Text="自定义图像资源" Style="{StaticResource SubtitleTextBlockStyle}"/>
-                            <TextBlock Text="拖入或选择 1 到 5 张 256x32 PNG 图像；1 张为静态资源，多张为动画序列。"
+                            <TextBlock Text="拖入或选择 1 到 5 张 256x32 PNG/JPG 图像；1 张为静态资源，多张为动画序列。"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                        TextWrapping="Wrap"/>
                         </StackPanel>
@@ -133,7 +153,7 @@
                                                             Opacity="{x:Bind PlaceholderOpacity, Mode=OneWay}"
                                                             Spacing="2">
                                                     <TextBlock Text="{x:Bind Title}" TextAlignment="Center"/>
-                                                    <TextBlock Text="拖入 PNG"
+                                                    <TextBlock Text="拖入 PNG/JPG"
                                                                FontSize="12"
                                                                TextAlignment="Center"
                                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -200,7 +220,6 @@
                 </Border>
 
                 <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                    <Button Content="重新扫描" Command="{x:Bind ViewModel.ReloadScenesCommand}"/>
                     <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
                                VerticalAlignment="Center"
                                TextWrapping="Wrap"/>

@@ -140,10 +140,10 @@ public partial class BrowserTranslationSubtitleToolPageViewModel : ViewModelBase
     private string translationApiKey = DisplayFeatureProfile.TranslationApiKey;
 
     [ObservableProperty]
-    private string tencentCloudSecretId = Environment.GetEnvironmentVariable("TENCENTCLOUD_SECRET_ID") ?? string.Empty;
+    private string tencentCloudSecretId = string.Empty;
 
     [ObservableProperty]
-    private string tencentCloudSecretKey = Environment.GetEnvironmentVariable("TENCENTCLOUD_SECRET_KEY") ?? string.Empty;
+    private string tencentCloudSecretKey = string.Empty;
 
     [ObservableProperty]
     private string huggingFaceToken = Environment.GetEnvironmentVariable("HF_TOKEN")
@@ -160,9 +160,10 @@ public partial class BrowserTranslationSubtitleToolPageViewModel : ViewModelBase
             : "已检测到 HF_TOKEN，模型下载会自动使用该令牌";
 
     [ObservableProperty]
-    private string tencentTranslationTestResult = string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("TENCENTCLOUD_SECRET_KEY"))
-        ? "尚未检测到腾讯翻译环境变量"
-        : "已检测到腾讯翻译环境变量，SecretId/SecretKey 不会回显";
+    private string tencentTranslationTestResult = string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("TENCENTCLOUD_SECRET_ID"))
+                                              || string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("TENCENTCLOUD_SECRET_KEY"))
+        ? "尚未检测到完整的腾讯翻译配置"
+        : "已检测到腾讯翻译配置，SecretId/SecretKey 不会回显";
 
     [ObservableProperty]
     private string sourceLanguage = "auto";
@@ -319,6 +320,10 @@ public partial class BrowserTranslationSubtitleToolPageViewModel : ViewModelBase
                 FileName = chromePath,
                 UseShellExecute = false
             };
+            processStartInfo.Environment.Remove("TENCENTCLOUD_SECRET_ID");
+            processStartInfo.Environment.Remove("TENCENTCLOUD_SECRET_KEY");
+            processStartInfo.Environment.Remove("HF_TOKEN");
+            processStartInfo.Environment.Remove("HUGGINGFACE_HUB_TOKEN");
             processStartInfo.ArgumentList.Add($"--remote-debugging-port={ChromeDevToolsPort}");
             processStartInfo.ArgumentList.Add("--remote-allow-origins=*");
             processStartInfo.ArgumentList.Add($"--user-data-dir={cdpUserDataDirectory}");

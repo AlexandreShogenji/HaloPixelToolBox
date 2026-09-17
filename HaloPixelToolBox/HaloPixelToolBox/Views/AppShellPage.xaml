@@ -9,7 +9,13 @@
     mc:Ignorable="d" Loaded="Page_Loaded">
 
     <Grid x:Name="mainGrid">
-        <ContentDialog x:Name="upgradeDialog" Title="发现新版本" Content="{x:Bind ViewModel.UpgradeContentText, Mode=OneWay}" PrimaryButtonText="更新" SecondaryButtonText="忽略此版本" CloseButtonText="取消" DefaultButton="Primary"/>
+        <ContentDialog x:Name="upgradeDialog" Title="发现新版本" PrimaryButtonText="下载更新" CloseButtonText="稍后" DefaultButton="Primary">
+            <ScrollViewer MaxHeight="420" VerticalScrollBarVisibility="Auto">
+                <TextBlock Text="{x:Bind ViewModel.UpgradeContentText, Mode=OneWay}"
+                           TextWrapping="Wrap"
+                           IsTextSelectionEnabled="True"/>
+            </ScrollViewer>
+        </ContentDialog>
         <ContentDialog x:Name="closeDialog" Title="退出花再工具箱" PrimaryButtonText="确定" SecondaryButtonText="取消" DefaultButton="Primary">
             <StackPanel Spacing="10" Orientation="Vertical">
                 <TextBlock Text="确认退出工具箱吗？"/>
@@ -60,13 +66,16 @@
             </Grid>
         </Grid>
 
-        <NavigationView x:Name="navigationView" IsBackButtonVisible="Collapsed" Canvas.ZIndex="0" IsBackEnabled="{x:Bind ViewModel.CanGoBack, Mode=OneWay}" IsSettingsVisible="False" CompactPaneLength="48" OpenPaneLength="184" DisplayModeChanged="NavigationView_DisplayModeChanged" PaneOpening="NavigationView_PaneOpening" PaneOpened="NavigationView_PaneOpened" PaneClosing="NavigationView_PaneClosing" PaneClosed="NavigationView_PaneClosed">
+        <NavigationView x:Name="navigationView" IsBackButtonVisible="Collapsed" AlwaysShowHeader="False" Canvas.ZIndex="0" IsBackEnabled="{x:Bind ViewModel.CanGoBack, Mode=OneWay}" IsSettingsVisible="False" CompactPaneLength="48" OpenPaneLength="232" DisplayModeChanged="NavigationView_DisplayModeChanged" PaneOpening="NavigationView_PaneOpening" PaneOpened="NavigationView_PaneOpened" PaneClosing="NavigationView_PaneClosing" PaneClosed="NavigationView_PaneClosed">
             <NavigationView.MenuItems>
-                <NavigationViewItem Content="个性场景" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.PersonalSceneToolPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE790;"/></NavigationViewItem.Icon></NavigationViewItem>
-                <NavigationViewItem Content="灯光颜色" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.LightingToolPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE790;"/></NavigationViewItem.Icon></NavigationViewItem>
-                <NavigationViewItem Content="歌词字幕" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.LyricsSubtitleToolPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE8D6;"/></NavigationViewItem.Icon></NavigationViewItem>
+                <NavigationViewItem Content="设备控制台" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.MainPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE80F;"/></NavigationViewItem.Icon></NavigationViewItem>
+                <NavigationViewItemHeader Content="显示"/>
+                <NavigationViewItem Content="个性场景" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.PersonalSceneToolPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE7F4;"/></NavigationViewItem.Icon></NavigationViewItem>
+                <NavigationViewItem Content="灯光控制" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.LightingToolPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE706;"/></NavigationViewItem.Icon></NavigationViewItem>
+                <NavigationViewItemHeader Content="字幕"/>
+                <NavigationViewItem Content="歌词同步" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.LyricsSubtitleToolPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE8D6;"/></NavigationViewItem.Icon></NavigationViewItem>
                 <NavigationViewItem Content="视频字幕" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.VideoSubtitleToolPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE714;"/></NavigationViewItem.Icon></NavigationViewItem>
-                <NavigationViewItem Content="浏览器翻译字幕" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.BrowserTranslationSubtitleToolPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE774;"/></NavigationViewItem.Icon></NavigationViewItem>
+                <NavigationViewItem Content="浏览器字幕" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.BrowserTranslationSubtitleToolPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE774;"/></NavigationViewItem.Icon></NavigationViewItem>
                 <NavigationViewItem Content="自定义字幕" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.CustomSubtitleToolPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE8D4;"/></NavigationViewItem.Icon></NavigationViewItem>
             </NavigationView.MenuItems>
             <NavigationView.FooterMenuItems>
@@ -77,7 +86,7 @@
                 <NavigationViewItem Content="设置" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.SettingPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE713;"/></NavigationViewItem.Icon></NavigationViewItem>
             </NavigationView.FooterMenuItems>
             <Grid x:Name="loadingGrid">
-                <Frame Padding="56,24,56,0" x:Name="navigationFrame"/>
+                <Frame Padding="36,64,36,0" x:Name="navigationFrame"/>
             </Grid>
         </NavigationView>
     </Grid>
