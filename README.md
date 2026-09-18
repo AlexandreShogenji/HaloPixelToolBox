@@ -83,20 +83,20 @@
 
 ## 开发与构建
 
-仓库使用 .NET 8、WinUI 3 和 WPF。`Directory.Build.props` 是产品版本的主来源，`scripts/Set-Version.ps1` 会同步四段程序集版本和 MSIX manifest 版本。
+仓库使用 .NET 8、WinUI 3 和 WPF。`Directory.Build.props` 是产品版本的主来源，`eng/Set-Version.ps1` 会同步四段程序集版本和 MSIX manifest 版本。
 
 ```powershell
 # 设置下一版本
-powershell -ExecutionPolicy Bypass -File scripts/Set-Version.ps1 -Version 3.0.0
+powershell -ExecutionPolicy Bypass -File eng/Set-Version.ps1 -Version 3.0.0
 
 # 构建主程序与核心库
 dotnet build HaloPixelToolBox.sln -c Release -p:Platform=x64
 
 # 生成安装器、便携 ZIP 与 SHA256SUMS.txt；版本默认从 Directory.Build.props 读取
-powershell -ExecutionPolicy Bypass -File scripts/Build-Release.ps1 -Platform x64 -Runtime win-x64
+powershell -ExecutionPolicy Bypass -File eng/Build-Release.ps1 -Platform x64 -Runtime win-x64
 ```
 
-发布产物位于 `release/v<版本号>/`。详细贡献约定见 [CONTRIBUTING.md](CONTRIBUTING.md)，Git 与发布流程见 [GIT_WORKFLOW.md](GIT_WORKFLOW.md)。
+最终发布文件位于 `artifacts/release/v<版本号>/`；打包时生成的展开目录和嵌入 ZIP 会自动清理。详细贡献、Git 与发布约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 致谢与许可
 

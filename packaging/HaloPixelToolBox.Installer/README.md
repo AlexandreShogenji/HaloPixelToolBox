@@ -5,7 +5,7 @@
 推荐使用仓库根目录的发布脚本完成完整打包：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/Build-Release.ps1 -Platform x64 -Runtime win-x64
+powershell -ExecutionPolicy Bypass -File eng/Build-Release.ps1 -Platform x64 -Runtime win-x64
 ```
 
 脚本会自动完成：
@@ -14,12 +14,12 @@ powershell -ExecutionPolicy Bypass -File scripts/Build-Release.ps1 -Platform x64
 2. 生成并嵌入安装器所需的 `Resources\Resource\Source.zip`。
 3. 发布安装器。
 4. 生成并嵌入 `HaloPixelToolBox.Installer.Package` 所需的 `Source.zip`。
-5. 按 `Directory.Build.props` 中的当前版本，把最终安装器 EXE、便携 ZIP 和 SHA256 校验文件输出到 `release/v<版本号>/`。
+5. 按 `Directory.Build.props` 中的当前版本，把最终安装器 EXE、便携 ZIP 和 SHA256 校验文件输出到 `artifacts/release/v<版本号>/`，并清理展开目录和临时嵌入包。
 
 如果必须手动打包，请按以下顺序操作：
 
 1. 发布 `HaloPixelToolBox/HaloPixelToolBox/HaloPixelToolBox.csproj`。
 2. 将发布目录中的全部内容压缩为 `Resources\Resource\Source.zip`。
-3. 发布 `HaloPixelToolBox.Installer/HaloPixelToolBox.Installer.csproj`。
-4. 将安装器发布目录中的全部内容压缩为 `HaloPixelToolBox.Installer.Package/Source.zip`。
-5. 发布 `HaloPixelToolBox.Installer.Package/HaloPixelToolBox.Installer.Package.csproj`，得到最终自解压安装器。
+3. 发布 `packaging/HaloPixelToolBox.Installer/HaloPixelToolBox.Installer.csproj`。
+4. 将安装器发布目录中的全部内容压缩为 `packaging/HaloPixelToolBox.Installer.Package/Source.zip`。
+5. 发布 `packaging/HaloPixelToolBox.Installer.Package/HaloPixelToolBox.Installer.Package.csproj`，得到最终自解压安装器。
