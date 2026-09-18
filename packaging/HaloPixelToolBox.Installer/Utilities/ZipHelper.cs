@@ -19,20 +19,32 @@ namespace HaloPixelToolBox.Installer.Utilities
 
         public static void ExtraZip(ZipArchive zipArchive, string targetPath)
         {
+            var targetDirectory = Path.GetFullPath(targetPath);
+            Directory.CreateDirectory(targetDirectory);
+
+            var targetDirectoryPrefix = targetDirectory.TrimEnd(
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+
             foreach (var entry in zipArchive.Entries)
             {
-                try
+                var filePath = Path.GetFullPath(Path.Combine(targetDirectory, entry.FullName));
+                if (!filePath.StartsWith(targetDirectoryPrefix, StringComparison.OrdinalIgnoreCase))
                 {
-                    var filePath = Path.Combine(targetPath, entry.FullName);
-                    if (string.IsNullOrEmpty(entry.Name))
-                        Directory.CreateDirectory(filePath);
-                    else
-                        entry.ExtractToFile(filePath, true);
+                    throw new InvalidDataException($"ZIP entry escapes the installation directory: {entry.FullName}");
                 }
-                catch (Exception ex)
+
+                if (string.IsNullOrEmpty(entry.Name))
                 {
-                    Console.WriteLine(ex.Message);
+                    Directory.CreateDirectory(filePath);
+                    continue;
                 }
+
+                var parentDirectory = Path.GetDirectoryName(filePath);
+                if (!string.IsNullOrEmpty(parentDirectory))
+                    Directory.CreateDirectory(parentDirectory);
+
+                entry.ExtractToFile(filePath, true);
             }
         }
     }

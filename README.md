@@ -14,11 +14,11 @@
   </p>
 </div>
 
-当前稳定版为 **v3.0.0**。它把设备状态、字幕音箱音量、设备校时、场景入口和灯光控制集中到一套 WinUI 3 界面中，并通过 USB HID 直接与兼容设备通信。
+当前稳定版为 **v3.0.1**。它把设备状态、字幕音箱音量、设备校时、场景入口和灯光控制集中到一套 WinUI 3 界面中，并通过 USB HID 直接与兼容设备通信。v3.0.1 修复了 v3.0.0 安装器在部分目录中留下临时文件、以及漏装嵌套资源后应用无法启动的问题。
 
 ![设备控制台：设备连接、实时预览、音量和校时](docs/images/dashboard.jpg)
 
-## v3.0.0 亮点
+## v3.0 功能亮点
 
 - **设备控制台**：显示 USB HID 连接状态、当前输出预览和常用任务入口；启动后即可读取并调整 0–16 级字幕音箱音量。
 - **经过实机验证的设备控制**：支持设备时间校准、像素屏开关和氛围灯开关，写入后会读取设备响应确认状态。
@@ -64,7 +64,7 @@
 ## 下载与安装
 
 1. 打开 [GitHub Releases](https://github.com/AlexandreShogenji/HaloPixelToolBox/releases/latest)。
-2. 普通用户下载 `HaloPixelToolBox-v3.0.0-installer-win-x64.exe`；无需安装时可使用 `HaloPixelToolBox-v3.0.0-win-x64.zip` 便携包。
+2. 普通用户下载 `HaloPixelToolBox-v3.0.1-installer-win-x64.exe`；无需安装时可使用 `HaloPixelToolBox-v3.0.1-win-x64.zip` 便携包。
 3. 使用 USB 连接兼容的 HaloPixel / 花再设备，再启动工具箱。
 
 系统要求：Windows 10 1809 或更高版本、x64、[.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)。当前安装器未做代码签名，Windows 可能显示“未知发布者”；可用 Release 附带的 `SHA256SUMS.txt` 核对下载文件。
@@ -87,7 +87,7 @@
 
 ```powershell
 # 设置下一版本
-powershell -ExecutionPolicy Bypass -File eng/Set-Version.ps1 -Version 3.0.0
+powershell -ExecutionPolicy Bypass -File eng/Set-Version.ps1 -Version 3.0.1
 
 # 构建主程序与核心库
 dotnet build HaloPixelToolBox.sln -c Release -p:Platform=x64
