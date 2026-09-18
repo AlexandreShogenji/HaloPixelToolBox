@@ -10,6 +10,7 @@
 *.userosscache
 *.sln.docstates
 .claude/settings.local.json
+/.github/copilot-instructions.md
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
@@ -25,6 +26,8 @@ mono_crash.*
 x64/
 x86/
 [Ww][Ii][Nn]32/
+!/HaloPixelToolBox/HaloPixelToolBox/Utilities/Helpers/Win32/
+!/HaloPixelToolBox/HaloPixelToolBox/Utilities/Helpers/Win32/**
 [Aa][Rr][Mm]/
 [Aa][Rr][Mm]64/
 bld/
@@ -369,6 +372,15 @@ FodyWeavers.xsd
 /docs/*
 !/docs/images/
 !/docs/images/*.jpg
+
+# Local HID protocol capture, analysis, and hardware probes
+/scripts/Analyze-HaloHidApi.py
+/scripts/Analyze-HaloHidCapture.py
+/scripts/Capture-HaloHidApi.py
+/scripts/halo_hid_trace.js
+/scripts/HaloPixelSwitchProbe/
+/scripts/HaloPixelTimeProbe/
+/HaloPixelToolBox/HaloPixelToolBox.Test/
 
 # Local UI prototype; the production interface lives in the WinUI project
 /ui-demo/

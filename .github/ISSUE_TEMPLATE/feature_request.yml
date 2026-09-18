@@ -1,12 +1,12 @@
 name: ✨ 功能需求
-description: 为花再具箱提出新功能或改进建议
+description: 为花再工具箱提出新功能或改进建议
 title: "[Feature] 标题"
 labels: ["enhancement"]
 body:
   - type: markdown
     attributes:
       value: |
-        你对 **花再具箱** 的想法非常重要 🌱  
+        你对 **花再工具箱** 的想法非常重要 🌱
         请尽量描述清楚你的需求和使用场景。
 
   - type: textarea
@@ -14,7 +14,7 @@ body:
     attributes:
       label: 需求背景
       description: 当前遇到了什么问题或不便？
-      placeholder: 我在使用花再具箱时，经常需要……
+      placeholder: 我在使用花再工具箱时，经常需要……
     validations:
       required: true
 

@@ -1,12 +1,12 @@
 name: 🐞 Bug 报告
-description: 报告花再具箱中遇到的问题
+description: 报告花再工具箱中遇到的问题
 title: "[Bug] 标题"
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        感谢你为 **花再具箱** 提交 Bug 🙏  
+        感谢你为 **花再工具箱** 提交 Bug 🙏
         请尽量填写完整信息，这有助于更快定位问题。
 
   - type: textarea
@@ -24,7 +24,7 @@ body:
       label: 复现步骤
       description: 请按步骤描述如何复现该问题
       placeholder: |
-        1. 打开花再具箱
+        1. 打开花再工具箱
         2. 点击 …
         3. 出现错误
     validations:
@@ -50,7 +50,7 @@ body:
     id: version
     attributes:
       label: 软件版本
-      description: 花再具箱的版本号
+      description: 花再工具箱的版本号
       placeholder: v1.2.3
     validations:
       required: true

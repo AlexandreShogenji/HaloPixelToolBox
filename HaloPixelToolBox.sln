@@ -1,0 +1,42 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "HaloPixelToolBox", "HaloPixelToolBox", "{FD4EE825-DBEE-47E9-8B09-3E725632F71E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HaloPixelToolBox", "HaloPixelToolBox\HaloPixelToolBox\HaloPixelToolBox.csproj", "{638EAC6E-596D-4701-847F-86B1BF5C15AB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HaloPixelToolBox.Core", "HaloPixelToolBox\HaloPixelToolBox.Core\HaloPixelToolBox.Core.csproj", "{7ABACDC3-E5AF-40B2-BB65-47717781C821}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HaloPixelToolBox.Installer", "HaloPixelToolBox.Installer\HaloPixelToolBox.Installer.csproj", "{7991F02C-92EF-4065-BFAD-90DEA7041DB1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HaloPixelToolBox.Installer.Package", "HaloPixelToolBox.Installer.Package\HaloPixelToolBox.Installer.Package.csproj", "{6A2F6B75-98A8-4D8C-A39E-63CA6B739E80}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{638EAC6E-596D-4701-847F-86B1BF5C15AB}.Debug|x64.ActiveCfg = Debug|x64
+		{638EAC6E-596D-4701-847F-86B1BF5C15AB}.Debug|x64.Build.0 = Debug|x64
+		{638EAC6E-596D-4701-847F-86B1BF5C15AB}.Release|x64.ActiveCfg = Release|x64
+		{638EAC6E-596D-4701-847F-86B1BF5C15AB}.Release|x64.Build.0 = Release|x64
+		{7ABACDC3-E5AF-40B2-BB65-47717781C821}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{7ABACDC3-E5AF-40B2-BB65-47717781C821}.Debug|x64.Build.0 = Debug|Any CPU
+		{7ABACDC3-E5AF-40B2-BB65-47717781C821}.Release|x64.ActiveCfg = Release|Any CPU
+		{7ABACDC3-E5AF-40B2-BB65-47717781C821}.Release|x64.Build.0 = Release|Any CPU
+		{7991F02C-92EF-4065-BFAD-90DEA7041DB1}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{7991F02C-92EF-4065-BFAD-90DEA7041DB1}.Release|x64.ActiveCfg = Release|Any CPU
+		{6A2F6B75-98A8-4D8C-A39E-63CA6B739E80}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{6A2F6B75-98A8-4D8C-A39E-63CA6B739E80}.Release|x64.ActiveCfg = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{638EAC6E-596D-4701-847F-86B1BF5C15AB} = {FD4EE825-DBEE-47E9-8B09-3E725632F71E}
+		{7ABACDC3-E5AF-40B2-BB65-47717781C821} = {FD4EE825-DBEE-47E9-8B09-3E725632F71E}
+	EndGlobalSection
+EndGlobal

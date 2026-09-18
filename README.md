@@ -89,8 +89,8 @@
 # 设置下一版本
 powershell -ExecutionPolicy Bypass -File scripts/Set-Version.ps1 -Version 3.0.0
 
-# 构建主程序
-dotnet build HaloPixelToolBox/HaloPixelToolBox/HaloPixelToolBox.csproj -c Release -p:Platform=x64
+# 构建主程序与核心库
+dotnet build HaloPixelToolBox.sln -c Release -p:Platform=x64
 
 # 生成安装器、便携 ZIP 与 SHA256SUMS.txt；版本默认从 Directory.Build.props 读取
 powershell -ExecutionPolicy Bypass -File scripts/Build-Release.ps1 -Platform x64 -Runtime win-x64
