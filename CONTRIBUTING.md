@@ -58,7 +58,7 @@
 仓库根目录的 `global.json` 固定 .NET SDK 版本，`Directory.Build.props` 统一产品版本和编译器配置，`.gitattributes` 负责 Git 文本与二进制文件规则。这三个文件依赖根目录作用域，请保留在当前位置。
 
 - `HaloPixelToolBox/`：主程序和核心库。
-- `packaging/`：WPF 安装器与最终单文件封装器，二者共同组成发布链路。
+- `packaging/`：卸载器、WPF 安装器与最终单文件封装器，共同组成安装版发布链路。
 - `eng/`：版本、构建、品牌资源和工作区清理脚本。
 - `docs/images/`：README 使用的软件界面截图。
 
@@ -80,7 +80,7 @@ dotnet build HaloPixelToolBox.sln -c Release -p:Platform=x64
 powershell -ExecutionPolicy Bypass -File eng/Build-Release.ps1 -Platform x64 -Runtime win-x64
 ```
 
-发布脚本按顺序生成主程序、安装器和单文件封装器，最终文件写入 `artifacts/release/v<版本号>/`。上传同目录中的安装器 EXE、便携 ZIP 和 `SHA256SUMS.txt` 到同名 GitHub Release；Release 说明应包含用户可见功能、兼容范围、验证场景和已知限制。
+发布脚本按顺序生成主程序、便携包、卸载器、安装器和单文件封装器，最终文件写入 `artifacts/release/v<版本号>/`。上传同目录中的安装器 EXE、便携 ZIP 和 `SHA256SUMS.txt` 到同名 GitHub Release；Release 说明应包含用户可见功能、兼容范围、验证场景和已知限制。
 
 ### 本地归档与清理
 

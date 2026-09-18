@@ -41,8 +41,7 @@ namespace HaloPixelToolBox.Installer.Views.Pages
                         {
                             if (SystemProfile.InstallPath != string.Empty && !Directory.Exists(SystemProfile.InstallPath))
                                 Directory.CreateDirectory(SystemProfile.InstallPath);
-                            if (Install(innerStream))
-                                FileHelper.CreateShortCut($@"{Environment.GetFolderPath(Environment.SpecialFolder.Desktop)}\花再工具箱.lnk", Path.Combine(SystemProfile.InstallPath, "HaloPixelToolBox.exe"), null, "花再工具箱快捷方式", null, SystemProfile.InstallPath);
+                            Install(innerStream);
                         }
                         break;
                 }
@@ -54,6 +53,7 @@ namespace HaloPixelToolBox.Installer.Views.Pages
             try
             {
                 ZipHelper.ExtraZipStream(stream, SystemProfile.InstallPath);
+                InstallRegistration.Register(SystemProfile.InstallPath);
                 Dispatcher.Invoke(() =>
                 {
                     installGrid.Visibility = Visibility.Collapsed;

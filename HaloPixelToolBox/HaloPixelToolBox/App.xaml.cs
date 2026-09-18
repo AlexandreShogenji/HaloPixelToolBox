@@ -17,6 +17,8 @@ namespace HaloPixelToolBox;
 /// </summary>
 public partial class App : Application
 {
+    private const int InitialWindowWidth = 950;
+    private const int InitialWindowHeight = 1050;
     public ITrayIconService TrayIconService { get; } = ServiceManager.GetService<ITrayIconService>();
     public ICloseWindowService CloseWindowService { get; } = ServiceManager.GetService<ICloseWindowService>();
     /// <summary>
@@ -186,7 +188,7 @@ public partial class App : Application
         TrayIconService.Initilize(DispatcherQueue.GetForCurrentThread());
         CloseWindowService.Initialize(MainWindow);
         MainWindow.Content = new AppShellPage();
-        MainWindow.AppWindow.Resize(new(1900, 1400));
+        MainWindow.AppWindow.Resize(new(InitialWindowWidth, InitialWindowHeight));
         if (SystemProfile.MinimizeWhenOpen)
             MainWindow.AppWindow.Hide();
         else

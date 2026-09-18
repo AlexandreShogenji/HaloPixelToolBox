@@ -8,6 +8,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $VersionPropsPath = Join-Path $RepoRoot "Directory.Build.props"
@@ -45,6 +46,7 @@ $PatchVersion = if ($ParsedVersion.Build -ge 0) { $ParsedVersion.Build } else { 
 $AssemblyVersion = "{0}.{1}.{2}.0" -f $ParsedVersion.Major, $ParsedVersion.Minor, $PatchVersion
 
 $AppProject = Join-Path $RepoRoot "HaloPixelToolBox\HaloPixelToolBox\HaloPixelToolBox.csproj"
+$UninstallerProject = Join-Path $RepoRoot "packaging\HaloPixelToolBox.Uninstaller\HaloPixelToolBox.Uninstaller.csproj"
 $InstallerProject = Join-Path $RepoRoot "packaging\HaloPixelToolBox.Installer\HaloPixelToolBox.Installer.csproj"
 $PackageProject = Join-Path $RepoRoot "packaging\HaloPixelToolBox.Installer.Package\HaloPixelToolBox.Installer.Package.csproj"
 $LicenseFile = Join-Path $RepoRoot "LICENSE.txt"
@@ -53,6 +55,7 @@ $PackageSourceZip = Join-Path $RepoRoot "packaging\HaloPixelToolBox.Installer.Pa
 
 $VersionReleaseRoot = Join-Path $ReleaseRoot $VersionTag
 $AppPublishDir = Join-Path $VersionReleaseRoot "HaloPixelToolBox-$VersionTag-$Runtime"
+$UninstallerPublishDir = Join-Path $VersionReleaseRoot "HaloPixelToolBox.Uninstaller-$VersionTag-$Runtime"
 $InstallerPublishDir = Join-Path $VersionReleaseRoot "HaloPixelToolBox.Installer-$VersionTag-$Runtime"
 $PackagePublishDir = Join-Path $VersionReleaseRoot "HaloPixelToolBox.Installer.Package-$VersionTag-$Runtime"
 $PortableZip = Join-Path $VersionReleaseRoot "HaloPixelToolBox-$VersionTag-$Runtime.zip"
@@ -132,6 +135,24 @@ function New-ZipFromDirectory {
     Compress-Archive -Path (Join-Path $SourceDirectory "*") -DestinationPath $DestinationPath -CompressionLevel Optimal
 }
 
+function Test-ZipEntry {
+    param(
+        [Parameter(Mandatory = $true)][string]$ZipPath,
+        [Parameter(Mandatory = $true)][string]$EntryPath
+    )
+
+    $normalizedEntryPath = $EntryPath.Replace("\", "/")
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+    try {
+        return $null -ne ($archive.Entries | Where-Object {
+            $_.FullName.Replace("\", "/") -eq $normalizedEntryPath
+        } | Select-Object -First 1)
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+
 $VersionProperties = @(
     "-p:Version=$VersionValue",
     "-p:AssemblyVersion=$AssemblyVersion",
@@ -143,6 +164,7 @@ $VersionProperties = @(
 try {
     New-Item -ItemType Directory -Force -Path $VersionReleaseRoot | Out-Null
     Remove-DirectoryIfExists -Path $AppPublishDir -ExpectedParent $VersionReleaseRoot
+    Remove-DirectoryIfExists -Path $UninstallerPublishDir -ExpectedParent $VersionReleaseRoot
     Remove-DirectoryIfExists -Path $InstallerPublishDir -ExpectedParent $VersionReleaseRoot
     Remove-DirectoryIfExists -Path $PackagePublishDir -ExpectedParent $VersionReleaseRoot
 
@@ -150,9 +172,33 @@ try {
     Invoke-DotNet publish $AppProject "-c" $Configuration "-p:Platform=$Platform" "-p:PublishProfile=" "-r" $Runtime "--self-contained" "false" "-o" $AppPublishDir @VersionProperties
     Copy-Item -LiteralPath $LicenseFile -Destination (Join-Path $AppPublishDir "LICENSE.txt") -Force
 
+    Write-Host "Creating portable application: $PortableZip"
+    New-ZipFromDirectory -SourceDirectory $AppPublishDir -DestinationPath $PortableZip
+    if (-not (Test-ZipEntry -ZipPath $PortableZip -EntryPath "HaloPixelToolBox.exe")) {
+        throw "Portable archive does not contain HaloPixelToolBox.exe"
+    }
+    if (Test-ZipEntry -ZipPath $PortableZip -EntryPath "Uninstaller/Uninstall.exe") {
+        throw "Portable archive must not contain the installed-app uninstaller"
+    }
+
+    Write-Host "Publishing uninstaller..."
+    Invoke-DotNet publish $UninstallerProject "-c" $Configuration "-r" $Runtime "--self-contained" "false" "-p:PublishSingleFile=true" "-o" $UninstallerPublishDir @VersionProperties
+    $uninstallerExe = Join-Path $UninstallerPublishDir "Uninstall.exe"
+    if (-not (Test-Path -LiteralPath $uninstallerExe)) {
+        throw "Could not find Uninstall.exe in $UninstallerPublishDir"
+    }
+    $installedUninstallerDirectory = Join-Path $AppPublishDir "Uninstaller"
+    New-Item -ItemType Directory -Force -Path $installedUninstallerDirectory | Out-Null
+    Copy-Item -Path (Join-Path $UninstallerPublishDir "*") -Destination $installedUninstallerDirectory -Recurse -Force
+
     Write-Host "Creating embedded app payload: $InstallerSourceZip"
     New-ZipFromDirectory -SourceDirectory $AppPublishDir -DestinationPath $InstallerSourceZip
-    Copy-Item -LiteralPath $InstallerSourceZip -Destination $PortableZip -Force
+    if (-not (Test-ZipEntry -ZipPath $InstallerSourceZip -EntryPath "HaloPixelToolBox.exe")) {
+        throw "Installer payload does not contain HaloPixelToolBox.exe"
+    }
+    if (-not (Test-ZipEntry -ZipPath $InstallerSourceZip -EntryPath "Uninstaller/Uninstall.exe")) {
+        throw "Installer payload does not contain Uninstaller/Uninstall.exe"
+    }
 
     Write-Host "Publishing installer..."
     Invoke-DotNet publish $InstallerProject "-c" $Configuration "-r" $Runtime "--self-contained" "true" "-o" $InstallerPublishDir @VersionProperties
@@ -186,6 +232,7 @@ try {
 }
 finally {
     Remove-DirectoryIfExists -Path $AppPublishDir -ExpectedParent $VersionReleaseRoot
+    Remove-DirectoryIfExists -Path $UninstallerPublishDir -ExpectedParent $VersionReleaseRoot
     Remove-DirectoryIfExists -Path $InstallerPublishDir -ExpectedParent $VersionReleaseRoot
     Remove-DirectoryIfExists -Path $PackagePublishDir -ExpectedParent $VersionReleaseRoot
     Remove-FileIfExists -Path $InstallerSourceZip -ExpectedParent $RepoRoot

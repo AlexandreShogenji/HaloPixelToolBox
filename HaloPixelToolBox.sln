@@ -12,6 +12,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HaloPixelToolBox.Installer"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HaloPixelToolBox.Installer.Package", "packaging\HaloPixelToolBox.Installer.Package\HaloPixelToolBox.Installer.Package.csproj", "{6A2F6B75-98A8-4D8C-A39E-63CA6B739E80}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HaloPixelToolBox.Uninstaller", "packaging\HaloPixelToolBox.Uninstaller\HaloPixelToolBox.Uninstaller.csproj", "{C0B955E8-A11A-4A4F-BE6F-2B4E1BC8A97E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -33,6 +35,10 @@ Global
 		{7991F02C-92EF-4065-BFAD-90DEA7041DB1}.Release|x64.ActiveCfg = Release|Any CPU
 		{6A2F6B75-98A8-4D8C-A39E-63CA6B739E80}.Debug|x64.ActiveCfg = Debug|Any CPU
 		{6A2F6B75-98A8-4D8C-A39E-63CA6B739E80}.Release|x64.ActiveCfg = Release|Any CPU
+		{C0B955E8-A11A-4A4F-BE6F-2B4E1BC8A97E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{C0B955E8-A11A-4A4F-BE6F-2B4E1BC8A97E}.Debug|x64.Build.0 = Debug|Any CPU
+		{C0B955E8-A11A-4A4F-BE6F-2B4E1BC8A97E}.Release|x64.ActiveCfg = Release|Any CPU
+		{C0B955E8-A11A-4A4F-BE6F-2B4E1BC8A97E}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{638EAC6E-596D-4701-847F-86B1BF5C15AB} = {FD4EE825-DBEE-47E9-8B09-3E725632F71E}

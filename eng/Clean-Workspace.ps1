@@ -29,6 +29,8 @@ $cleanTargets = @(
     "packaging\HaloPixelToolBox.Installer.Package\bin",
     "packaging\HaloPixelToolBox.Installer.Package\obj",
     "packaging\HaloPixelToolBox.Installer.Package\Source.zip",
+    "packaging\HaloPixelToolBox.Uninstaller\bin",
+    "packaging\HaloPixelToolBox.Uninstaller\obj",
     "artifacts\cache"
 )
 

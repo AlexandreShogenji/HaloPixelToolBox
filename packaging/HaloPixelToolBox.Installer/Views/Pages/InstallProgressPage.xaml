@@ -21,20 +21,23 @@
             <ctr:ModernProgressBar x:Name="progress" Grid.Column="1" Margin="10,0,10,0" Height="10" ProgressBarCornerRadius="5" IsBusy="True" Value="100"/>
         </Grid>
         <Grid x:Name="successGrid" Visibility="Collapsed">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition/>
-                <ColumnDefinition/>
-                <ColumnDefinition/>
-            </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
                 <RowDefinition Height="40"/>
                 <RowDefinition/>
                 <RowDefinition/>
             </Grid.RowDefinitions>
-            <TextBlock Grid.Row="1" Grid.ColumnSpan="3" Text="已完成安装" VerticalAlignment="Center" HorizontalAlignment="Center" FontSize="32"/>
-            <ctr:RoundButton Grid.Column="1" Grid.Row="2" Height="40" Margin="10,0" Command="{Binding ConfirmSuccessCommand}" VerticalAlignment="Center">
-                <TextBlock Text="确定" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="{DynamicResource MainColor}" FontSize="20"/>
-            </ctr:RoundButton>
+            <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center">
+                <TextBlock Text="已完成安装" HorizontalAlignment="Center" FontSize="32"/>
+                <TextBlock Text="HaloPixelToolBox 已成功安装到电脑" Margin="0,12,0,0" HorizontalAlignment="Center" Opacity="0.72" FontSize="14"/>
+            </StackPanel>
+            <StackPanel Grid.Row="2" Orientation="Horizontal" VerticalAlignment="Center" HorizontalAlignment="Center">
+                <ctr:RoundButton Width="190" Height="40" Margin="10,0" Command="{Binding OpenApplicationCommand}">
+                    <TextBlock Text="打开 HaloPixelToolBox" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="{DynamicResource MainColor}" FontSize="17"/>
+                </ctr:RoundButton>
+                <ctr:RoundButton Width="140" Height="40" Margin="10,0" Command="{Binding CloseInstallerCommand}">
+                    <TextBlock Text="关闭安装器" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="{DynamicResource MainColor}" FontSize="17"/>
+                </ctr:RoundButton>
+            </StackPanel>
         </Grid>
     </Grid>
 </Page>
