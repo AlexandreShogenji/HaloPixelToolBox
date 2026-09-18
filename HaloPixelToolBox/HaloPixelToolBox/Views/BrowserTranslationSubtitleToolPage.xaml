@@ -57,13 +57,13 @@
                 <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
                 <Border Style="{StaticResource BrowserPreviewCardStyle}">
                     <StackPanel Spacing="14">
-                        <Grid><StackPanel Spacing="3"><TextBlock Text="原文" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="捕获内容" Style="{StaticResource SubtitleTextBlockStyle}"/></StackPanel><Border HorizontalAlignment="Right" Padding="8,4" CornerRadius="999" Background="{ThemeResource SubtleFillColorSecondaryBrush}"><TextBlock Text="SOURCE" FontSize="10"/></Border></Grid>
+                        <StackPanel Spacing="3"><TextBlock Text="原文" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="捕获内容" Style="{StaticResource SubtitleTextBlockStyle}"/></StackPanel>
                         <TextBlock Text="{x:Bind ViewModel.OriginalText, Mode=OneWay}" TextWrapping="Wrap" MinHeight="116" FontSize="18"/>
                     </StackPanel>
                 </Border>
                 <Border Grid.Column="1" Style="{StaticResource BrowserPreviewCardStyle}">
                     <StackPanel Spacing="14">
-                        <Grid><StackPanel Spacing="3"><TextBlock Text="译文" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="翻译结果" Style="{StaticResource SubtitleTextBlockStyle}"/></StackPanel><Border HorizontalAlignment="Right" Padding="8,4" CornerRadius="999" Background="{ThemeResource SubtleFillColorSecondaryBrush}"><TextBlock Text="TARGET" FontSize="10"/></Border></Grid>
+                        <StackPanel Spacing="3"><TextBlock Text="译文" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="翻译结果" Style="{StaticResource SubtitleTextBlockStyle}"/></StackPanel>
                         <TextBlock Text="{x:Bind ViewModel.TranslatedText, Mode=OneWay}" TextWrapping="Wrap" MinHeight="116" FontSize="18"/>
                     </StackPanel>
                 </Border>

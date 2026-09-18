@@ -27,7 +27,7 @@ public partial class PersonalSceneToolPageViewModel : ViewModelBase
     private List<PersonalSceneDefinition> selectedScenes = [];
 
     [ObservableProperty]
-    private string statusMessage = "等待加载场景资源";
+    private string statusMessage = string.Empty;
 
     [ObservableProperty]
     private string sceneCountText = "已发现 0 个场景";

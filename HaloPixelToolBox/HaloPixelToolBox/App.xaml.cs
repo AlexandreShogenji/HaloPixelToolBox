@@ -18,7 +18,7 @@ namespace HaloPixelToolBox;
 public partial class App : Application
 {
     private const int InitialWindowWidth = 950;
-    private const int InitialWindowHeight = 1050;
+    private const int InitialWindowHeight = 800;
     public ITrayIconService TrayIconService { get; } = ServiceManager.GetService<ITrayIconService>();
     public ICloseWindowService CloseWindowService { get; } = ServiceManager.GetService<ICloseWindowService>();
     /// <summary>

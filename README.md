@@ -14,15 +14,17 @@
   </p>
 </div>
 
-当前稳定版为 **v3.1.0**。它把设备状态、字幕音箱音量、设备校时、场景入口和灯光控制集中到一套 WinUI 3 界面中，并通过 USB HID 直接与兼容设备通信。
+当前稳定版为 **v3.1.1**。它把设备状态、字幕音箱音量、设备校时、场景入口和灯光控制集中到一套 WinUI 3 界面中，并通过 USB HID 直接与兼容设备通信。
 
 ![设备控制台：设备连接、实时预览、音量和校时](docs/images/dashboard.jpg)
 
-## v3.1.0 改进
+## v3.1.1 改进
 
 - 安装完成页提供“打开 HaloPixelToolBox”和“关闭安装器”两个明确操作。
 - 安装版新增独立卸载程序，并注册到 Windows“已安装的应用”和开始菜单；卸载时保留个人设置、日志与模型缓存。
-- 主窗口初始尺寸由 1900×1400 调整为 950×1050，减少首次打开时的屏幕占用。
+- 主窗口初始尺寸调整为 950×800，减少首次打开时的屏幕占用。
+- 清理场景页和浏览器字幕页的多余占位标签。
+- 安装器使用 Windows 图形界面子系统启动，不再伴随终端窗口。
 
 ## v3.0 功能亮点
 
@@ -70,7 +72,7 @@
 ## 下载与安装
 
 1. 打开 [GitHub Releases](https://github.com/AlexandreShogenji/HaloPixelToolBox/releases/latest)。
-2. 普通用户下载 `HaloPixelToolBox-v3.1.0-installer-win-x64.exe`；无需安装时可使用 `HaloPixelToolBox-v3.1.0-win-x64.zip` 便携包。
+2. 普通用户下载 `HaloPixelToolBox-v3.1.1-installer-win-x64.exe`；无需安装时可使用 `HaloPixelToolBox-v3.1.1-win-x64.zip` 便携包。
 3. 使用 USB 连接兼容的 HaloPixel / 花再设备，再启动工具箱。
 
 系统要求：Windows 10 1809 或更高版本、x64、[.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)。当前安装器未做代码签名，Windows 可能显示“未知发布者”；可用 Release 附带的 `SHA256SUMS.txt` 核对下载文件。
@@ -95,7 +97,7 @@
 
 ```powershell
 # 设置下一版本
-powershell -ExecutionPolicy Bypass -File eng/Set-Version.ps1 -Version 3.1.0
+powershell -ExecutionPolicy Bypass -File eng/Set-Version.ps1 -Version 3.1.1
 
 # 构建主程序与核心库
 dotnet build HaloPixelToolBox.sln -c Release -p:Platform=x64
