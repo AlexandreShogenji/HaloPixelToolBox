@@ -55,11 +55,27 @@
 
 ![多平台歌词同步](docs/images/lyrics.jpg)
 
+**网易云音乐模式实拍**
+
+![网易云音乐歌词同步实拍](docs/images/Neteasy.gif)
+
+**Spotify 音乐模式实拍**
+
+![Spotify 音乐歌词同步实拍](docs/images/spotify.gif)
+
 ### 浏览器字幕
 
 捕获 B 站字幕或音频，根据需要执行翻译或 ASR 识别，再按播放进度把结果发送到字幕屏。ASR 支持 SenseVoice 与 Whisper 系列模型。
 
 ![B 站浏览器字幕捕获](docs/images/browser-subtitles.jpg)
+
+**B 站音乐模式实拍**
+
+![B 站音乐模式实拍](docs/images/BiliMusic-20260615-140749.gif)
+
+**B 站字幕模式实拍**
+
+![B 站字幕模式实拍](docs/images/Bilisubtitles.gif)
 
 ### 自定义字幕
 
