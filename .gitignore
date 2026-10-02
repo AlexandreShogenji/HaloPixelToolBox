@@ -377,3 +377,5 @@ __pycache__/
 /docs/*
 !/docs/images/
 !/docs/images/*.jpg
+!/docs/releases/
+!/docs/releases/*.md

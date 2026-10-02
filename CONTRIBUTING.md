@@ -77,8 +77,11 @@
 
 统一版本定义在 `Directory.Build.props`。设置版本、构建主程序和生成发行文件的顺序如下：
 
+完整回归需要 .NET 8 SDK、Node.js 20+、pnpm 10、Python 和 NumPy。首次运行时先按锁文件恢复插件依赖；测试脚本不会自动安装依赖。
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File eng/Set-Version.ps1 -Version <版本号>
+pnpm --dir integrations/deepseek-harness/halo-pixelbar-tools install --frozen-lockfile --ignore-scripts
 powershell -ExecutionPolicy Bypass -File eng/Test.ps1 -Suite All
 dotnet build src/HaloPixelToolBox/HaloPixelToolBox.csproj -c Release -p:Platform=x64
 powershell -ExecutionPolicy Bypass -File eng/Build-Release.ps1 -Platform x64 -Runtime win-x64

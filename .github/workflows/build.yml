@@ -29,6 +29,10 @@ jobs:
           python-version: '3.12'
       - name: Install local audio test dependency
         run: python -m pip install numpy
+      - name: Install pnpm
+        run: npm install --global pnpm@10
+      - name: Restore PixelBar plugin dependencies
+        run: pnpm --dir integrations/deepseek-harness/halo-pixelbar-tools install --frozen-lockfile --ignore-scripts
       - name: Run hardware-free regression tests
         shell: pwsh
         run: ./eng/Test.ps1 -Suite All

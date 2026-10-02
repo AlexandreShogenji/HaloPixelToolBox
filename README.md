@@ -216,6 +216,9 @@ artifacts/       本机构建产物与归档，不进入 Git
 # 设置下一版本
 powershell -ExecutionPolicy Bypass -File eng/Set-Version.ps1 -Version 3.2.0
 
+# 首次运行测试时恢复插件依赖（需要 pnpm 10）
+pnpm --dir integrations/deepseek-harness/halo-pixelbar-tools install --frozen-lockfile --ignore-scripts
+
 # 运行离线回归、构建主程序与核心库
 powershell -ExecutionPolicy Bypass -File eng/Test.ps1 -Suite All
 dotnet build src/HaloPixelToolBox/HaloPixelToolBox.csproj -c Release -p:Platform=x64
@@ -226,7 +229,7 @@ powershell -ExecutionPolicy Bypass -File eng/Build-Release.ps1 -Platform x64 -Ru
 
 最终发布文件位于 `artifacts/release/v<版本号>/`；打包时生成的展开目录和嵌入 ZIP 会自动清理。详细贡献、Git 与发布约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-离线回归需要 .NET 8 SDK、Node.js 20 或以上、Python 与 NumPy；`eng/Test.ps1` 支持按 `Dsh`、`Audio`、`Voice` 分组运行，并可通过 `-PythonPath` 指定现有 Python 环境。测试不启动真实模型任务、麦克风或设备。GitHub 的 Windows 构建工作流使用同一入口；使用软件本身不需要这些开发依赖。DSH 与语音链路的可选运行依赖按上面的对应章节准备，不随安装器安装本机模型或个人配置。
+离线回归需要 .NET 8 SDK、Node.js 20 或以上、pnpm 10、Python 与 NumPy；`eng/Test.ps1` 支持按 `Dsh`、`Audio`、`Voice` 分组运行，并可通过 `-PythonPath` 指定现有 Python 环境。测试不启动真实模型任务、麦克风或设备。GitHub 的 Windows 构建工作流使用同一入口；使用软件本身不需要这些开发依赖。DSH 与语音链路的可选运行依赖按上面的对应章节准备，不随安装器安装本机模型或个人配置。
 
 ## 致谢与许可
 

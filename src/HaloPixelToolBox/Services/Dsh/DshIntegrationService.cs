@@ -614,7 +614,7 @@ public sealed partial class DshIntegrationService : IDisposable
         {
             var source = Path.Combine(
                 directory.FullName,
-                "HaloPixelToolBox",
+                "src",
                 "HaloPixelToolBox",
                 "Assets",
                 "Integrations",

@@ -962,7 +962,7 @@ public sealed class VoiceAgentService : IDisposable
         {
             var source = Path.Combine(
                 directory.FullName,
-                "HaloPixelToolBox",
+                "src",
                 "HaloPixelToolBox",
                 "Assets",
                 "VoiceAgent",
