@@ -39,16 +39,20 @@ public sealed class PersonalSceneRestoreService
             return await displayService.ShowPixelSceneAsync(scene, null, cancellationToken);
 
         if (scene.ScreenSettingParameters is { Length: 4 } parameters)
-        {
-            displayService.ShowScreenScene(parameters[0], parameters[1], parameters[2], parameters[3], scene);
-            return true;
-        }
+            return await displayService.ShowScreenSceneAsync(
+                parameters[0],
+                parameters[1],
+                parameters[2],
+                parameters[3],
+                scene,
+                cancellationToken);
 
         if (scene.BuiltInUiModel is not null)
-        {
-            displayService.ShowBuiltInUi(scene.BuiltInUiModel.Value, DisplayContentKind.Scene, scene);
-            return true;
-        }
+            return await displayService.ShowBuiltInUiAsync(
+                scene.BuiltInUiModel.Value,
+                DisplayContentKind.Scene,
+                scene,
+                cancellationToken);
 
         return false;
     }

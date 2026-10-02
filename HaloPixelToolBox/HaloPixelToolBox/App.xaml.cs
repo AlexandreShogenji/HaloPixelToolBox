@@ -1,7 +1,10 @@
 ﻿using HaloPixelToolBox.Interface.Services;
 using HaloPixelToolBox.Profiles.CrossVersionProfiles;
 using HaloPixelToolBox.Core.Services;
+using HaloPixelToolBox.Core.Services.DeviceControl;
 using HaloPixelToolBox.Core.Services.Scenes;
+using HaloPixelToolBox.Services;
+using HaloPixelToolBox.Services.Audio;
 using HaloPixelToolBox.Utilities;
 using Microsoft.UI.Dispatching;
 using Microsoft.Windows.AppLifecycle;
@@ -17,16 +20,29 @@ namespace HaloPixelToolBox;
 /// </summary>
 public partial class App : Application
 {
-    private const int InitialWindowWidth = 950;
-    private const int InitialWindowHeight = 800;
     public ITrayIconService TrayIconService { get; } = ServiceManager.GetService<ITrayIconService>();
     public ICloseWindowService CloseWindowService { get; } = ServiceManager.GetService<ICloseWindowService>();
+    public static LightingAutomationService LightingAutomation { get; } = new();
+    public static LightingControlCoordinator LightingControl { get; } = new(
+        () => LightingAutomation.NotifyDesiredLightingStateChanged());
+    public static LyricsSubtitleControlService LyricsSubtitleControl { get; } = new();
+    public static AudioControlService AudioControl { get; } = new();
+    public static DeviceControlPipeServer DeviceControlPipe { get; } = new(
+        new HaloPixelDeviceControlService(),
+        LightingControl,
+        LyricsSubtitleControl,
+        LightingAutomation,
+        AudioControl);
+    public static VoiceAgentService VoiceAgent { get; } = new();
+    public static DshSessionsService DshSessions { get; } = new();
+    public static DshTaskService DshTasks { get; } = new(DshSessions, feedback: DshTaskFeedback.PublishAsync);
     /// <summary>
     /// 主页窗口
     /// </summary>
     public static MainWindow MainWindow { get; set; } = new();
     private static int hasScheduledPersonalSceneRestoreExit;
     private static readonly TimeSpan BackgroundExitRestoreTimeout = TimeSpan.FromSeconds(10);
+    private ToolboxInstanceGuard? instanceGuard;
 
     /// <summary>
     /// Initializes the singleton application object.  This is the first line of authored code
@@ -41,6 +57,15 @@ public partial class App : Application
             Environment.Exit(0);
             return;
         }
+        instanceGuard = ToolboxInstanceGuard.Acquire();
+        if (!instanceGuard.IsPrimary)
+        {
+            instanceGuard.ActivateOrExplainDuplicate();
+            instanceGuard.Dispose();
+            instanceGuard = null;
+            Environment.Exit(0);
+            return;
+        }
         XFEConsole.UseXFEConsoleLog();
         XFEConsole.Log.LogPath = Path.Combine(AppPath.LogDictionary, XFEConsole.Log.LogPath);
         Console.WriteLine("正在初始化应用程序...");
@@ -51,6 +76,8 @@ public partial class App : Application
         PageManager.RegisterPage(typeof(CloudMusicLyricsToolPage));
         PageManager.RegisterPage(typeof(PersonalSceneToolPage));
         PageManager.RegisterPage(typeof(LightingToolPage));
+        PageManager.RegisterPage(typeof(AudioControlPage));
+        PageManager.RegisterPage(typeof(DshSessionsPage));
         PageManager.RegisterPage(typeof(LyricsSubtitleToolPage));
         PageManager.RegisterPage(typeof(VideoSubtitleToolPage));
         PageManager.RegisterPage(typeof(BrowserTranslationSubtitleToolPage));
@@ -70,8 +97,9 @@ public partial class App : Application
         {
             MainWindow.DispatcherQueue.TryEnqueue(() =>
             {
-                if (SystemProfile.MinimizeWhenOpen)
-                    MainWindow.AppWindow.Show();
+                // Re-launching is an explicit request to show the existing window,
+                // including when its original host started it hidden.
+                MainWindow.AppWindow.Show();
                 MainWindow.Activate();
             });
         }
@@ -93,6 +121,12 @@ public partial class App : Application
 
     private void CurrentDomain_ProcessExit(object? sender, EventArgs e)
     {
+        VoiceAgent.Dispose();
+        DshTasks.Dispose();
+        DshSessions.Dispose();
+        LightingAutomation.Dispose();
+        DeviceControlPipe.Dispose();
+        LyricsSubtitleControl.Dispose();
         Console.WriteLine("正在退出...");
         Console.WriteLine("正在保存日志...");
         var logs = Directory.GetFiles(AppPath.LogDictionary);
@@ -104,6 +138,7 @@ public partial class App : Application
             }
         }
         Console.WriteLine("日志保存成功");
+        instanceGuard?.Dispose();
     }
 
     public static void ExitAfterBackgroundPersonalSceneRestore()
@@ -187,13 +222,32 @@ public partial class App : Application
         Console.WriteLine("主窗体启动中...");
         TrayIconService.Initilize(DispatcherQueue.GetForCurrentThread());
         CloseWindowService.Initialize(MainWindow);
+        LightingAutomation.Start();
+        DeviceControlPipe.Start();
+        if (DisplayFeatureProfile.VoiceAgentEnabled)
+            _ = StartVoiceAgentOnLaunchAsync();
         MainWindow.Content = new AppShellPage();
-        MainWindow.AppWindow.Resize(new(InitialWindowWidth, InitialWindowHeight));
+        Utilities.Helpers.WindowHelper.ApplyInitialBounds(MainWindow);
         if (SystemProfile.MinimizeWhenOpen)
             MainWindow.AppWindow.Hide();
         else
+        {
+            MainWindow.AppWindow.Show();
             MainWindow.Activate();
+        }
         AppThemeHelper.MainWindow = MainWindow;
         Console.WriteLine("主窗体启动完成");
+    }
+
+    private static async Task StartVoiceAgentOnLaunchAsync()
+    {
+        try
+        {
+            await VoiceAgent.StartFromProfileAsync();
+        }
+        catch (Exception exception)
+        {
+            Console.WriteLine($"[WARN]语音 Agent 自动启动失败：{exception.Message}");
+        }
     }
 }

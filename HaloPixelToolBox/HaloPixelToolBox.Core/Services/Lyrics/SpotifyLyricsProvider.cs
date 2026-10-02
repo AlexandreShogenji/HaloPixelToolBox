@@ -23,13 +23,16 @@ public sealed class SpotifyLyricsProvider : ILyricsProvider
     public async Task<LyricsTrack?> SearchAsync(LyricsQuery query, CancellationToken cancellationToken = default)
     {
         var snapshot = await playbackProvider.GetSnapshotAsync(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         if (!snapshot.HasTrack)
             throw new InvalidOperationException("未检测到 Spotify 当前播放歌曲，请先打开 Spotify 并播放音乐");
 
         var spotifyQuery = BuildSpotifyLyricsQuery(query, snapshot);
         var track = await SearchOnlineLyricsProvidersAsync(spotifyQuery, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         if (track is null && !string.IsNullOrWhiteSpace(query.FilePath))
             track = await localFileLyricsProvider.SearchAsync(spotifyQuery, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         if (track is null)
             return null;
 

@@ -32,13 +32,22 @@
         </Style>
     </Page.Resources>
 
-    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+    <ScrollViewer HorizontalScrollMode="Disabled"
+                  HorizontalScrollBarVisibility="Disabled"
+                  HorizontalContentAlignment="Stretch">
         <StackPanel Spacing="20" Margin="0,0,24,28" MaxWidth="1280" HorizontalAlignment="Stretch">
-            <Grid ColumnSpacing="20">
+            <Grid x:Name="DashboardHeaderGrid"
+                  ColumnSpacing="20"
+                  RowSpacing="10"
+                  SizeChanged="DashboardHeaderGrid_SizeChanged">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
                 <StackPanel Spacing="5">
                     <TextBlock Text="设备运行中心" Style="{StaticResource DashboardCaptionStyle}"/>
                     <TextBlock Text="设备控制台" Style="{StaticResource TitleTextBlockStyle}"/>
@@ -46,7 +55,8 @@
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                TextWrapping="Wrap"/>
                 </StackPanel>
-                <Border Grid.Column="1"
+                <Border x:Name="DeviceOnlineBadge"
+                        Grid.Column="1"
                         VerticalAlignment="Center"
                         Padding="12,7"
                         CornerRadius="999"
@@ -60,37 +70,10 @@
                 </Border>
             </Grid>
 
-            <Grid x:Name="DashboardGrid" ColumnSpacing="16" RowSpacing="16">
-                <VisualStateManager.VisualStateGroups>
-                    <VisualStateGroup>
-                        <VisualState x:Name="NarrowDashboard">
-                            <VisualState.StateTriggers>
-                                <AdaptiveTrigger MinWindowWidth="0"/>
-                            </VisualState.StateTriggers>
-                            <VisualState.Setters>
-                                <Setter Target="DashboardPrimaryColumn.Width" Value="*"/>
-                                <Setter Target="DashboardSecondaryColumn.Width" Value="0"/>
-                                <Setter Target="DeviceCard.(Grid.Row)" Value="1"/>
-                                <Setter Target="DeviceCard.(Grid.Column)" Value="0"/>
-                                <Setter Target="QuickActionsCard.(Grid.Row)" Value="2"/>
-                                <Setter Target="QuickActionsCard.(Grid.ColumnSpan)" Value="1"/>
-                            </VisualState.Setters>
-                        </VisualState>
-                        <VisualState x:Name="WideDashboard">
-                            <VisualState.StateTriggers>
-                                <AdaptiveTrigger MinWindowWidth="1000"/>
-                            </VisualState.StateTriggers>
-                            <VisualState.Setters>
-                                <Setter Target="DashboardPrimaryColumn.Width" Value="1.65*"/>
-                                <Setter Target="DashboardSecondaryColumn.Width" Value="*"/>
-                                <Setter Target="DeviceCard.(Grid.Row)" Value="0"/>
-                                <Setter Target="DeviceCard.(Grid.Column)" Value="1"/>
-                                <Setter Target="QuickActionsCard.(Grid.Row)" Value="1"/>
-                                <Setter Target="QuickActionsCard.(Grid.ColumnSpan)" Value="2"/>
-                            </VisualState.Setters>
-                        </VisualState>
-                    </VisualStateGroup>
-                </VisualStateManager.VisualStateGroups>
+            <Grid x:Name="DashboardGrid"
+                  ColumnSpacing="16"
+                  RowSpacing="16"
+                  SizeChanged="DashboardGrid_SizeChanged">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition x:Name="DashboardPrimaryColumn" Width="1.65*"/>
                     <ColumnDefinition x:Name="DashboardSecondaryColumn" Width="*"/>
@@ -103,12 +86,24 @@
 
                 <Border x:Name="CurrentOutputCard" Style="{StaticResource DashboardCardStyle}">
                     <StackPanel Spacing="18">
-                        <Grid>
+                        <Grid ColumnSpacing="12" RowSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
                             <StackPanel Spacing="4">
                                 <TextBlock Text="当前输出" Style="{StaticResource DashboardCaptionStyle}"/>
-                                <TextBlock Text="HaloPixel 实时预览" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                                <TextBlock Text="HaloPixel 实时预览"
+                                           Style="{StaticResource SubtitleTextBlockStyle}"
+                                           TextWrapping="Wrap"/>
                             </StackPanel>
-                            <Button HorizontalAlignment="Right"
+                            <Button x:Name="RestoreDefaultSceneButton"
+                                    Grid.Column="1"
+                                    HorizontalAlignment="Right"
                                     VerticalAlignment="Center"
                                     Content="恢复默认场景"
                                     Command="{x:Bind ViewModel.RestoreDefaultSceneCommand}"/>
@@ -191,7 +186,7 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <Grid ColumnSpacing="12">
+                        <Grid ColumnSpacing="12" RowSpacing="12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
@@ -215,15 +210,19 @@
                         </StackPanel>
 
                         <Grid RowSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
                             <TextBlock Text="连接方式" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <TextBlock HorizontalAlignment="Right" Text="USB HID" FontWeight="SemiBold"/>
+                            <TextBlock Grid.Column="1" HorizontalAlignment="Right" Text="USB HID" FontWeight="SemiBold"/>
                             <TextBlock Grid.Row="1" Text="设备状态" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <TextBlock Grid.Row="1" HorizontalAlignment="Right" Text="{x:Bind ViewModel.DeviceConnectionDetailText, Mode=OneWay}" FontWeight="SemiBold"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" HorizontalAlignment="Right" Text="{x:Bind ViewModel.DeviceConnectionDetailText, Mode=OneWay}" FontWeight="SemiBold"/>
                             <!-- <TextBlock Grid.Row="2" Text="音量范围" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             <TextBlock Grid.Row="2" HorizontalAlignment="Right" Text="0–16 级" FontWeight="SemiBold"/> -->
                         </Grid>
@@ -231,7 +230,8 @@
                         <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
 
                         <StackPanel Spacing="8">
-                            <Grid>
+                            <Grid ColumnSpacing="10">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                 <StackPanel Spacing="2">
                                     <TextBlock Text="字幕音箱音量" FontWeight="SemiBold"/>
                                     <TextBlock Text="{x:Bind ViewModel.VolumeStatusMessage, Mode=OneWay}"
@@ -239,7 +239,8 @@
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                TextWrapping="Wrap"/>
                                 </StackPanel>
-                                <TextBlock HorizontalAlignment="Right"
+                                <TextBlock Grid.Column="1"
+                                           HorizontalAlignment="Right"
                                            VerticalAlignment="Top"
                                            Text="{x:Bind ViewModel.SubtitleSpeakerVolumeText, Mode=OneWay}"
                                            FontWeight="SemiBold"/>
@@ -285,23 +286,23 @@
                             <TextBlock Text="快速开始" Style="{StaticResource DashboardCaptionStyle}"/>
                             <TextBlock Text="选择一个显示任务" Style="{StaticResource SubtitleTextBlockStyle}"/>
                         </StackPanel>
-                        <Grid ColumnSpacing="12">
+                        <Grid x:Name="QuickActionsGrid" ColumnSpacing="12" RowSpacing="12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <Button Style="{StaticResource QuickActionButtonStyle}" Command="{x:Bind ViewModel.OpenQuickActionOneCommand}">
+                            <Button x:Name="QuickActionOneButton" Style="{StaticResource QuickActionButtonStyle}" Command="{x:Bind ViewModel.OpenQuickActionOneCommand}">
                                 <StackPanel Spacing="7"><FontIcon Glyph="{x:Bind ViewModel.QuickActionOne.Glyph, Mode=OneWay}" FontSize="22" Foreground="{x:Bind ViewModel.QuickActionOne.AccentBrush, Mode=OneWay}"/><TextBlock Text="{x:Bind ViewModel.QuickActionOne.Title, Mode=OneWay}" FontWeight="SemiBold"/><TextBlock Text="{x:Bind ViewModel.QuickActionOne.Description, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/></StackPanel>
                             </Button>
-                            <Button Grid.Column="1" Style="{StaticResource QuickActionButtonStyle}" Command="{x:Bind ViewModel.OpenQuickActionTwoCommand}">
+                            <Button x:Name="QuickActionTwoButton" Grid.Column="1" Style="{StaticResource QuickActionButtonStyle}" Command="{x:Bind ViewModel.OpenQuickActionTwoCommand}">
                                 <StackPanel Spacing="7"><FontIcon Glyph="{x:Bind ViewModel.QuickActionTwo.Glyph, Mode=OneWay}" FontSize="22" Foreground="{x:Bind ViewModel.QuickActionTwo.AccentBrush, Mode=OneWay}"/><TextBlock Text="{x:Bind ViewModel.QuickActionTwo.Title, Mode=OneWay}" FontWeight="SemiBold"/><TextBlock Text="{x:Bind ViewModel.QuickActionTwo.Description, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/></StackPanel>
                             </Button>
-                            <Button Grid.Column="2" Style="{StaticResource QuickActionButtonStyle}" Command="{x:Bind ViewModel.OpenQuickActionThreeCommand}">
+                            <Button x:Name="QuickActionThreeButton" Grid.Column="2" Style="{StaticResource QuickActionButtonStyle}" Command="{x:Bind ViewModel.OpenQuickActionThreeCommand}">
                                 <StackPanel Spacing="7"><FontIcon Glyph="{x:Bind ViewModel.QuickActionThree.Glyph, Mode=OneWay}" FontSize="22" Foreground="{x:Bind ViewModel.QuickActionThree.AccentBrush, Mode=OneWay}"/><TextBlock Text="{x:Bind ViewModel.QuickActionThree.Title, Mode=OneWay}" FontWeight="SemiBold"/><TextBlock Text="{x:Bind ViewModel.QuickActionThree.Description, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/></StackPanel>
                             </Button>
-                            <Button Grid.Column="3" Style="{StaticResource QuickActionButtonStyle}" Command="{x:Bind ViewModel.OpenQuickActionFourCommand}">
+                            <Button x:Name="QuickActionFourButton" Grid.Column="3" Style="{StaticResource QuickActionButtonStyle}" Command="{x:Bind ViewModel.OpenQuickActionFourCommand}">
                                 <StackPanel Spacing="7"><FontIcon Glyph="{x:Bind ViewModel.QuickActionFour.Glyph, Mode=OneWay}" FontSize="22" Foreground="{x:Bind ViewModel.QuickActionFour.AccentBrush, Mode=OneWay}"/><TextBlock Text="{x:Bind ViewModel.QuickActionFour.Title, Mode=OneWay}" FontWeight="SemiBold"/><TextBlock Text="{x:Bind ViewModel.QuickActionFour.Description, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/></StackPanel>
                             </Button>
                         </Grid>

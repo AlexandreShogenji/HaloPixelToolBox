@@ -2,6 +2,8 @@ using HaloPixelToolBox.Core.Models;
 using HaloPixelToolBox.Core.Models.Display;
 using HaloPixelToolBox.Core.Models.Scenes;
 using HaloPixelToolBox.Core.Models.Subtitles;
+using HaloPixelToolBox.Core.Services.DeviceControl;
+using HaloPixelToolBox.Core.Services.Scenes;
 using HaloPixelToolBox.Core.Utilities;
 using System.Text;
 using System.Text.Json;
@@ -18,6 +20,7 @@ public class HaloPixelDisplayService
     private static readonly TimeSpan MinimumSegmentDelay = TimeSpan.FromMilliseconds(450);
     private static readonly TimeSpan MaximumSegmentDelay = TimeSpan.FromMilliseconds(1400);
     private static readonly HttpClient HttpClient = new();
+    private static readonly PersonalSceneRestoreService SceneRestoreService = new();
 
     public static event EventHandler<DisplayContentChangedEventArgs>? ContentSent;
 
@@ -38,9 +41,6 @@ public class HaloPixelDisplayService
 
     public Task<bool> SendTextAsync(DisplayTextOptions options, CancellationToken cancellationToken = default)
     {
-        if (!EnsureDeviceReady())
-            return Task.FromResult(false);
-
         if (options.SendAt is not null)
         {
             var delay = options.SendAt.Value - DateTimeOffset.Now;
@@ -48,8 +48,19 @@ public class HaloPixelDisplayService
                 return SendTextAfterDelayAsync(options, delay, cancellationToken);
         }
 
-        SendTextCore(options);
-        return Task.FromResult(true);
+        return SendTextNowAsync(options, cancellationToken);
+    }
+
+    private Task<bool> SendTextNowAsync(DisplayTextOptions options, CancellationToken cancellationToken)
+    {
+        return HaloPixelDeviceOperationQueue.RunAsync(() =>
+        {
+            if (!EnsureDeviceReady())
+                return false;
+
+            SendTextCore(options);
+            return true;
+        }, cancellationToken);
     }
 
     public Task<bool> SendSubtitleCueAsync(SubtitleCue cue, DisplayTextOptions options, CancellationToken cancellationToken = default)
@@ -69,7 +80,7 @@ public class HaloPixelDisplayService
         if (cancellationToken.IsCancellationRequested)
             return false;
 
-        return await Task.Run(() =>
+        return await HaloPixelDeviceOperationQueue.RunAsync(() =>
         {
             cancellationToken.ThrowIfCancellationRequested();
             return EnsureDeviceReady()
@@ -82,7 +93,7 @@ public class HaloPixelDisplayService
         if (cancellationToken.IsCancellationRequested)
             return (false, 0, 0);
 
-        return await Task.Run(() =>
+        return await HaloPixelDeviceOperationQueue.RunAsync(() =>
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (!EnsureDeviceReady()
@@ -100,7 +111,7 @@ public class HaloPixelDisplayService
         if (cancellationToken.IsCancellationRequested)
             return false;
 
-        return await Task.Run(() =>
+        return await HaloPixelDeviceOperationQueue.RunAsync(() =>
         {
             cancellationToken.ThrowIfCancellationRequested();
             return EnsureDeviceReady() && Device.CalibrateTime(localTime);
@@ -112,15 +123,17 @@ public class HaloPixelDisplayService
         DisplayContentKind source = DisplayContentKind.System,
         PersonalSceneDefinition? scene = null)
     {
-        if (EnsureDeviceReady())
-        {
-            Device.SetUIModel(uiModel);
-            if (source == DisplayContentKind.Scene)
-                NotifySceneSent(scene, uiModel.ToString());
-            else
-                NotifyContentSent(source, uiModel.ToString());
-        }
+        HaloPixelDeviceOperationQueue.Run(() => ShowBuiltInUiCore(uiModel, source, scene));
     }
+
+    public Task<bool> ShowBuiltInUiAsync(
+        HaloPixelUIModel uiModel,
+        DisplayContentKind source = DisplayContentKind.System,
+        PersonalSceneDefinition? scene = null,
+        CancellationToken cancellationToken = default)
+        => HaloPixelDeviceOperationQueue.RunAsync(
+            () => ShowBuiltInUiCore(uiModel, source, scene),
+            cancellationToken);
 
     public void ShowScreenScene(
         byte group,
@@ -129,50 +142,93 @@ public class HaloPixelDisplayService
         byte option,
         PersonalSceneDefinition? scene = null)
     {
-        if (EnsureDeviceReady())
-        {
-            Device.SetScreenScene(group, category, index, option);
-            NotifySceneSent(scene, $"{group}-{category}-{index}-{option}");
-        }
+        HaloPixelDeviceOperationQueue.Run(() => ShowScreenSceneCore(group, category, index, option, scene));
     }
+
+    public Task<bool> ShowScreenSceneAsync(
+        byte group,
+        byte category,
+        byte index,
+        byte option,
+        PersonalSceneDefinition? scene = null,
+        CancellationToken cancellationToken = default)
+        => HaloPixelDeviceOperationQueue.RunAsync(
+            () => ShowScreenSceneCore(group, category, index, option, scene),
+            cancellationToken);
 
     public void ShowPersonalScene(PersonalSceneDefinition scene)
     {
-        if (EnsureDeviceReady())
+        HaloPixelDeviceOperationQueue.Run(() =>
         {
+            if (!EnsureDeviceReady())
+                return false;
+
             Device.SetPersonalScene((byte)scene.CategoryIndex, (byte)scene.SceneIndex, scene.ResourceRemoteUrl);
             NotifySceneSent(scene, $"{scene.CategoryIndex}-{scene.SceneIndex}");
-        }
+            return true;
+        });
     }
 
     public async Task<bool> ShowPixelSceneAsync(PersonalSceneDefinition scene, IProgress<PixelSceneUploadProgress>? uploadProgress = null, CancellationToken cancellationToken = default)
     {
-        if (!EnsureDeviceReady())
-            return false;
-
         var resourceBytes = await ResolvePixelSceneResourceAsync(scene, cancellationToken);
         if (resourceBytes is null || resourceBytes.Length == 0)
             return false;
 
         var uploadCategoryIndex = (byte)(scene.UploadCategoryIndex ?? scene.CategoryIndex);
-        var result = await Task.Run(
-            () => Device.SetPixelSceneResource(uploadCategoryIndex, (byte)scene.SceneIndex, resourceBytes, uploadProgress: uploadProgress, cancellationToken: cancellationToken),
-            cancellationToken);
+        return await HaloPixelDeviceOperationQueue.RunAsync(() =>
+        {
+            if (!EnsureDeviceReady()
+                || !Device.SetPixelSceneResource(
+                    uploadCategoryIndex,
+                    (byte)scene.SceneIndex,
+                    resourceBytes,
+                    uploadProgress: uploadProgress,
+                    cancellationToken: cancellationToken))
+            {
+                return false;
+            }
 
-        if (result)
             NotifySceneSent(scene, $"{scene.CategoryIndex}-{scene.SceneIndex}");
+            return true;
+        }, cancellationToken);
+    }
 
-        return result;
+    private bool ShowBuiltInUiCore(
+        HaloPixelUIModel uiModel,
+        DisplayContentKind source,
+        PersonalSceneDefinition? scene)
+    {
+        if (!EnsureDeviceReady())
+            return false;
+
+        Device.SetUIModel(uiModel);
+        if (source == DisplayContentKind.Scene)
+            NotifySceneSent(scene, uiModel.ToString());
+        else
+            NotifyContentSent(source, uiModel.ToString());
+        return true;
+    }
+
+    private bool ShowScreenSceneCore(
+        byte group,
+        byte category,
+        byte index,
+        byte option,
+        PersonalSceneDefinition? scene)
+    {
+        if (!EnsureDeviceReady())
+            return false;
+
+        Device.SetScreenScene(group, category, index, option);
+        NotifySceneSent(scene, $"{group}-{category}-{index}-{option}");
+        return true;
     }
 
     private async Task<bool> SendTextAfterDelayAsync(DisplayTextOptions options, TimeSpan delay, CancellationToken cancellationToken)
     {
         await Task.Delay(delay, cancellationToken);
-        if (cancellationToken.IsCancellationRequested)
-            return false;
-
-        SendTextCore(options);
-        return true;
+        return await SendTextNowAsync(options, cancellationToken);
     }
 
     private async Task<bool> SendSubtitleSegmentsAsync(
@@ -396,11 +452,19 @@ public class HaloPixelDisplayService
     }
 
     private static void NotifySceneSent(PersonalSceneDefinition? scene, string fallbackText)
-        => NotifyContentSent(
+    {
+        // Every caller invokes this from inside HaloPixelDeviceOperationQueue after the
+        // device write succeeds. Remembering here keeps restore state in the exact same
+        // order as physical scene writes, even when callers resume out of order.
+        if (scene is not null)
+            SceneRestoreService.Remember(scene);
+
+        NotifyContentSent(
             DisplayContentKind.Scene,
             fallbackText,
             ResolveScenePreviewSource(scene),
             scene?.Name);
+    }
 
     /// <summary>
     /// 为控制台创建场景预览快照，不会向设备发送任何指令。

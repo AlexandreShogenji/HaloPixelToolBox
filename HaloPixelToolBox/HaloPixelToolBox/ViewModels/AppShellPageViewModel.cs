@@ -152,9 +152,11 @@ public partial class AppShellPageViewModel : ViewModelBase
         return pageType == typeof(MainPage)
             || pageType == typeof(PersonalSceneToolPage)
             || pageType == typeof(LightingToolPage)
+            || pageType == typeof(AudioControlPage)
             || pageType == typeof(LyricsSubtitleToolPage)
             || pageType == typeof(VideoSubtitleToolPage)
             || pageType == typeof(BrowserTranslationSubtitleToolPage)
+            || pageType == typeof(DshSessionsPage)
             || pageType == typeof(CustomSubtitleToolPage);
     }
 }

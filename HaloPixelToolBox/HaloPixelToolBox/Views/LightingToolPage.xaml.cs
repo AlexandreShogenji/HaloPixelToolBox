@@ -6,13 +6,27 @@ namespace HaloPixelToolBox.Views;
 public sealed partial class LightingToolPage : Page
 {
     private bool isInitializing = true;
+    private bool automationSettingsInitialized;
 
     public LightingToolPageViewModel ViewModel { get; } = new();
 
     public LightingToolPage()
     {
         InitializeComponent();
-        isInitializing = false;
+        Loaded += LightingToolPage_Loaded;
+        Unloaded += (_, _) => ViewModel.DetachAutomationStatus();
+    }
+
+    private void LightingToolPage_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (!automationSettingsInitialized)
+        {
+            ViewModel.CompleteAutomationSettingsInitialization();
+            automationSettingsInitialized = true;
+            isInitializing = false;
+        }
+
+        ViewModel.AttachAutomationStatus();
     }
 
     private void AmbientColorPicker_ColorChanged(ColorPicker sender, ColorChangedEventArgs args)

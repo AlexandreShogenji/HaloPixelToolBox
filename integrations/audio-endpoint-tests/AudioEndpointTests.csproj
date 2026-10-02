@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../HaloPixelToolBox/HaloPixelToolBox/Services/Audio/WindowsAudioEndpointService.cs" Link="WindowsAudioEndpointService.cs" />
+    <Compile Include="../../HaloPixelToolBox/HaloPixelToolBox/Models/AudioControlModels.cs" Link="AudioControlModels.cs" />
+  </ItemGroup>
+</Project>

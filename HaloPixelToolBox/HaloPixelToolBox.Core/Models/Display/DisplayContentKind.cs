@@ -11,5 +11,6 @@ public enum DisplayContentKind
     VideoSubtitle,
     BrowserTranslation,
     Scene,
-    System
+    System,
+    TaskStatus
 }

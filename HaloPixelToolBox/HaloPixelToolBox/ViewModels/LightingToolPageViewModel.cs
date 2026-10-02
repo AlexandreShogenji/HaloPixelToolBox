@@ -6,6 +6,7 @@ using HaloPixelToolBox.Core.Services.Lighting;
 using HaloPixelToolBox.Models;
 using HaloPixelToolBox.Profiles.CrossVersionProfiles;
 using HaloPixelToolBox.Services;
+using Microsoft.UI.Dispatching;
 using Windows.UI;
 
 namespace HaloPixelToolBox.ViewModels;
@@ -14,13 +15,19 @@ public partial class LightingToolPageViewModel : ViewModelBase
 {
     private readonly HaloPixelLightingService lightingService = new();
     private readonly LightingColorPresetStore colorPresetStore = new();
-    private readonly SemaphoreSlim lightingSendGate = new(1, 1);
+    private readonly DispatcherQueue dispatcherQueue = DispatcherQueue.GetForCurrentThread();
     private CancellationTokenSource? ambientSendThrottle;
     private CancellationTokenSource? pixelSendThrottle;
+    private int ambientWriteVersion;
+    private int pixelWriteVersion;
     private int ambientPowerUpdateVersion;
     private int pixelPowerUpdateVersion;
+    private int ambientPowerUpdatePending;
+    private int pixelPowerUpdatePending;
     private bool isRestoringPowerState;
     private bool isBatchUpdatingColors;
+    private bool isApplyingSharedLightingState;
+    private bool isInitializingAutomationSettings = true;
 
     public List<string> EffectNames { get; } =
     [
@@ -81,6 +88,23 @@ public partial class LightingToolPageViewModel : ViewModelBase
     [ObservableProperty]
     private string statusMessage = "调节灯光参数会自动发送到设备";
 
+    [ObservableProperty]
+    private bool turnLightsOffWhenDisplayOff = DisplayFeatureProfile.TurnLightsOffWhenDisplayOff;
+
+    [ObservableProperty]
+    private bool scheduledLightsOffEnabled = DisplayFeatureProfile.ScheduledLightsOffEnabled;
+
+    [ObservableProperty]
+    private TimeSpan scheduledLightsOffStartTime = TimeSpan.FromMinutes(
+        Math.Clamp(DisplayFeatureProfile.ScheduledLightsOffStartMinutes, 0, (24 * 60) - 1));
+
+    [ObservableProperty]
+    private TimeSpan scheduledLightsOffEndTime = TimeSpan.FromMinutes(
+        Math.Clamp(DisplayFeatureProfile.ScheduledLightsOffEndMinutes, 0, (24 * 60) - 1));
+
+    [ObservableProperty]
+    private string automationStatus = App.LightingAutomation.CurrentStatus;
+
     public string AmbientHex => ToHex(AmbientRed, AmbientGreen, AmbientBlue);
 
     public string PixelHex => ToHex(PixelRed, PixelGreen, PixelBlue);
@@ -99,6 +123,145 @@ public partial class LightingToolPageViewModel : ViewModelBase
     {
         LoadColorPresets();
         PublishPreviewState();
+    }
+
+    public void CompleteAutomationSettingsInitialization()
+    {
+        try
+        {
+            TurnLightsOffWhenDisplayOff = DisplayFeatureProfile.TurnLightsOffWhenDisplayOff;
+            ScheduledLightsOffEnabled = DisplayFeatureProfile.ScheduledLightsOffEnabled;
+            ScheduledLightsOffStartTime = TimeSpan.FromMinutes(
+                Math.Clamp(DisplayFeatureProfile.ScheduledLightsOffStartMinutes, 0, (24 * 60) - 1));
+            ScheduledLightsOffEndTime = TimeSpan.FromMinutes(
+                Math.Clamp(DisplayFeatureProfile.ScheduledLightsOffEndMinutes, 0, (24 * 60) - 1));
+
+            // Two-way controls can publish their defaults while InitializeComponent is wiring
+            // bindings. Notify explicitly so the persisted values win even when a property did
+            // not otherwise change and therefore did not raise PropertyChanged.
+            OnPropertyChanged(nameof(TurnLightsOffWhenDisplayOff));
+            OnPropertyChanged(nameof(ScheduledLightsOffEnabled));
+            OnPropertyChanged(nameof(ScheduledLightsOffStartTime));
+            OnPropertyChanged(nameof(ScheduledLightsOffEndTime));
+        }
+        finally
+        {
+            isInitializingAutomationSettings = false;
+        }
+    }
+
+    public void AttachAutomationStatus()
+    {
+        App.LightingAutomation.StatusChanged -= LightingAutomation_StatusChanged;
+        App.LightingAutomation.StatusChanged += LightingAutomation_StatusChanged;
+        HaloPixelLightingService.PreviewStateChanged -= LightingService_PreviewStateChanged;
+        HaloPixelLightingService.PreviewStateChanged += LightingService_PreviewStateChanged;
+        LightingControlCoordinator.ExternalMutationStarting -= LightingControl_ExternalMutationStarting;
+        LightingControlCoordinator.ExternalMutationStarting += LightingControl_ExternalMutationStarting;
+        AutomationStatus = App.LightingAutomation.CurrentStatus;
+    }
+
+    public void DetachAutomationStatus()
+    {
+        Interlocked.Increment(ref ambientWriteVersion);
+        Interlocked.Increment(ref pixelWriteVersion);
+        Interlocked.Increment(ref ambientPowerUpdateVersion);
+        Interlocked.Increment(ref pixelPowerUpdateVersion);
+        Volatile.Write(ref ambientPowerUpdatePending, 0);
+        Volatile.Write(ref pixelPowerUpdatePending, 0);
+        CancelPendingColorSends();
+        App.LightingAutomation.StatusChanged -= LightingAutomation_StatusChanged;
+        HaloPixelLightingService.PreviewStateChanged -= LightingService_PreviewStateChanged;
+        LightingControlCoordinator.ExternalMutationStarting -= LightingControl_ExternalMutationStarting;
+    }
+
+    private void LightingAutomation_StatusChanged(object? sender, EventArgs e)
+    {
+        dispatcherQueue.TryEnqueue(() => AutomationStatus = App.LightingAutomation.CurrentStatus);
+    }
+
+    private void LightingService_PreviewStateChanged(object? sender, EventArgs e)
+    {
+        var state = HaloPixelLightingService.PreviewState;
+        dispatcherQueue.TryEnqueue(() => ApplySharedLightingState(state));
+    }
+
+    private void LightingControl_ExternalMutationStarting(object? sender, LightingMutationStartingEventArgs e)
+    {
+        if ((e.Scope & LightingMutationScope.Ambient) != 0)
+        {
+            Interlocked.Increment(ref ambientWriteVersion);
+            Interlocked.Increment(ref ambientPowerUpdateVersion);
+            Volatile.Write(ref ambientPowerUpdatePending, 0);
+            CancelPendingSend(ref ambientSendThrottle);
+        }
+
+        if ((e.Scope & LightingMutationScope.Pixel) != 0)
+        {
+            Interlocked.Increment(ref pixelWriteVersion);
+            Interlocked.Increment(ref pixelPowerUpdateVersion);
+            Volatile.Write(ref pixelPowerUpdatePending, 0);
+            CancelPendingSend(ref pixelSendThrottle);
+        }
+    }
+
+    private void ApplySharedLightingState(HaloPixelLightingPreviewState state)
+    {
+        // Preview notifications can be queued from worker threads. Ignore an older snapshot if a
+        // newer UI or external change was published before this dispatcher callback ran.
+        if (HaloPixelLightingService.PreviewState != state)
+            return;
+
+        var effectIndex = Math.Clamp((int)state.Effect - 1, 0, EffectNames.Count - 1);
+        var brightnessIndex = Math.Clamp((int)state.Brightness - 1, 0, BrightnessNames.Count - 1);
+        if (AmbientEnabled == state.IsEnabled
+            && AmbientEffectIndex == effectIndex
+            && AmbientBrightnessIndex == brightnessIndex
+            && Math.Abs(AmbientSpeed - state.Speed) < 0.1
+            && AmbientRed == state.AmbientColor.Red
+            && AmbientGreen == state.AmbientColor.Green
+            && AmbientBlue == state.AmbientColor.Blue
+            && PixelScreenEnabled == state.PixelScreenEnabled
+            && PixelRed == state.PixelScreenColor.Red
+            && PixelGreen == state.PixelScreenColor.Green
+            && PixelBlue == state.PixelScreenColor.Blue)
+        {
+            return;
+        }
+
+        isApplyingSharedLightingState = true;
+        try
+        {
+            var applyAmbientPower = Volatile.Read(ref ambientPowerUpdatePending) == 0;
+            var applyPixelPower = Volatile.Read(ref pixelPowerUpdatePending) == 0;
+            if (applyAmbientPower)
+                AmbientEnabled = state.IsEnabled;
+            AmbientEffectIndex = effectIndex;
+            AmbientBrightnessIndex = brightnessIndex;
+            AmbientSpeed = state.Speed;
+            AmbientRed = state.AmbientColor.Red;
+            AmbientGreen = state.AmbientColor.Green;
+            AmbientBlue = state.AmbientColor.Blue;
+            if (applyPixelPower)
+                PixelScreenEnabled = state.PixelScreenEnabled;
+            PixelRed = state.PixelScreenColor.Red;
+            PixelGreen = state.PixelScreenColor.Green;
+            PixelBlue = state.PixelScreenColor.Blue;
+
+            if (applyAmbientPower)
+                DisplayFeatureProfile.AmbientLightEnabled = state.IsEnabled;
+            DisplayFeatureProfile.AmbientLightEffectIndex = effectIndex;
+            DisplayFeatureProfile.AmbientLightBrightnessIndex = brightnessIndex;
+            DisplayFeatureProfile.AmbientLightSpeed = state.Speed;
+            if (applyPixelPower)
+                DisplayFeatureProfile.PixelScreenEnabled = state.PixelScreenEnabled;
+            RefreshAmbientColorState();
+            RefreshPixelColorState();
+        }
+        finally
+        {
+            isApplyingSharedLightingState = false;
+        }
     }
 
     public void SetAmbientColor(Color color)
@@ -157,6 +320,8 @@ public partial class LightingToolPageViewModel : ViewModelBase
     {
         ArgumentNullException.ThrowIfNull(preset);
 
+        var ambientVersion = Interlocked.Increment(ref ambientWriteVersion);
+        var pixelVersion = Interlocked.Increment(ref pixelWriteVersion);
         SelectColorPreset(preset);
         CancelPendingColorSends();
 
@@ -164,14 +329,30 @@ public partial class LightingToolPageViewModel : ViewModelBase
         var pixelColor = BuildColor(preset.PixelRed, preset.PixelGreen, preset.PixelBlue);
         SetAllColorChannels(ambientColor, pixelColor);
 
-        var ambientOptions = BuildAmbientOptions();
         try
         {
-            await lightingSendGate.WaitAsync();
+            await LightingControlCoordinator.SharedMutationGate.WaitAsync();
             try
             {
+                if (ambientVersion != Volatile.Read(ref ambientWriteVersion)
+                    || pixelVersion != Volatile.Read(ref pixelWriteVersion))
+                    return;
+
+                var ambientOptions = BuildAmbientOptionsFromProfile();
                 var ambientResult = await lightingService.SetAmbientLightAsync(ambientOptions);
-                var pixelResult = !PixelScreenEnabled || await lightingService.SetPixelScreenColorAsync(pixelColor);
+                var committedPixelColor = BuildPixelColorFromProfile();
+                var pixelResult = !DisplayFeatureProfile.PixelScreenEnabled
+                    || await lightingService.SetPixelScreenColorAsync(committedPixelColor);
+                if (ambientResult || pixelResult)
+                {
+                    PublishPreviewStateFromProfile();
+                    App.LightingAutomation.NotifyDesiredLightingStateChanged();
+                }
+
+                if (ambientVersion != Volatile.Read(ref ambientWriteVersion)
+                    || pixelVersion != Volatile.Read(ref pixelWriteVersion))
+                    return;
+
                 if (ambientResult && pixelResult)
                 {
                     StatusMessage = !PixelScreenEnabled
@@ -187,7 +368,7 @@ public partial class LightingToolPageViewModel : ViewModelBase
             }
             finally
             {
-                lightingSendGate.Release();
+                LightingControlCoordinator.SharedMutationGate.Release();
             }
         }
         catch (Exception exception)
@@ -263,9 +444,11 @@ public partial class LightingToolPageViewModel : ViewModelBase
 
     partial void OnAmbientEnabledChanged(bool value)
     {
-        if (isRestoringPowerState)
+        if (isRestoringPowerState || isApplyingSharedLightingState)
             return;
 
+        Interlocked.Increment(ref ambientWriteVersion);
+        Volatile.Write(ref ambientPowerUpdatePending, 1);
         PublishPreviewState();
         CancelPendingSend(ref ambientSendThrottle);
         var version = Interlocked.Increment(ref ambientPowerUpdateVersion);
@@ -274,33 +457,84 @@ public partial class LightingToolPageViewModel : ViewModelBase
 
     partial void OnPixelScreenEnabledChanged(bool value)
     {
-        if (isRestoringPowerState)
+        if (isRestoringPowerState || isApplyingSharedLightingState)
             return;
 
+        Interlocked.Increment(ref pixelWriteVersion);
+        Volatile.Write(ref pixelPowerUpdatePending, 1);
+        PublishPreviewState();
         CancelPendingSend(ref pixelSendThrottle);
         var version = Interlocked.Increment(ref pixelPowerUpdateVersion);
         _ = SendPixelPowerNowAsync(value, version);
     }
 
+    partial void OnTurnLightsOffWhenDisplayOffChanged(bool value)
+    {
+        if (isInitializingAutomationSettings)
+            return;
+
+        DisplayFeatureProfile.TurnLightsOffWhenDisplayOff = value;
+        App.LightingAutomation.UpdateSettings();
+    }
+
+    partial void OnScheduledLightsOffEnabledChanged(bool value)
+    {
+        if (isInitializingAutomationSettings)
+            return;
+
+        DisplayFeatureProfile.ScheduledLightsOffEnabled = value;
+        App.LightingAutomation.UpdateSettings();
+    }
+
+    partial void OnScheduledLightsOffStartTimeChanged(TimeSpan value)
+    {
+        if (isInitializingAutomationSettings)
+            return;
+
+        DisplayFeatureProfile.ScheduledLightsOffStartMinutes = NormalizeTimePickerMinutes(value);
+        App.LightingAutomation.UpdateSettings();
+    }
+
+    partial void OnScheduledLightsOffEndTimeChanged(TimeSpan value)
+    {
+        if (isInitializingAutomationSettings)
+            return;
+
+        DisplayFeatureProfile.ScheduledLightsOffEndMinutes = NormalizeTimePickerMinutes(value);
+        App.LightingAutomation.UpdateSettings();
+    }
+
     partial void OnAmbientEffectIndexChanged(int value)
     {
+        if (isApplyingSharedLightingState)
+            return;
+
+        var version = Interlocked.Increment(ref ambientWriteVersion);
         DisplayFeatureProfile.AmbientLightEffectIndex = Math.Clamp(value, 0, EffectNames.Count - 1);
         PublishPreviewState();
-        _ = SendAmbientLightNowAsync();
+        _ = SendAmbientLightNowAsync(version);
     }
 
     partial void OnAmbientBrightnessIndexChanged(int value)
     {
+        if (isApplyingSharedLightingState)
+            return;
+
+        var version = Interlocked.Increment(ref ambientWriteVersion);
         DisplayFeatureProfile.AmbientLightBrightnessIndex = Math.Clamp(value, 0, BrightnessNames.Count - 1);
         PublishPreviewState();
-        _ = SendAmbientLightNowAsync();
+        _ = SendAmbientLightNowAsync(version);
     }
 
     partial void OnAmbientSpeedChanged(double value)
     {
+        if (isApplyingSharedLightingState)
+            return;
+
+        var version = Interlocked.Increment(ref ambientWriteVersion);
         DisplayFeatureProfile.AmbientLightSpeed = double.IsFinite(value) ? Math.Clamp(value, 1, 10) : 10;
         PublishPreviewState();
-        QueueAmbientLightSend();
+        QueueAmbientLightSend(version);
     }
 
     partial void OnSyncAmbientWithPixelChanged(bool value)
@@ -309,9 +543,10 @@ public partial class LightingToolPageViewModel : ViewModelBase
         if (!value)
             return;
 
+        var version = Interlocked.Increment(ref ambientWriteVersion);
         SetAmbientColorChannels(BuildPixelColor(), false);
         PublishPreviewState();
-        _ = SendAmbientLightNowAsync();
+        _ = SendAmbientLightNowAsync(version);
     }
 
     partial void OnAmbientRedChanged(int value) => OnAmbientColorComponentChanged();
@@ -334,22 +569,24 @@ public partial class LightingToolPageViewModel : ViewModelBase
 
     private void OnAmbientColorComponentChanged()
     {
-        if (isBatchUpdatingColors)
+        if (isBatchUpdatingColors || isApplyingSharedLightingState)
             return;
 
+        var version = Interlocked.Increment(ref ambientWriteVersion);
         RefreshAmbientColorState();
         PublishPreviewState();
-        QueueAmbientLightSend();
+        QueueAmbientLightSend(version);
     }
 
     private void OnPixelColorComponentChanged()
     {
-        if (isBatchUpdatingColors)
+        if (isBatchUpdatingColors || isApplyingSharedLightingState)
             return;
 
+        var version = Interlocked.Increment(ref pixelWriteVersion);
         RefreshPixelColorState();
         PublishPreviewState();
-        QueuePixelColorSend();
+        QueuePixelColorSend(version);
     }
 
     private void RefreshAmbientColorState()
@@ -375,6 +612,7 @@ public partial class LightingToolPageViewModel : ViewModelBase
         if (AmbientRed == color.Red && AmbientGreen == color.Green && AmbientBlue == color.Blue)
             return;
 
+        var version = queueSend ? Interlocked.Increment(ref ambientWriteVersion) : 0;
         isBatchUpdatingColors = true;
         try
         {
@@ -390,7 +628,7 @@ public partial class LightingToolPageViewModel : ViewModelBase
         RefreshAmbientColorState();
         PublishPreviewState();
         if (queueSend)
-            QueueAmbientLightSend();
+            QueueAmbientLightSend(version);
     }
 
     private void SetPixelColorChannels(HaloPixelColor color, bool queueSend)
@@ -398,6 +636,7 @@ public partial class LightingToolPageViewModel : ViewModelBase
         if (PixelRed == color.Red && PixelGreen == color.Green && PixelBlue == color.Blue)
             return;
 
+        var version = queueSend ? Interlocked.Increment(ref pixelWriteVersion) : 0;
         isBatchUpdatingColors = true;
         try
         {
@@ -413,7 +652,7 @@ public partial class LightingToolPageViewModel : ViewModelBase
         RefreshPixelColorState();
         PublishPreviewState();
         if (queueSend)
-            QueuePixelColorSend();
+            QueuePixelColorSend(version);
     }
 
     private void SetAllColorChannels(HaloPixelColor ambientColor, HaloPixelColor pixelColor)
@@ -439,76 +678,87 @@ public partial class LightingToolPageViewModel : ViewModelBase
     }
 
     private void PublishPreviewState()
-        => HaloPixelLightingService.SetPreviewState(BuildAmbientOptions(), BuildPixelColor());
+        => HaloPixelLightingService.SetPreviewState(
+            BuildAmbientOptions(),
+            PixelScreenEnabled,
+            BuildPixelColor());
 
-    private void QueueAmbientLightSend()
+    private void QueueAmbientLightSend(int version)
     {
-        CancelPendingSend(ref ambientSendThrottle);
         var current = new CancellationTokenSource();
-        ambientSendThrottle = current;
-        _ = SendAmbientLightAfterDelayAsync(current);
+        CancelPendingSend(Interlocked.Exchange(ref ambientSendThrottle, current));
+        _ = SendAmbientLightAfterDelayAsync(current, version);
     }
 
-    private void QueuePixelColorSend()
+    private void QueuePixelColorSend(int version)
     {
-        CancelPendingSend(ref pixelSendThrottle);
         var current = new CancellationTokenSource();
-        pixelSendThrottle = current;
-        _ = SendPixelColorAfterDelayAsync(current);
+        CancelPendingSend(Interlocked.Exchange(ref pixelSendThrottle, current));
+        _ = SendPixelColorAfterDelayAsync(current, version);
     }
 
-    private async Task SendAmbientLightAfterDelayAsync(CancellationTokenSource source)
+    private async Task SendAmbientLightAfterDelayAsync(CancellationTokenSource source, int version)
     {
         try
         {
             await Task.Delay(160, source.Token);
-            await SendAmbientLightNowAsync(source.Token);
+            await SendAmbientLightNowAsync(version, source.Token);
         }
         catch (OperationCanceledException)
         {
         }
         finally
         {
-            if (ReferenceEquals(ambientSendThrottle, source))
-                ambientSendThrottle = null;
+            Interlocked.CompareExchange(ref ambientSendThrottle, null, source);
             source.Dispose();
         }
     }
 
-    private async Task SendPixelColorAfterDelayAsync(CancellationTokenSource source)
+    private async Task SendPixelColorAfterDelayAsync(CancellationTokenSource source, int version)
     {
         try
         {
             await Task.Delay(160, source.Token);
-            await SendPixelColorNowAsync(source.Token);
+            await SendPixelColorNowAsync(version, source.Token);
         }
         catch (OperationCanceledException)
         {
         }
         finally
         {
-            if (ReferenceEquals(pixelSendThrottle, source))
-                pixelSendThrottle = null;
+            Interlocked.CompareExchange(ref pixelSendThrottle, null, source);
             source.Dispose();
         }
     }
 
-    private async Task SendAmbientLightNowAsync(CancellationToken cancellationToken = default)
+    private async Task SendAmbientLightNowAsync(int version, CancellationToken cancellationToken = default)
     {
-        var options = BuildAmbientOptions();
         try
         {
-            await lightingSendGate.WaitAsync(cancellationToken);
+            await LightingControlCoordinator.SharedMutationGate.WaitAsync(cancellationToken);
             try
             {
+                if (version != Volatile.Read(ref ambientWriteVersion))
+                    return;
+
+                var options = BuildAmbientOptionsFromProfile();
                 var result = await lightingService.SetAmbientLightAsync(options, cancellationToken);
+                if (result)
+                {
+                    PublishPreviewStateFromProfile();
+                    App.LightingAutomation.NotifyDesiredLightingStateChanged();
+                }
+
+                if (version != Volatile.Read(ref ambientWriteVersion))
+                    return;
+
                 StatusMessage = result
                     ? (options.IsEnabled ? "氛围灯设置已生效" : "氛围灯已关闭")
                     : "未检测到花再 Halo PixelBar";
             }
             finally
             {
-                lightingSendGate.Release();
+                LightingControlCoordinator.SharedMutationGate.Release();
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -525,35 +775,47 @@ public partial class LightingToolPageViewModel : ViewModelBase
         int version,
         CancellationToken cancellationToken = default)
     {
-        var options = BuildAmbientOptions();
         try
         {
-            await lightingSendGate.WaitAsync(cancellationToken);
+            await LightingControlCoordinator.SharedMutationGate.WaitAsync(cancellationToken);
             try
             {
                 if (version != Volatile.Read(ref ambientPowerUpdateVersion))
                     return;
 
+                var options = BuildAmbientOptionsFromProfile();
+                options.IsEnabled = enabled;
                 var result = await lightingService.SetAmbientLightEnabledAsync(enabled, cancellationToken);
                 if (result && enabled)
                     result = await lightingService.SetAmbientLightAsync(options, cancellationToken);
+
+                if (result)
+                {
+                    var isCurrent = version == Volatile.Read(ref ambientPowerUpdateVersion)
+                        && AmbientEnabled == enabled;
+                    DisplayFeatureProfile.AmbientLightEnabled = enabled;
+                    if (isCurrent)
+                        Volatile.Write(ref ambientPowerUpdatePending, 0);
+                    PublishPreviewStateFromProfile();
+                    App.LightingAutomation.NotifyDesiredLightingStateChanged();
+                }
 
                 if (version != Volatile.Read(ref ambientPowerUpdateVersion) || AmbientEnabled != enabled)
                     return;
 
                 if (result)
                 {
-                    DisplayFeatureProfile.AmbientLightEnabled = enabled;
                     StatusMessage = enabled ? "氛围灯已开启并恢复当前设置" : "氛围灯已关闭";
                     return;
                 }
 
+                Volatile.Write(ref ambientPowerUpdatePending, 0);
                 RestoreAmbientPowerState();
                 StatusMessage = "氛围灯开关未得到设备状态确认";
             }
             finally
             {
-                lightingSendGate.Release();
+                LightingControlCoordinator.SharedMutationGate.Release();
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -563,27 +825,43 @@ public partial class LightingToolPageViewModel : ViewModelBase
         {
             if (version == Volatile.Read(ref ambientPowerUpdateVersion) && AmbientEnabled == enabled)
             {
+                Volatile.Write(ref ambientPowerUpdatePending, 0);
                 RestoreAmbientPowerState();
                 StatusMessage = $"氛围灯开关发送失败：{exception.Message}";
             }
         }
     }
 
-    private async Task SendPixelColorNowAsync(CancellationToken cancellationToken = default)
+    private async Task SendPixelColorNowAsync(int version, CancellationToken cancellationToken = default)
     {
-        var pixelColor = BuildPixelColor();
-        var syncAmbient = SyncAmbientWithPixel;
-        if (syncAmbient)
-            SetAmbientColorChannels(pixelColor, false);
+        if (version != Volatile.Read(ref pixelWriteVersion))
+            return;
 
-        var ambientOptions = syncAmbient ? BuildAmbientOptions() : null;
+        var syncAmbient = SyncAmbientWithPixel;
         try
         {
-            await lightingSendGate.WaitAsync(cancellationToken);
+            await LightingControlCoordinator.SharedMutationGate.WaitAsync(cancellationToken);
             try
             {
-                var pixelResult = !PixelScreenEnabled
+                if (version != Volatile.Read(ref pixelWriteVersion))
+                    return;
+
+                var pixelColor = BuildPixelColorFromProfile();
+                AmbientLightOptions? ambientOptions = null;
+                if (syncAmbient)
+                {
+                    SetAmbientColorChannels(pixelColor, false);
+                    ambientOptions = BuildAmbientOptionsFromProfile();
+                }
+
+                var pixelResult = !DisplayFeatureProfile.PixelScreenEnabled
                     || await lightingService.SetPixelScreenColorAsync(pixelColor, cancellationToken);
+                if (pixelResult)
+                    App.LightingAutomation.NotifyDesiredLightingStateChanged();
+
+                if (version != Volatile.Read(ref pixelWriteVersion))
+                    return;
+
                 if (!pixelResult)
                 {
                     StatusMessage = "未检测到花再 Halo PixelBar";
@@ -593,6 +871,15 @@ public partial class LightingToolPageViewModel : ViewModelBase
                 if (ambientOptions is not null)
                 {
                     var ambientResult = await lightingService.SetAmbientLightAsync(ambientOptions, cancellationToken);
+                    if (version != Volatile.Read(ref pixelWriteVersion))
+                        return;
+
+                    if (ambientResult)
+                    {
+                        PublishPreviewStateFromProfile();
+                        App.LightingAutomation.NotifyDesiredLightingStateChanged();
+                    }
+
                     StatusMessage = !PixelScreenEnabled
                         ? (ambientResult
                             ? "像素屏已关闭；颜色已保存并同步氛围灯"
@@ -603,11 +890,12 @@ public partial class LightingToolPageViewModel : ViewModelBase
                     return;
                 }
 
+                PublishPreviewStateFromProfile();
                 StatusMessage = PixelScreenEnabled ? "像素屏颜色已生效" : "像素屏已关闭；颜色将在开启时应用";
             }
             finally
             {
-                lightingSendGate.Release();
+                LightingControlCoordinator.SharedMutationGate.Release();
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -624,32 +912,43 @@ public partial class LightingToolPageViewModel : ViewModelBase
         int version,
         CancellationToken cancellationToken = default)
     {
-        var pixelColor = BuildPixelColor();
         try
         {
-            await lightingSendGate.WaitAsync(cancellationToken);
+            await LightingControlCoordinator.SharedMutationGate.WaitAsync(cancellationToken);
             try
             {
                 if (version != Volatile.Read(ref pixelPowerUpdateVersion))
                     return;
 
+                var pixelColor = BuildPixelColorFromProfile();
                 var result = await lightingService.SetPixelScreenEnabledAsync(pixelColor, enabled, cancellationToken);
+                if (result)
+                {
+                    var isCurrent = version == Volatile.Read(ref pixelPowerUpdateVersion)
+                        && PixelScreenEnabled == enabled;
+                    DisplayFeatureProfile.PixelScreenEnabled = enabled;
+                    if (isCurrent)
+                        Volatile.Write(ref pixelPowerUpdatePending, 0);
+                    PublishPreviewStateFromProfile();
+                    App.LightingAutomation.NotifyDesiredLightingStateChanged();
+                }
+
                 if (version != Volatile.Read(ref pixelPowerUpdateVersion) || PixelScreenEnabled != enabled)
                     return;
 
                 if (result)
                 {
-                    DisplayFeatureProfile.PixelScreenEnabled = enabled;
                     StatusMessage = enabled ? "像素屏已开启并恢复原场景" : "像素屏已关闭";
                     return;
                 }
 
+                Volatile.Write(ref pixelPowerUpdatePending, 0);
                 RestorePixelScreenPowerState();
                 StatusMessage = "像素屏开关未得到设备状态确认";
             }
             finally
             {
-                lightingSendGate.Release();
+                LightingControlCoordinator.SharedMutationGate.Release();
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -659,6 +958,7 @@ public partial class LightingToolPageViewModel : ViewModelBase
         {
             if (version == Volatile.Read(ref pixelPowerUpdateVersion) && PixelScreenEnabled == enabled)
             {
+                Volatile.Write(ref pixelPowerUpdatePending, 0);
                 RestorePixelScreenPowerState();
                 StatusMessage = $"像素屏开关发送失败：{exception.Message}";
             }
@@ -690,6 +990,7 @@ public partial class LightingToolPageViewModel : ViewModelBase
         {
             isRestoringPowerState = false;
         }
+        PublishPreviewState();
     }
 
     private void CancelPendingColorSends()
@@ -699,9 +1000,10 @@ public partial class LightingToolPageViewModel : ViewModelBase
     }
 
     private static void CancelPendingSend(ref CancellationTokenSource? source)
+        => CancelPendingSend(Interlocked.Exchange(ref source, null));
+
+    private static void CancelPendingSend(CancellationTokenSource? pendingSend)
     {
-        var pendingSend = source;
-        source = null;
         if (pendingSend is null)
             return;
 
@@ -712,6 +1014,12 @@ public partial class LightingToolPageViewModel : ViewModelBase
         catch (ObjectDisposedException)
         {
         }
+    }
+
+    private static int NormalizeTimePickerMinutes(TimeSpan value)
+    {
+        var minutes = (int)Math.Round(value.TotalMinutes);
+        return Math.Clamp(minutes, 0, (24 * 60) - 1);
     }
 
     private void LoadColorPresets()
@@ -840,6 +1148,35 @@ public partial class LightingToolPageViewModel : ViewModelBase
         var value = DisplayFeatureProfile.AmbientLightSpeed;
         return double.IsFinite(value) ? Math.Clamp(value, 1, 10) : 10;
     }
+
+    private static AmbientLightOptions BuildAmbientOptionsFromProfile()
+    {
+        var effect = (AmbientLightEffect)(Math.Clamp(DisplayFeatureProfile.AmbientLightEffectIndex, 0, 5) + 1);
+        var brightness = (AmbientLightBrightness)(Math.Clamp(DisplayFeatureProfile.AmbientLightBrightnessIndex, 0, 2) + 1);
+        return new AmbientLightOptions
+        {
+            IsEnabled = DisplayFeatureProfile.AmbientLightEnabled,
+            Effect = effect,
+            Brightness = brightness,
+            Speed = (byte)Math.Clamp((int)Math.Round(DisplayFeatureProfile.AmbientLightSpeed), 1, 10),
+            Color = BuildColor(
+                DisplayFeatureProfile.AmbientLightRed,
+                DisplayFeatureProfile.AmbientLightGreen,
+                DisplayFeatureProfile.AmbientLightBlue)
+        };
+    }
+
+    private static HaloPixelColor BuildPixelColorFromProfile()
+        => BuildColor(
+            DisplayFeatureProfile.PixelScreenRed,
+            DisplayFeatureProfile.PixelScreenGreen,
+            DisplayFeatureProfile.PixelScreenBlue);
+
+    private static void PublishPreviewStateFromProfile()
+        => HaloPixelLightingService.SetPreviewState(
+            BuildAmbientOptionsFromProfile(),
+            DisplayFeatureProfile.PixelScreenEnabled,
+            BuildPixelColorFromProfile());
 
     private static string ToHex(int red, int green, int blue)
         => $"#{Math.Clamp(red, 0, 255):X2}{Math.Clamp(green, 0, 255):X2}{Math.Clamp(blue, 0, 255):X2}";

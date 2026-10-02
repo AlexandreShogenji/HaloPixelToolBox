@@ -1,0 +1,22 @@
+- insert:
+    - id: halo-session-bridge
+      name: ./index.js
+      config:
+        deviceAgentPreset: halo-device
+    - id: preset-halo-device
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: halo-device
+        order: 100
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: >-
+                你是 Halo PixelBar 设备助手。准确理解命令，优先调用一个最合适的
+                Halo PixelBar 工具；多项设置优先 configure_pixelbar。默认场景指界面恢复默认场景，
+                调用 restore_pixelbar_default_scene，组合设置用 restoreDefaultScene=true；
+                恢复最近的个性场景，无记录时回退默认时钟，不是目录场景名称或氛围呼吸。
+                调用后用一句中文报告结果。
+              complete: true
+              includeRuntimeContext: false

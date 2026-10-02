@@ -15,6 +15,7 @@ namespace HaloPixelToolBox.Views;
 
 public sealed partial class MainPage : Page
 {
+    private const double SingleColumnBreakpoint = 680;
     private const double PreviewGeometryWidth = 1000;
     private const double PreviewGeometryHeight = 100;
     private const double PreviewGeometryPadding = 5;
@@ -101,6 +102,7 @@ public sealed partial class MainPage : Page
     private LinearGradientBrush? rainbowFrameBrush;
     private bool isPageLoaded;
     private bool isPreviewGlowAvailable = true;
+    private int? quickActionsColumnCount;
 
     public MainPageViewModel ViewModel { get; } = new();
 
@@ -116,12 +118,100 @@ public sealed partial class MainPage : Page
         isPageLoaded = true;
         ViewModel.PropertyChanged += ViewModel_PropertyChanged;
         ViewModel.StartMonitoring();
+        UpdateDashboardHeaderLayout(DashboardHeaderGrid.ActualWidth);
+        UpdateDashboardLayout(DashboardGrid.ActualWidth);
         UpdatePreviewFrameGeometry(DevicePreviewFrame.ActualWidth, DevicePreviewFrame.ActualHeight);
         DispatcherQueue.TryEnqueue(() =>
         {
             InitializePreviewGlowLayers();
             ConfigureAmbientPreviewAnimation();
         });
+    }
+
+    private void DashboardGrid_SizeChanged(object sender, SizeChangedEventArgs e)
+        => UpdateDashboardLayout(e.NewSize.Width);
+
+    private void DashboardHeaderGrid_SizeChanged(object sender, SizeChangedEventArgs e)
+        => UpdateDashboardHeaderLayout(e.NewSize.Width);
+
+    private void UpdateDashboardHeaderLayout(double availableWidth)
+    {
+        if (DeviceOnlineBadge is null)
+            return;
+
+        var useSingleColumn = availableWidth < 500;
+        DashboardHeaderGrid.ColumnSpacing = useSingleColumn ? 0 : 20;
+        Grid.SetRow(DeviceOnlineBadge, useSingleColumn ? 1 : 0);
+        Grid.SetColumn(DeviceOnlineBadge, useSingleColumn ? 0 : 1);
+        DeviceOnlineBadge.HorizontalAlignment = useSingleColumn
+            ? HorizontalAlignment.Left
+            : HorizontalAlignment.Right;
+    }
+
+    private void UpdateDashboardLayout(double availableWidth)
+    {
+        if (DashboardPrimaryColumn is null ||
+            DashboardSecondaryColumn is null ||
+            DeviceCard is null ||
+            QuickActionsCard is null ||
+            RestoreDefaultSceneButton is null ||
+            QuickActionsGrid is null ||
+            QuickActionFourButton is null)
+            return;
+
+        var useSingleColumn = availableWidth < SingleColumnBreakpoint;
+        DashboardGrid.ColumnSpacing = useSingleColumn ? 0 : 16;
+        DashboardPrimaryColumn.Width = useSingleColumn
+            ? new GridLength(1, GridUnitType.Star)
+            : new GridLength(1.65, GridUnitType.Star);
+        DashboardSecondaryColumn.Width = useSingleColumn
+            ? new GridLength(0)
+            : new GridLength(1, GridUnitType.Star);
+
+        Grid.SetRow(DeviceCard, useSingleColumn ? 1 : 0);
+        Grid.SetColumn(DeviceCard, useSingleColumn ? 0 : 1);
+        Grid.SetRow(QuickActionsCard, useSingleColumn ? 2 : 1);
+        Grid.SetColumnSpan(QuickActionsCard, useSingleColumn ? 1 : 2);
+
+        Grid.SetRow(RestoreDefaultSceneButton, useSingleColumn ? 1 : 0);
+        Grid.SetColumn(RestoreDefaultSceneButton, useSingleColumn ? 0 : 1);
+        RestoreDefaultSceneButton.HorizontalAlignment = useSingleColumn
+            ? HorizontalAlignment.Left
+            : HorizontalAlignment.Right;
+
+        var targetQuickActionColumnCount = availableWidth < 360
+            ? 1
+            : useSingleColumn ? 2 : 4;
+        UpdateQuickActionsLayout(targetQuickActionColumnCount);
+    }
+
+    private void UpdateQuickActionsLayout(int columnCount)
+    {
+        if (quickActionsColumnCount == columnCount)
+            return;
+
+        quickActionsColumnCount = columnCount;
+        QuickActionsGrid.ColumnDefinitions.Clear();
+        QuickActionsGrid.RowDefinitions.Clear();
+
+        var rowCount = (int)Math.Ceiling(4d / columnCount);
+        for (var index = 0; index < columnCount; index++)
+            QuickActionsGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        for (var index = 0; index < rowCount; index++)
+            QuickActionsGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var buttons = new FrameworkElement[]
+        {
+            QuickActionOneButton,
+            QuickActionTwoButton,
+            QuickActionThreeButton,
+            QuickActionFourButton
+        };
+        for (var index = 0; index < buttons.Length; index++)
+        {
+            Grid.SetColumn(buttons[index], index % columnCount);
+            Grid.SetRow(buttons[index], index / columnCount);
+        }
     }
 
     private void Page_Unloaded(object sender, RoutedEventArgs e)

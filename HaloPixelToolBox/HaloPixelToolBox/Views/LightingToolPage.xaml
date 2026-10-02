@@ -464,6 +464,77 @@
                     </StackPanel>
                 </Border>
             </Grid>
+
+            <Border Style="{StaticResource LightingPanelStyle}">
+                <StackPanel Spacing="16">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="自动关灯" Style="{StaticResource LightingCaptionStyle}"/>
+                        <TextBlock Text="跟随电脑屏幕或每天固定时段关闭氛围灯和像素屏。条件结束后恢复原来的开关状态；应用需保持运行，可最小化到托盘。"
+                                   TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </StackPanel>
+
+                    <Grid ColumnSpacing="16" RowSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <StackPanel Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="电脑熄屏时关灯" Style="{StaticResource BodyStrongTextBlockStyle}"/>
+                            <TextBlock Text="监听 Windows 屏幕电源状态；重新亮屏后恢复。"
+                                       TextWrapping="Wrap"
+                                       FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1"
+                                      IsOn="{x:Bind ViewModel.TurnLightsOffWhenDisplayOff, Mode=TwoWay}"
+                                      AutomationProperties.Name="电脑熄屏时自动关灯"
+                                      OnContent=""
+                                      OffContent=""
+                                      MinWidth="40"
+                                      VerticalAlignment="Center"/>
+
+                        <StackPanel Grid.Row="1" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="每天定时关灯" Style="{StaticResource BodyStrongTextBlockStyle}"/>
+                            <TextBlock Text="支持跨午夜，例如 23:00–07:00。"
+                                       TextWrapping="Wrap"
+                                       FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Row="1" Grid.Column="1"
+                                      IsOn="{x:Bind ViewModel.ScheduledLightsOffEnabled, Mode=TwoWay}"
+                                      AutomationProperties.Name="每天定时关灯"
+                                      OnContent=""
+                                      OffContent=""
+                                      MinWidth="40"
+                                      VerticalAlignment="Center"/>
+                    </Grid>
+
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <TimePicker Header="开始"
+                                    Time="{x:Bind ViewModel.ScheduledLightsOffStartTime, Mode=TwoWay}"
+                                    MinuteIncrement="5"
+                                    ClockIdentifier="24HourClock"
+                                    IsEnabled="{x:Bind ViewModel.ScheduledLightsOffEnabled, Mode=OneWay}"/>
+                        <TimePicker Header="结束"
+                                    Time="{x:Bind ViewModel.ScheduledLightsOffEndTime, Mode=TwoWay}"
+                                    MinuteIncrement="5"
+                                    ClockIdentifier="24HourClock"
+                                    IsEnabled="{x:Bind ViewModel.ScheduledLightsOffEnabled, Mode=OneWay}"/>
+                    </StackPanel>
+
+                    <InfoBar IsOpen="True"
+                             IsClosable="False"
+                             Severity="Informational"
+                             Title="自动关灯状态"
+                             Message="{x:Bind ViewModel.AutomationStatus, Mode=OneWay}"/>
+                </StackPanel>
+            </Border>
         </StackPanel>
     </ScrollViewer>
 </Page>

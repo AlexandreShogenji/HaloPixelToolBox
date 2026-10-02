@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>12</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <Compile Include="../../HaloPixelToolBox/HaloPixelToolBox/ViewModels/AudioControlPageViewModel.cs" Link="AudioControlPageViewModel.cs" />
+    <Compile Include="../../HaloPixelToolBox/HaloPixelToolBox/ViewModels/ViewModelBase.cs" Link="ViewModelBase.cs" />
+    <Compile Include="../../HaloPixelToolBox/HaloPixelToolBox/Models/AudioControlModels.cs" Link="AudioControlModels.cs" />
+  </ItemGroup>
+</Project>

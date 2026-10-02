@@ -8,14 +8,23 @@ public class LyricsTimelineSyncService
     private static readonly TimeSpan SyncInterval = TimeSpan.FromMilliseconds(20);
     private static readonly TimeSpan ExternalSyncInterval = TimeSpan.FromMilliseconds(300);
     private readonly HaloPixelDisplayService displayService;
+    private readonly object runLock = new();
     private CancellationTokenSource? cancellationTokenSource;
+    private Task? runTask;
 
     public event EventHandler<TimeSpan>? PositionChanged;
     public event EventHandler<SubtitleCue>? CueSent;
     public event EventHandler<string>? StatusChanged;
     public event EventHandler<LyricsPlaybackSnapshot>? ExternalTrackChanged;
 
-    public bool IsRunning => cancellationTokenSource is not null && !cancellationTokenSource.IsCancellationRequested;
+    public bool IsRunning
+    {
+        get
+        {
+            lock (runLock)
+                return cancellationTokenSource is not null && !cancellationTokenSource.IsCancellationRequested;
+        }
+    }
 
     public LyricsTimelineSyncService(HaloPixelDisplayService displayService)
     {
@@ -24,9 +33,7 @@ public class LyricsTimelineSyncService
 
     public void Start(LyricsTrack track, TimeSpan startPosition, TimeSpan offset, Func<SubtitleCue, DisplayTextOptions> optionsFactory)
     {
-        Stop();
-        cancellationTokenSource = new CancellationTokenSource();
-        _ = PlayAsync(track, startPosition, offset, optionsFactory, cancellationTokenSource.Token);
+        StartRun(token => PlayAsync(track, startPosition, offset, optionsFactory, token));
     }
 
     public void StartExternal(
@@ -36,20 +43,113 @@ public class LyricsTimelineSyncService
         TimeSpan offset,
         Func<SubtitleCue, DisplayTextOptions> optionsFactory)
     {
-        Stop();
-        cancellationTokenSource = new CancellationTokenSource();
-        _ = PlayExternalAsync(track, snapshotFactory, isExpectedTrack, offset, optionsFactory, cancellationTokenSource.Token);
+        StartRun(token => PlayExternalAsync(track, snapshotFactory, isExpectedTrack, offset, optionsFactory, token));
     }
 
     public void Stop()
     {
-        if (cancellationTokenSource is null)
+        var (source, task) = DetachRun();
+        if (source is null)
             return;
 
-        cancellationTokenSource.Cancel();
-        cancellationTokenSource.Dispose();
-        cancellationTokenSource = null;
+        source.Cancel();
+        _ = DisposeAfterCompletionAsync(source, task);
         StatusChanged?.Invoke(this, "歌词同步已停止");
+    }
+
+    public async Task StopAsync()
+    {
+        var (source, task) = DetachRun();
+        if (source is null)
+            return;
+
+        source.Cancel();
+        if (task is not null)
+        {
+            try
+            {
+                await task;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch
+            {
+                // The playback loop reports its own failures. Stop still releases the session.
+            }
+        }
+
+        source.Dispose();
+        StatusChanged?.Invoke(this, "歌词同步已停止");
+    }
+
+    private void StartRun(Func<CancellationToken, Task> run)
+    {
+        ArgumentNullException.ThrowIfNull(run);
+        Stop();
+
+        var source = new CancellationTokenSource();
+        lock (runLock)
+        {
+            cancellationTokenSource = source;
+            runTask = Task.Run(() => RunTrackedAsync(source, run));
+        }
+    }
+
+    private async Task RunTrackedAsync(CancellationTokenSource source, Func<CancellationToken, Task> run)
+    {
+        try
+        {
+            await run(source.Token);
+        }
+        finally
+        {
+            var shouldDispose = false;
+            lock (runLock)
+            {
+                if (ReferenceEquals(cancellationTokenSource, source))
+                {
+                    cancellationTokenSource = null;
+                    runTask = null;
+                    shouldDispose = true;
+                }
+            }
+
+            if (shouldDispose)
+                source.Dispose();
+        }
+    }
+
+    private (CancellationTokenSource? Source, Task? Task) DetachRun()
+    {
+        lock (runLock)
+        {
+            var source = cancellationTokenSource;
+            var task = runTask;
+            cancellationTokenSource = null;
+            runTask = null;
+            return (source, task);
+        }
+    }
+
+    private static async Task DisposeAfterCompletionAsync(CancellationTokenSource source, Task? task)
+    {
+        try
+        {
+            if (task is not null)
+                await task;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch
+        {
+            // The playback loop reports its own failures. Stop must still complete and release resources.
+        }
+        finally
+        {
+            source.Dispose();
+        }
     }
 
     private async Task PlayAsync(LyricsTrack track, TimeSpan startPosition, TimeSpan offset, Func<SubtitleCue, DisplayTextOptions> optionsFactory, CancellationToken cancellationToken)
@@ -67,7 +167,6 @@ public class LyricsTimelineSyncService
                 if (position > duration)
                 {
                     StatusChanged?.Invoke(this, "歌词同步已到达末尾");
-                    Stop();
                     return;
                 }
 
@@ -94,7 +193,6 @@ public class LyricsTimelineSyncService
         catch (Exception ex)
         {
             StatusChanged?.Invoke(this, $"歌词同步失败：{ex.Message}");
-            Stop();
         }
     }
 
@@ -125,7 +223,6 @@ public class LyricsTimelineSyncService
                 if (!isExpectedTrack(snapshot))
                 {
                     StatusChanged?.Invoke(this, "检测到 Spotify 已切歌，正在自动重新加载歌词");
-                    Stop();
                     ExternalTrackChanged?.Invoke(this, snapshot);
                     return;
                 }
@@ -174,7 +271,6 @@ public class LyricsTimelineSyncService
         catch (Exception ex)
         {
             StatusChanged?.Invoke(this, $"歌词同步失败：{ex.Message}");
-            Stop();
         }
     }
 

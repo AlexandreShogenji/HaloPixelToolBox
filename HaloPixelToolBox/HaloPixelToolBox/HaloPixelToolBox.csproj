@@ -55,6 +55,30 @@
     <Content Include="Assets\PersonalScenes\**\*.*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="Assets\Integrations\DeepSeekHarness\dsh-halo-pixelbar-tools-0.7.0.tgz">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\VoiceAgent\voice_agent_host.py">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\VoiceAgent\reply-xiaoxiao-loud.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\VoiceAgent\reply-received-xiaoxiao.wav">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\..\integrations\deepseek-harness\halo-session-bridge\index.js">
+      <Link>Assets\Integrations\DeepSeekHarness\SessionBridge\index.js</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\..\integrations\deepseek-harness\halo-session-bridge\bridge-core.js">
+      <Link>Assets\Integrations\DeepSeekHarness\SessionBridge\bridge-core.js</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\..\integrations\deepseek-harness\halo-session-bridge\package.json">
+      <Link>Assets\Integrations\DeepSeekHarness\SessionBridge\package.json</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>
@@ -117,6 +141,9 @@
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Update="Views\LightingToolPage.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Update="Views\AudioControlPage.xaml">
       <Generator>MSBuild:Compile</Generator>
     </Page>
     <Page Update="Views\LyricsSubtitleToolPage.xaml">

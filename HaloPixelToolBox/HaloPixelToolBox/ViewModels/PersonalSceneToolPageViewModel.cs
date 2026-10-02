@@ -4,6 +4,8 @@ using HaloPixelToolBox.Core.Models.Scenes;
 using HaloPixelToolBox.Core.Services;
 using HaloPixelToolBox.Core.Services.Scenes;
 using Microsoft.UI.Xaml;
+using Windows.Graphics.Imaging;
+using Windows.Storage;
 
 namespace HaloPixelToolBox.ViewModels;
 
@@ -205,6 +207,48 @@ public partial class PersonalSceneToolPageViewModel : ViewModelBase
             await SendSceneAsync(GeneratedCustomScene);
     }
 
+    public async Task SavePixelCanvasFrameAsync(byte[] bgraPixels)
+    {
+        try
+        {
+            var path = await SavePixelCanvasDraftAsync(bgraPixels);
+            await SetCustomFrameAsync(CustomFrameSlots[0], path);
+            CustomSceneGenerationStatus = "画板已保存为第 1 帧；可继续添加帧，或直接生成资源";
+        }
+        catch (Exception exception)
+        {
+            CustomSceneGenerationStatus = $"保存画板失败：{exception.Message}";
+        }
+    }
+
+    public async Task GenerateAndSendPixelCanvasAsync(byte[] bgraPixels)
+    {
+        if (IsGeneratingCustomScene || IsUploading)
+            return;
+
+        try
+        {
+            IsGeneratingCustomScene = true;
+            CustomSceneGenerationStatus = "正在生成画板资源";
+            var path = await SavePixelCanvasDraftAsync(bgraPixels);
+            CustomFrameSlots[0].ImagePath = path;
+            foreach (var slot in CustomFrameSlots.Skip(1))
+                slot.ImagePath = null;
+
+            var success = await GenerateCustomSceneCoreAsync([path]);
+            if (success && GeneratedCustomScene is not null)
+                await SendSceneAsync(GeneratedCustomScene);
+        }
+        catch (Exception exception)
+        {
+            CustomSceneGenerationStatus = $"生成画板资源失败：{exception.Message}";
+        }
+        finally
+        {
+            IsGeneratingCustomScene = false;
+        }
+    }
+
     [RelayCommand]
     private async Task GenerateCustomSceneAsync()
     {
@@ -219,14 +263,73 @@ public partial class PersonalSceneToolPageViewModel : ViewModelBase
                 .Where(slot => !string.IsNullOrWhiteSpace(slot.ImagePath))
                 .Select(slot => slot.ImagePath!)
                 .ToList();
-            var result = await customSceneGenerationService.GenerateAsync(imagePaths);
-            CustomSceneGenerationStatus = result.Message;
-            if (result.Success)
-                GeneratedCustomScene = customSceneGenerationService.LoadGeneratedScene();
+            await GenerateCustomSceneCoreAsync(imagePaths);
         }
         finally
         {
             IsGeneratingCustomScene = false;
+        }
+    }
+
+    private async Task<bool> GenerateCustomSceneCoreAsync(IReadOnlyList<string> imagePaths)
+    {
+        var result = await customSceneGenerationService.GenerateAsync(imagePaths);
+        CustomSceneGenerationStatus = result.Message;
+        if (!result.Success)
+            return false;
+
+        GeneratedCustomScene = customSceneGenerationService.LoadGeneratedScene();
+        return GeneratedCustomScene is not null;
+    }
+
+    private async Task<string> SavePixelCanvasDraftAsync(byte[] bgraPixels)
+    {
+        const int width = 256;
+        const int height = 32;
+        if (bgraPixels.Length != width * height * 4)
+            throw new ArgumentException("画板像素数据尺寸不正确", nameof(bgraPixels));
+
+        var draftDirectory = Path.Combine(customSceneGenerationService.GeneratedDirectory, "Drafts");
+        Directory.CreateDirectory(draftDirectory);
+        var fileName = $"pixel-canvas-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}.png";
+        var path = Path.Combine(draftDirectory, fileName);
+        var folder = await StorageFolder.GetFolderFromPathAsync(draftDirectory);
+        var file = await folder.CreateFileAsync(fileName, CreationCollisionOption.FailIfExists);
+
+        using var stream = await file.OpenAsync(FileAccessMode.ReadWrite);
+        stream.Size = 0;
+        var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, stream);
+        encoder.SetPixelData(
+            BitmapPixelFormat.Bgra8,
+            BitmapAlphaMode.Ignore,
+            width,
+            height,
+            96,
+            96,
+            bgraPixels);
+        await encoder.FlushAsync();
+        CleanupPixelCanvasDrafts(draftDirectory, path);
+        return path;
+    }
+
+    private void CleanupPixelCanvasDrafts(string draftDirectory, string currentPath)
+    {
+        try
+        {
+            var activeDrafts = CustomFrameSlots
+                .Where(slot => !string.IsNullOrWhiteSpace(slot.ImagePath))
+                .Select(slot => slot.ImagePath!)
+                .Append(currentPath)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var oldDraft in Directory.EnumerateFiles(draftDirectory, "pixel-canvas-*.png")
+                         .Where(path => !activeDrafts.Contains(path))
+                         .OrderByDescending(File.GetLastWriteTimeUtc)
+                         .Skip(12))
+                File.Delete(oldDraft);
+        }
+        catch
+        {
+            // A preview can briefly keep an older draft open. Cleanup will retry on the next save.
         }
     }
 

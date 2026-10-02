@@ -47,6 +47,10 @@ public sealed class SpotifyMediaSessionPlaybackProvider : IPlaybackMetadataProvi
                 Source = $"Windows 媒体会话：{session.SourceAppUserModelId}"
             };
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch
         {
             return LyricsPlaybackSnapshot.NotRunning;

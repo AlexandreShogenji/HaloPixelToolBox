@@ -1,5 +1,6 @@
 using HaloPixelToolBox.Core.Models.Display;
 using HaloPixelToolBox.Core.Models.Lighting;
+using HaloPixelToolBox.Core.Services.DeviceControl;
 using HaloPixelToolBox.Core.Utilities;
 
 namespace HaloPixelToolBox.Core.Services.Lighting;
@@ -13,6 +14,7 @@ public sealed class HaloPixelLightingService
         AmbientLightBrightness.High,
         10,
         new HaloPixelColor(45, 0, 179),
+        true,
         new HaloPixelColor(0, 85, 170));
 
     public static event EventHandler? PreviewColorsChanged;
@@ -57,7 +59,10 @@ public sealed class HaloPixelLightingService
         });
     }
 
-    public static void SetPreviewState(AmbientLightOptions options, HaloPixelColor pixelScreenColor)
+    public static void SetPreviewState(
+        AmbientLightOptions options,
+        bool pixelScreenEnabled,
+        HaloPixelColor pixelScreenColor)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(pixelScreenColor);
@@ -75,6 +80,7 @@ public sealed class HaloPixelLightingService
             normalizedBrightness,
             Math.Clamp(options.Speed, (byte)1, (byte)10),
             options.Color,
+            pixelScreenEnabled,
             pixelScreenColor));
     }
 
@@ -102,9 +108,8 @@ public sealed class HaloPixelLightingService
     public async Task<bool> SetPixelScreenColorAsync(HaloPixelColor color, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return await Task.Run(() =>
+        return await HaloPixelDeviceOperationQueue.RunAsync(() =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
             if (!EnsureDeviceReady())
                 return false;
 
@@ -119,9 +124,8 @@ public sealed class HaloPixelLightingService
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return await Task.Run(() =>
+        return await HaloPixelDeviceOperationQueue.RunAsync(() =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
             return EnsureDeviceReady() && Device.SetPixelScreenEnabled(color, enabled);
         }, cancellationToken);
     }
@@ -129,9 +133,8 @@ public sealed class HaloPixelLightingService
     public async Task<bool> SetAmbientLightAsync(AmbientLightOptions options, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return await Task.Run(() =>
+        return await HaloPixelDeviceOperationQueue.RunAsync(() =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
             if (!EnsureDeviceReady())
                 return false;
 
@@ -148,10 +151,32 @@ public sealed class HaloPixelLightingService
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return await Task.Run(() =>
+        return await HaloPixelDeviceOperationQueue.RunAsync(() =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
             return EnsureDeviceReady() && Device.SetAmbientLightEnabled(enabled);
+        }, cancellationToken);
+    }
+
+    public Task<(bool Success, bool Enabled)> GetAmbientLightEnabledAsync(CancellationToken cancellationToken = default)
+    {
+        return HaloPixelDeviceOperationQueue.RunAsync(() =>
+        {
+            if (!EnsureDeviceReady() || !Device.TryGetAmbientLightEnabled(out var enabled))
+                return (false, false);
+
+            return (true, enabled);
+        }, cancellationToken);
+    }
+
+    public Task<(bool Success, bool Enabled, HaloPixelColor Color)> GetPixelScreenStateAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return HaloPixelDeviceOperationQueue.RunAsync(() =>
+        {
+            if (!EnsureDeviceReady() || !Device.TryGetPixelScreenState(out var enabled, out var color))
+                return (false, false, new HaloPixelColor(0, 0, 0));
+
+            return (true, enabled, color);
         }, cancellationToken);
     }
 }
@@ -162,4 +187,5 @@ public readonly record struct HaloPixelLightingPreviewState(
     AmbientLightBrightness Brightness,
     byte Speed,
     HaloPixelColor AmbientColor,
+    bool PixelScreenEnabled,
     HaloPixelColor PixelScreenColor);

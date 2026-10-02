@@ -18,12 +18,30 @@
                 <Setter Property="Margin" Value="1,30,0,6" />
             </Style.Setters>
         </Style>
+        <Style x:Key="AgentSettingsActionStyle" TargetType="Button">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="14,8"/>
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
+        </Style>
+        <Style x:Key="AgentSettingsPrimaryActionStyle" TargetType="Button"
+               BasedOn="{StaticResource AccentButtonStyle}">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="14,8"/>
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
+        </Style>
     </Page.Resources>
 
     <Grid>
         <ContentDialog x:Name="cleanCacheContentDialog" Title="清除应用缓存" Content="是否清除应用的所有缓存文件（可以定期清理）" IsPrimaryButtonEnabled="True" IsSecondaryButtonEnabled="True" PrimaryButtonText="确定" SecondaryButtonText="取消" DefaultButton="Primary"/>
-        <ScrollView>
-            <StackPanel Orientation="Vertical" Spacing="4" Margin="0,0,24,20" MaxWidth="1000">
+        <ScrollView HorizontalScrollMode="Disabled"
+                    HorizontalScrollBarVisibility="Hidden">
+            <StackPanel Orientation="Vertical"
+                        Spacing="4"
+                        Margin="0,0,24,20"
+                        MaxWidth="1000"
+                        HorizontalAlignment="Stretch">
                 <StackPanel Spacing="4" Margin="0,0,0,8">
                     <!-- <TextBlock Text="应用设置" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/> -->
                     <TextBlock Text="设置" Style="{StaticResource TitleTextBlockStyle}"/>
@@ -92,6 +110,220 @@
                     </controls:SettingsExpander.Items>
                 </controls:SettingsExpander>
                 <TextBlock Text="集成" Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"/>
+                <controls:SettingsExpander Header="DeepSeek Harness"
+                                           Description="{x:Bind ViewModel.DshStatus, Mode=OneWay}"
+                                           IsExpanded="False" HorizontalContentAlignment="Stretch"
+                                           VerticalAlignment="Top" VerticalContentAlignment="Top" Margin="0,0,0,8">
+                    <controls:SettingsExpander.HeaderIcon><FontIcon Glyph="&#xE943;"/></controls:SettingsExpander.HeaderIcon>
+                    <controls:SettingsExpander.Items>
+                        <controls:SettingsCard ContentAlignment="Vertical" HorizontalContentAlignment="Stretch"
+                                               VerticalAlignment="Top" VerticalContentAlignment="Top">
+                            <StackPanel Spacing="12">
+                                <Border Padding="12" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="{x:Bind ViewModel.DshStatus, Mode=OneWay}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{x:Bind ViewModel.DshDetail, Mode=OneWay}" TextWrapping="Wrap" MaxLines="3"
+                                                   IsTextSelectionEnabled="True" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   ToolTipService.ToolTip="{x:Bind ViewModel.DshDetail, Mode=OneWay}"/>
+                                    </StackPanel>
+                                </Border>
+                                <Grid SizeChanged="AgentActions_SizeChanged">
+                                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
+                                        <Button Command="{x:Bind ViewModel.TestDshCommand}" Style="{StaticResource AgentSettingsActionStyle}"
+                                                AutomationProperties.Name="检测 DSH" ToolTipService.ToolTip="检测当前 DSH 启动程序和数据目录">
+                                            <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE721;" FontSize="16"/><TextBlock Text="检测 DSH"/></StackPanel>
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+                                <TextBox Header="默认任务目录" AutomationProperties.Name="DSH 默认任务目录"
+                                         Text="{x:Bind ViewModel.DshTaskRootDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         PlaceholderText="例如 D:\DSH任务"/>
+                                <TextBlock Text="语音新建任务会在此创建独立子目录，也可临时指定其他目录。"
+                                           Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           TextWrapping="Wrap"/>
+                                <Grid SizeChanged="AgentActions_SizeChanged">
+                                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
+                                        <Button Command="{x:Bind ViewModel.SaveDshSettingsCommand}" Style="{StaticResource AgentSettingsPrimaryActionStyle}"
+                                                AutomationProperties.Name="保存 DSH 配置" ToolTipService.ToolTip="保存启动方式、Profile 和默认任务目录">
+                                            <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE74E;" FontSize="16"/><TextBlock Text="保存 DSH 配置"/></StackPanel>
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+                                <Expander Header="运行配置与插件" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                          IsExpanded="False" AutomationProperties.Name="DSH 运行配置与插件">
+                                    <StackPanel Spacing="12">
+                                        <TextBox Header="启动程序" AutomationProperties.Name="DSH 启动程序"
+                                                 Text="{x:Bind ViewModel.DshExecutablePath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                 PlaceholderText="dsh、npx 或程序完整路径"/>
+                                        <TextBox Header="DSH 数据目录" AutomationProperties.Name="DSH 数据目录"
+                                                 Text="{x:Bind ViewModel.DshHomePath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                 PlaceholderText="例如 C:\Users\用户名\.dsh"/>
+                                        <Grid ColumnSpacing="12" RowSpacing="12" SizeChanged="AgentFields_SizeChanged">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                            <TextBox Header="Profile" AutomationProperties.Name="DSH Profile"
+                                                     Text="{x:Bind ViewModel.DshProfileName, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                     PlaceholderText="halo-pixelbar"/>
+                                            <NumberBox Grid.Column="1" Header="检测超时（秒）" Minimum="5" Maximum="120"
+                                                       AutomationProperties.Name="DSH 检测与桥接超时秒数" SpinButtonPlacementMode="Compact"
+                                                       Value="{x:Bind ViewModel.DshCommandTimeoutSeconds, Mode=TwoWay}"/>
+                                        </Grid>
+                                        <TextBlock Text="支持 dsh 或 npx @deepseek-ai/dsh，npx 无需附加包名。插件安装到所选 Profile。"
+                                                   Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        <Grid SizeChanged="AgentActions_SizeChanged">
+                                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
+                                                <Button Command="{x:Bind ViewModel.DetectDshCommand}" Style="{StaticResource AgentSettingsActionStyle}"
+                                                        AutomationProperties.Name="自动检测 DSH 安装" ToolTipService.ToolTip="查找本机 DSH 安装方式并填写启动程序">
+                                                    <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE721;" FontSize="16"/><TextBlock Text="自动检测安装"/></StackPanel>
+                                                </Button>
+                                                <Button Command="{x:Bind ViewModel.InstallDshPluginCommand}" Style="{StaticResource AgentSettingsActionStyle}"
+                                                        AutomationProperties.Name="安装或更新 PixelBar 插件" ToolTipService.ToolTip="安装设备控制工具；更新后需重新连接 DSH">
+                                                    <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE710;" FontSize="16"/><TextBlock Text="安装或更新插件"/></StackPanel>
+                                                </Button>
+                                            </StackPanel>
+                                        </Grid>
+                                        <Grid SizeChanged="AgentActions_SizeChanged">
+                                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
+                                                <Button Command="{x:Bind ViewModel.VerifyDshBridgeCommand}" Style="{StaticResource AgentSettingsActionStyle}"
+                                                        AutomationProperties.Name="验证 PixelBar 设备桥接" ToolTipService.ToolTip="读取设备状态，验证本机设备控制通道">
+                                                    <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE73E;" FontSize="16"/><TextBlock Text="验证设备桥接"/></StackPanel>
+                                                </Button>
+                                            </StackPanel>
+                                        </Grid>
+                                        <TextBlock Text="{x:Bind ViewModel.DshPipeName, Mode=OneWay}" IsTextSelectionEnabled="True"
+                                                   Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    </StackPanel>
+                                </Expander>
+                            </StackPanel>
+                        </controls:SettingsCard>
+                    </controls:SettingsExpander.Items>
+                </controls:SettingsExpander>
+                <controls:SettingsExpander Header="语音 Agent"
+                                           Description="{x:Bind ViewModel.VoiceAgentStatus, Mode=OneWay}"
+                                           IsExpanded="False" HorizontalContentAlignment="Stretch"
+                                           VerticalAlignment="Top" VerticalContentAlignment="Top" Margin="0,0,0,8">
+                    <controls:SettingsExpander.HeaderIcon><FontIcon Glyph="&#xE720;"/></controls:SettingsExpander.HeaderIcon>
+                    <controls:SettingsExpander.Items>
+                        <controls:SettingsCard ContentAlignment="Vertical" HorizontalContentAlignment="Stretch"
+                                               VerticalAlignment="Top" VerticalContentAlignment="Top">
+                            <StackPanel Spacing="12">
+                                <Border Padding="12" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                                    <StackPanel Spacing="8">
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Text="{x:Bind ViewModel.VoiceAgentStatus, Mode=OneWay}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{x:Bind ViewModel.VoiceAgentDetail, Mode=OneWay}" TextWrapping="Wrap" MaxLines="3"
+                                                       IsTextSelectionEnabled="True" ToolTipService.ToolTip="{x:Bind ViewModel.VoiceAgentDetail, Mode=OneWay}"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        </StackPanel>
+                                        <StackPanel Spacing="2">
+                                            <TextBlock Text="最近识别" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            <TextBlock Text="{x:Bind ViewModel.VoiceAgentLastTranscript, Mode=OneWay}" TextWrapping="Wrap" MaxLines="2"
+                                                       IsTextSelectionEnabled="True" AutomationProperties.Name="语音最近识别结果"
+                                                       ToolTipService.ToolTip="{x:Bind ViewModel.VoiceAgentLastTranscript, Mode=OneWay}"/>
+                                        </StackPanel>
+                                        <StackPanel Spacing="2">
+                                            <TextBlock Text="执行回复" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            <TextBlock Text="{x:Bind ViewModel.VoiceAgentLastResponse, Mode=OneWay}" TextWrapping="Wrap" MaxLines="2"
+                                                       IsTextSelectionEnabled="True" AutomationProperties.Name="语音 DSH 执行回复"
+                                                       ToolTipService.ToolTip="{x:Bind ViewModel.VoiceAgentLastResponse, Mode=OneWay}"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                                <Grid SizeChanged="AgentActions_SizeChanged">
+                                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
+                                        <Button Command="{x:Bind ViewModel.ToggleVoiceAgentCommand}" Style="{StaticResource AgentSettingsPrimaryActionStyle}"
+                                                AutomationProperties.Name="{x:Bind ViewModel.VoiceAgentActionText, Mode=OneWay}"
+                                                ToolTipService.ToolTip="启动或停止音箱麦克风监听">
+                                            <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE720;" FontSize="16"/><TextBlock Text="{x:Bind ViewModel.VoiceAgentActionText, Mode=OneWay}"/></StackPanel>
+                                        </Button>
+                                        <Button Command="{x:Bind ViewModel.InstallVoiceAgentProfileCommand}" Style="{StaticResource AgentSettingsActionStyle}"
+                                                AutomationProperties.Name="连接 DSH" ToolTipService.ToolTip="启动并连接 DSH，准备复用音箱控制会话">
+                                            <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE839;" FontSize="16"/><TextBlock Text="连接 DSH"/></StackPanel>
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+                                <Grid ColumnSpacing="12" RowSpacing="12" SizeChanged="AgentFields_SizeChanged">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                    <TextBox Header="输入麦克风" AutomationProperties.Name="语音 Agent 输入麦克风"
+                                             Text="{x:Bind ViewModel.VoiceAgentInputDevice, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                             PlaceholderText="麦克风 (花再 Halo PixelBar)"/>
+                                    <ComboBox Grid.Column="1" Header="唤醒灵敏度" HorizontalAlignment="Stretch"
+                                              AutomationProperties.Name="语音唤醒灵敏度" ItemsSource="{x:Bind ViewModel.VoiceAgentSensitivityOptions}"
+                                              SelectedIndex="{x:Bind ViewModel.VoiceAgentSensitivityIndex, Mode=TwoWay}"/>
+                                </Grid>
+                                <Grid ColumnSpacing="12" RowSpacing="12" SizeChanged="AgentFields_SizeChanged">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                    <NumberBox Header="停顿等待（秒）" Minimum="0.8" Maximum="4" SmallChange="0.2"
+                                               AutomationProperties.Name="语音指令停顿等待秒数" SpinButtonPlacementMode="Compact"
+                                               Value="{x:Bind ViewModel.VoiceAgentCommandPauseSeconds, Mode=TwoWay}"/>
+                                    <NumberBox Grid.Column="1" Header="最长指令（秒）" Minimum="15" Maximum="120" SmallChange="5"
+                                               AutomationProperties.Name="语音指令最长时长秒数" SpinButtonPlacementMode="Compact"
+                                               Value="{x:Bind ViewModel.VoiceAgentCommandMaxSpeechSeconds, Mode=TwoWay}"/>
+                                </Grid>
+                                <TextBlock Text="说长句可适当延长停顿等待。修改配置后，保存并重新启动监听。"
+                                           Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                                <Grid SizeChanged="AgentActions_SizeChanged">
+                                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
+                                        <Button Command="{x:Bind ViewModel.SaveVoiceAgentSettingsCommand}" Style="{StaticResource AgentSettingsActionStyle}"
+                                                AutomationProperties.Name="保存语音 Agent 配置" ToolTipService.ToolTip="保存麦克风、灵敏度、停顿等待与运行时设置">
+                                            <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE74E;" FontSize="16"/><TextBlock Text="保存语音配置"/></StackPanel>
+                                        </Button>
+                                        <Button Command="{x:Bind ViewModel.PlayVoiceAcknowledgementCommand}" Style="{StaticResource AgentSettingsActionStyle}"
+                                                AutomationProperties.Name="试听我在唤醒回应" ToolTipService.ToolTip="通过系统默认播放设备试听唤醒回应">
+                                            <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE768;" FontSize="16"/><TextBlock Text="试听“我在”"/></StackPanel>
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+                                <Expander Header="自动监听与环境诊断" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                          IsExpanded="False" AutomationProperties.Name="语音 Agent 自动监听与环境诊断">
+                                    <StackPanel Spacing="12">
+                                        <Grid ColumnSpacing="12" RowSpacing="8" SizeChanged="AgentToggle_SizeChanged">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                            <TextBlock Text="随应用启动并持续监听" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                                            <ToggleSwitch Grid.Column="1" OffContent="关" OnContent="开" MinWidth="0"
+                                                          HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                          AutomationProperties.Name="随应用启动语音监听"
+                                                          IsOn="{x:Bind ViewModel.VoiceAgentEnabled, Mode=TwoWay}"/>
+                                        </Grid>
+                                        <Grid ColumnSpacing="12" RowSpacing="12" SizeChanged="AgentFields_SizeChanged">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                            <TextBox Header="Python（留空自动检测）" AutomationProperties.Name="语音 Agent Python 路径"
+                                                     Text="{x:Bind ViewModel.VoiceAgentPythonPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                     PlaceholderText="python.exe 完整路径"/>
+                                            <TextBox Grid.Column="1" Header="FFmpeg" AutomationProperties.Name="语音 Agent FFmpeg 路径"
+                                                     Text="{x:Bind ViewModel.VoiceAgentFfmpegPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                     PlaceholderText="ffmpeg 或完整路径"/>
+                                        </Grid>
+                                        <NumberBox Header="Agent 超时（秒）" Minimum="30" Maximum="300" SpinButtonPlacementMode="Compact"
+                                                   AutomationProperties.Name="语音 Agent 执行超时秒数"
+                                                   Value="{x:Bind ViewModel.VoiceAgentCommandTimeoutSeconds, Mode=TwoWay}"/>
+                                        <Grid SizeChanged="AgentActions_SizeChanged">
+                                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
+                                                <Button Command="{x:Bind ViewModel.DetectVoiceAgentEnvironmentCommand}" Style="{StaticResource AgentSettingsActionStyle}"
+                                                        AutomationProperties.Name="检测语音环境" ToolTipService.ToolTip="检测 Python、FFmpeg 和本机语音识别模型">
+                                                    <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE721;" FontSize="16"/><TextBlock Text="检测语音环境"/></StackPanel>
+                                                </Button>
+                                                <Button Command="{x:Bind ViewModel.TestVoiceAgentDshCommand}" Style="{StaticResource AgentSettingsActionStyle}"
+                                                        AutomationProperties.Name="测试语音 DSH 链路" ToolTipService.ToolTip="停止监听后，通过只读设备状态查询测试 DSH 链路">
+                                                    <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE73E;" FontSize="16"/><TextBlock Text="测试 DSH 链路"/></StackPanel>
+                                                </Button>
+                                            </StackPanel>
+                                        </Grid>
+                                        <TextBlock Text="识别在本机运行；设备口令复用音箱控制会话，任务指令使用独立任务会话。远场模式可能更容易误唤醒。"
+                                                   Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Expander>
+                            </StackPanel>
+                        </controls:SettingsCard>
+                    </controls:SettingsExpander.Items>
+                </controls:SettingsExpander>
                 <controls:SettingsExpander Header="腾讯云翻译"
                                            Description="{x:Bind ViewModel.TencentTranslationStatus, Mode=OneWay}"
                                            HorizontalContentAlignment="Stretch">

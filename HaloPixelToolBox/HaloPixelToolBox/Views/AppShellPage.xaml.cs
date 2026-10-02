@@ -35,6 +35,9 @@ namespace HaloPixelToolBox.Views
                 case "HaloPixelToolBox.Views.LightingToolPage":
                     ViewModel.NavigationViewService.NavigateTo<LightingToolPage>();
                     break;
+                case "HaloPixelToolBox.Views.AudioControlPage":
+                    ViewModel.NavigationViewService.NavigateTo<AudioControlPage>();
+                    break;
                 case "HaloPixelToolBox.Views.LyricsSubtitleToolPage":
                     ViewModel.NavigationViewService.NavigateTo<LyricsSubtitleToolPage>();
                     break;
@@ -49,6 +52,9 @@ namespace HaloPixelToolBox.Views
                     break;
                 case "HaloPixelToolBox.Views.PersonalSceneToolPage":
                     ViewModel.NavigationViewService.NavigateTo<PersonalSceneToolPage>();
+                    break;
+                case "HaloPixelToolBox.Views.DshSessionsPage":
+                    ViewModel.NavigationViewService.NavigateTo<DshSessionsPage>();
                     break;
                 default:
                     ViewModel.NavigationViewService.NavigateTo<MainPage>();

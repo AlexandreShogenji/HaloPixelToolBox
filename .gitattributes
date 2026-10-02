@@ -13,3 +13,6 @@
 *.png binary
 *.ttf binary
 *.zip binary
+*.tgz binary
+*.wav binary
+*.mp3 binary

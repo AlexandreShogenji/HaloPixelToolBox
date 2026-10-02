@@ -313,6 +313,7 @@ public partial class MainPageViewModel : ViewModelBase
             DisplayContentKind.Lyrics => "歌词同步",
             DisplayContentKind.VideoSubtitle => "视频字幕",
             DisplayContentKind.BrowserTranslation => "浏览器字幕",
+            DisplayContentKind.TaskStatus => "DSH任务",
             _ => null
         };
 

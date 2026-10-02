@@ -6,7 +6,6 @@ namespace HaloPixelToolBox.Core.Services.Scenes;
 public sealed class PersonalSceneDisplayController
 {
     private readonly HaloPixelDisplayService displayService;
-    private readonly PersonalSceneRestoreService restoreService = new();
 
     public PersonalSceneDisplayController(HaloPixelDisplayService displayService)
     {
@@ -24,8 +23,13 @@ public sealed class PersonalSceneDisplayController
         if (scene.Category == PersonalSceneCategory.Clock && scene.ScreenSettingParameters is { Length: 4 } clockParameters)
         {
             // 时钟类使用 LiLyric 已验证的内置切换包，成功后记录为字幕结束时可恢复的场景。
-            displayService.ShowScreenScene(clockParameters[0], clockParameters[1], clockParameters[2], clockParameters[3], scene);
-            sent = true;
+            sent = await displayService.ShowScreenSceneAsync(
+                clockParameters[0],
+                clockParameters[1],
+                clockParameters[2],
+                clockParameters[3],
+                scene,
+                cancellationToken);
         }
         else if (scene.RequiresResourceUpload)
         {
@@ -33,17 +37,22 @@ public sealed class PersonalSceneDisplayController
         }
         else if (scene.ScreenSettingParameters is { Length: 4 } parameters)
         {
-            displayService.ShowScreenScene(parameters[0], parameters[1], parameters[2], parameters[3], scene);
-            sent = true;
+            sent = await displayService.ShowScreenSceneAsync(
+                parameters[0],
+                parameters[1],
+                parameters[2],
+                parameters[3],
+                scene,
+                cancellationToken);
         }
         else if (scene.BuiltInUiModel is not null)
         {
-            displayService.ShowBuiltInUi(scene.BuiltInUiModel.Value, DisplayContentKind.Scene, scene);
-            sent = true;
+            sent = await displayService.ShowBuiltInUiAsync(
+                scene.BuiltInUiModel.Value,
+                DisplayContentKind.Scene,
+                scene,
+                cancellationToken);
         }
-
-        if (sent)
-            restoreService.Remember(scene);
 
         return sent;
     }

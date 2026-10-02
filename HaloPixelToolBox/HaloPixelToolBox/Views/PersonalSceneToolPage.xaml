@@ -120,10 +120,99 @@
                     <StackPanel Spacing="14">
                         <StackPanel Spacing="4">
                             <TextBlock Text="自定义图像资源" Style="{StaticResource SubtitleTextBlockStyle}"/>
-                            <TextBlock Text="拖入或选择 1 到 5 张 256x32 PNG/JPG 图像；1 张为静态资源，多张为动画序列。"
+                            <TextBlock Text="在 256×32 画板上直接创作，或拖入 1 到 5 张 PNG/JPG 图像；1 张为静态资源，多张为动画序列。"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                        TextWrapping="Wrap"/>
                         </StackPanel>
+
+                        <Border Padding="14"
+                                CornerRadius="8"
+                                BorderThickness="1"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                Background="{ThemeResource LayerFillColorAltBrush}">
+                            <StackPanel Spacing="12">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Text="256×32 像素画板" FontWeight="SemiBold"/>
+                                        <TextBlock Text="白色像素会点亮；按住并拖动绘制，鼠标右键可临时擦除。"
+                                                   FontSize="12"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="1"
+                                               x:Name="PixelCanvasCoordinateText"
+                                               Text="256 × 32"
+                                               FontFamily="Consolas"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                               VerticalAlignment="Center"/>
+                                </Grid>
+
+                                <Border CornerRadius="4"
+                                        BorderThickness="1"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                        Background="Black"
+                                        HorizontalAlignment="Stretch">
+                                    <Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Left">
+                                        <Image x:Name="PixelCanvasImage"
+                                               Width="1024"
+                                               Height="128"
+                                               Stretch="Fill"
+                                               PointerPressed="PixelCanvas_PointerPressed"
+                                               PointerMoved="PixelCanvas_PointerMoved"
+                                               PointerReleased="PixelCanvas_PointerReleased"
+                                               PointerCanceled="PixelCanvas_PointerReleased"
+                                               PointerCaptureLost="PixelCanvas_PointerReleased"/>
+                                    </Viewbox>
+                                </Border>
+
+                                <Grid ColumnSpacing="16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <ToggleButton x:Name="PixelCanvasDrawButton"
+                                                      Content="画笔"
+                                                      IsChecked="True"
+                                                      Click="PixelCanvasDraw_Click"/>
+                                        <ToggleButton x:Name="PixelCanvasEraseButton"
+                                                      Content="橡皮"
+                                                      Click="PixelCanvasErase_Click"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                        <TextBlock Text="笔刷" VerticalAlignment="Center"/>
+                                        <ComboBox x:Name="PixelCanvasBrushSizeBox"
+                                                  Width="76"
+                                                  SelectedIndex="0"
+                                                  SelectionChanged="PixelCanvasBrushSize_SelectionChanged">
+                                            <ComboBoxItem Content="1 px" Tag="1"/>
+                                            <ComboBoxItem Content="2 px" Tag="2"/>
+                                            <ComboBoxItem Content="4 px" Tag="4"/>
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+                                        <Button Content="撤销" Click="PixelCanvasUndo_Click"/>
+                                        <Button Content="重做" Click="PixelCanvasRedo_Click"/>
+                                        <Button Content="清空" Click="PixelCanvasClear_Click"/>
+                                        <Button Content="导入图片" Click="PixelCanvasImport_Click"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="3"
+                                                Orientation="Horizontal"
+                                                Spacing="8"
+                                                HorizontalAlignment="Right">
+                                        <Button Content="保存为第 1 帧" Click="PixelCanvasSaveFrame_Click"/>
+                                        <Button Content="生成并发送（单帧）"
+                                                Click="PixelCanvasGenerateAndSend_Click"
+                                                Style="{StaticResource AccentButtonStyle}"/>
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
 
                         <GridView ItemsSource="{x:Bind ViewModel.CustomFrameSlots, Mode=OneWay}"
                                   SelectionMode="None">

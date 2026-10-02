@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../HaloPixelToolBox/HaloPixelToolBox/Services/Audio/AudioControlService.cs" Link="AudioControlService.cs" />
+    <Compile Include="../../HaloPixelToolBox/HaloPixelToolBox/Services/Audio/AudioProfileStore.cs" Link="AudioProfileStore.cs" />
+    <Compile Include="../../HaloPixelToolBox/HaloPixelToolBox/Services/Audio/EqualizerApoService.cs" Link="EqualizerApoService.cs" />
+    <Compile Include="../../HaloPixelToolBox/HaloPixelToolBox/Services/DeviceControlPipeServer.Audio.cs" Link="DeviceControlPipeServer.Audio.cs" />
+    <Compile Include="../../HaloPixelToolBox/HaloPixelToolBox/Models/AudioControlModels.cs" Link="AudioControlModels.cs" />
+    <Compile Include="../../HaloPixelToolBox/HaloPixelToolBox.Core/Services/DeviceControl/DeviceNameResolver.cs" Link="DeviceNameResolver.cs" />
+    <Compile Include="../../HaloPixelToolBox/HaloPixelToolBox.Core/Models/DeviceControl/LookupResolution.cs" Link="LookupResolution.cs" />
+    <Compile Include="../../HaloPixelToolBox/HaloPixelToolBox.Core/Models/DeviceControl/DeviceCommandResult.cs" Link="DeviceCommandResult.cs" />
+    <Compile Include="../../HaloPixelToolBox/HaloPixelToolBox.Core/Models/DeviceControl/DeviceCommandStatus.cs" Link="DeviceCommandStatus.cs" />
+  </ItemGroup>
+</Project>

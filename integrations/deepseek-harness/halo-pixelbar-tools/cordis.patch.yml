@@ -1,0 +1,6 @@
+- insert:
+    - id: halo-pixelbar-tools
+      name: dsh-halo-pixelbar-tools
+      config:
+        pipeName: HaloPixelToolBox.DeviceControl.v1
+        timeoutMs: 15000

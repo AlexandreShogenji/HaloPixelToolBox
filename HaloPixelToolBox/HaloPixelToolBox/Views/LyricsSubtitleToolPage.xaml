@@ -7,16 +7,22 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
-    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Spacing="16" Margin="0,0,24,24" MaxWidth="1280">
-            <Grid ColumnSpacing="16">
+    <ScrollViewer HorizontalScrollMode="Disabled"
+                  HorizontalScrollBarVisibility="Disabled"
+                  HorizontalContentAlignment="Stretch">
+        <StackPanel Spacing="16" Margin="0,0,24,24" MaxWidth="1280" HorizontalAlignment="Stretch">
+            <Grid x:Name="LyricsHeaderGrid"
+                  ColumnSpacing="16"
+                  RowSpacing="12"
+                  SizeChanged="LyricsHeaderGrid_SizeChanged">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <StackPanel Spacing="4">
                     <TextBlock Text="多平台歌词同步" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <TextBlock Text="歌词字幕" Style="{StaticResource TitleTextBlockStyle}"/>
                     <TextBlock Text="选择歌词来源，校准时间轴，并实时预览设备输出。" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Bottom">
+                <StackPanel x:Name="LyricsHeaderActions" Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Bottom">
                     <Button Content="重新加载歌词" Command="{x:Bind ViewModel.LoadLyricsCommand}"/>
                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                         <TextBlock Text="歌词同步" VerticalAlignment="Center" FontWeight="SemiBold"/>
@@ -30,66 +36,89 @@
                 </StackPanel>
             </Grid>
 
-            <controls:SettingsCard Header="歌词来源" Description="选择当前歌词读取方式；状态会在下方实时更新">
-                <StackPanel Spacing="10">
-                    <Grid ColumnSpacing="8">
-                        <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
-                        <ToggleButton Content="网易云" Command="{x:Bind ViewModel.SelectNetEaseProviderCommand}" IsChecked="{x:Bind ViewModel.IsNetEaseProviderSelected, Mode=OneWay}" HorizontalAlignment="Stretch"/>
-                        <ToggleButton Grid.Column="1" Content="QQ 音乐" Command="{x:Bind ViewModel.SelectQQMusicProviderCommand}" IsChecked="{x:Bind ViewModel.IsQQMusicProviderSelected, Mode=OneWay}" HorizontalAlignment="Stretch"/>
-                        <ToggleButton Grid.Column="2" Content="Spotify" Command="{x:Bind ViewModel.SelectSpotifyProviderCommand}" IsChecked="{x:Bind ViewModel.IsSpotifyProviderSelected, Mode=OneWay}" HorizontalAlignment="Stretch"/>
-                        <ToggleButton Grid.Column="3" Content="本地 LRC" Command="{x:Bind ViewModel.SelectLocalFileProviderCommand}" IsChecked="{x:Bind ViewModel.IsLocalFileProviderSelected, Mode=OneWay}" HorizontalAlignment="Stretch"/>
-                        <ToggleButton Grid.Column="4" Content="自定义" Command="{x:Bind ViewModel.SelectCustomProviderCommand}" IsChecked="{x:Bind ViewModel.IsCustomProviderSelected, Mode=OneWay}" HorizontalAlignment="Stretch"/>
-                    </Grid>
-                    <Grid ColumnSpacing="6">
-                        <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
-                        <TextBlock Text="{x:Bind ViewModel.NetEaseProviderStatus, Mode=OneWay}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.QqMusicProviderStatus, Mode=OneWay}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        <TextBlock Grid.Column="2" Text="{x:Bind ViewModel.SpotifyProviderStatus, Mode=OneWay}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        <TextBlock Grid.Column="3" Text="{x:Bind ViewModel.LocalFileProviderStatus, Mode=OneWay}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        <TextBlock Grid.Column="4" Text="{x:Bind ViewModel.CustomProviderStatus, Mode=OneWay}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    </Grid>
-                </StackPanel>
+            <controls:SettingsCard Header="歌词来源" Description="选择当前歌词读取方式；状态会在下方实时更新" ContentAlignment="Vertical" HorizontalContentAlignment="Stretch">
+                <Grid x:Name="ProviderOptionsGrid"
+                      ColumnSpacing="8"
+                      RowSpacing="6"
+                      SizeChanged="ProviderOptionsGrid_SizeChanged">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition/>
+                        <ColumnDefinition/>
+                        <ColumnDefinition/>
+                        <ColumnDefinition/>
+                        <ColumnDefinition/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <ToggleButton x:Name="NetEaseProviderButton" MinWidth="0" Content="网易云" Command="{x:Bind ViewModel.SelectNetEaseProviderCommand}" IsChecked="{x:Bind ViewModel.IsNetEaseProviderSelected, Mode=OneWay}" HorizontalAlignment="Stretch"/>
+                    <ToggleButton x:Name="QqMusicProviderButton" MinWidth="0" Grid.Column="1" Content="QQ 音乐" Command="{x:Bind ViewModel.SelectQQMusicProviderCommand}" IsChecked="{x:Bind ViewModel.IsQQMusicProviderSelected, Mode=OneWay}" HorizontalAlignment="Stretch"/>
+                    <ToggleButton x:Name="SpotifyProviderButton" MinWidth="0" Grid.Column="2" Content="Spotify" Command="{x:Bind ViewModel.SelectSpotifyProviderCommand}" IsChecked="{x:Bind ViewModel.IsSpotifyProviderSelected, Mode=OneWay}" HorizontalAlignment="Stretch"/>
+                    <ToggleButton x:Name="LocalFileProviderButton" MinWidth="0" Grid.Column="3" Content="本地 LRC" Command="{x:Bind ViewModel.SelectLocalFileProviderCommand}" IsChecked="{x:Bind ViewModel.IsLocalFileProviderSelected, Mode=OneWay}" HorizontalAlignment="Stretch"/>
+                    <ToggleButton x:Name="CustomProviderButton" MinWidth="0" Grid.Column="4" Content="自定义" Command="{x:Bind ViewModel.SelectCustomProviderCommand}" IsChecked="{x:Bind ViewModel.IsCustomProviderSelected, Mode=OneWay}" HorizontalAlignment="Stretch"/>
+                    <TextBlock x:Name="NetEaseProviderStatus" Grid.Row="1" Text="{x:Bind ViewModel.NetEaseProviderStatus, Mode=OneWay}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock x:Name="QqMusicProviderStatus" Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.QqMusicProviderStatus, Mode=OneWay}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock x:Name="SpotifyProviderStatus" Grid.Row="1" Grid.Column="2" Text="{x:Bind ViewModel.SpotifyProviderStatus, Mode=OneWay}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock x:Name="LocalFileProviderStatus" Grid.Row="1" Grid.Column="3" Text="{x:Bind ViewModel.LocalFileProviderStatus, Mode=OneWay}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock x:Name="CustomProviderStatus" Grid.Row="1" Grid.Column="4" Text="{x:Bind ViewModel.CustomProviderStatus, Mode=OneWay}" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </Grid>
             </controls:SettingsCard>
 
-            <Grid ColumnSpacing="14">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="0.9*"/><ColumnDefinition Width="1.1*"/></Grid.ColumnDefinitions>
-                <StackPanel Spacing="10">
-                    <controls:SettingsCard Header="本地歌词文件" Description="支持 LRC 和纯文本歌词">
+            <Grid x:Name="LyricsContentGrid"
+                  ColumnSpacing="14"
+                  RowSpacing="14"
+                  SizeChanged="LyricsContentGrid_SizeChanged">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition x:Name="LyricsControlsColumn" Width="0.9*"/>
+                    <ColumnDefinition x:Name="LyricsPreviewColumn" Width="1.1*"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <StackPanel x:Name="LyricsControls" Spacing="10">
+                    <controls:SettingsCard Header="本地歌词文件" Description="支持 LRC 和纯文本歌词" ContentAlignment="Vertical" HorizontalContentAlignment="Stretch">
                         <StackPanel Spacing="8">
                             <TextBox Text="{x:Bind ViewModel.LocalLyricsFilePath, Mode=TwoWay}" PlaceholderText="请选择本地歌词文件" TextWrapping="Wrap" IsReadOnly="True"/>
                             <Button Content="选择并加载 LRC" Command="{x:Bind ViewModel.SelectLocalLyricsFileCommand}" HorizontalAlignment="Left"/>
                         </StackPanel>
                     </controls:SettingsCard>
-                    <controls:SettingsCard Header="歌曲关键字" Description="用于平台搜索；本地文件可选">
+                    <controls:SettingsCard Header="歌曲关键字" Description="用于平台搜索；本地文件可选" ContentAlignment="Vertical" HorizontalContentAlignment="Stretch">
                         <TextBox Text="{x:Bind ViewModel.Keyword, Mode=TwoWay}"/>
                     </controls:SettingsCard>
-                    <controls:SettingsCard Header="播放与显示" Description="">
+                    <controls:SettingsCard Header="播放与显示" Description="" ContentAlignment="Vertical" HorizontalContentAlignment="Stretch">
                         <StackPanel Spacing="12">
                             <Grid ColumnSpacing="10">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="112"/></Grid.ColumnDefinitions>
                                 <Slider x:Name="PlaybackPositionSlider" Minimum="0" Maximum="{x:Bind ViewModel.PlaybackDurationSeconds, Mode=OneWay}" Value="{x:Bind ViewModel.PositionSeconds, Mode=TwoWay}" ValueChanged="PlaybackPositionSlider_ValueChanged"/>
                                 <TextBox Grid.Column="1" Text="{x:Bind ViewModel.PlaybackPositionText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="00:42.550"/>
                             </Grid>
-                            <Grid ColumnSpacing="12">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="150"/></Grid.ColumnDefinitions>
-                                <StackPanel Spacing="4">
+                            <Grid x:Name="PlaybackOptionsGrid"
+                                  ColumnSpacing="12"
+                                  RowSpacing="10"
+                                  SizeChanged="PlaybackOptionsGrid_SizeChanged">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition x:Name="PlaybackOffsetColumn" Width="150"/></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                <StackPanel x:Name="PlaybackScrollOption" Spacing="4">
                                     <TextBlock Text="长歌词滚动" FontSize="12" FontWeight="SemiBold"/>
                                     <ToggleSwitch IsOn="{x:Bind ViewModel.EnableScroll, Mode=TwoWay}" OnContent="" OffContent="" Width="40" MinWidth="40" HorizontalAlignment="Left"/>
                                 </StackPanel>
-                                <NumberBox Grid.Column="1" Header="时间偏移（秒）" Value="{x:Bind ViewModel.OffsetSeconds, Mode=TwoWay}" SpinButtonPlacementMode="Compact" SmallChange="0.1" LargeChange="1"/>
+                                <NumberBox x:Name="PlaybackOffsetBox" Grid.Column="1" Header="时间偏移（秒）" Value="{x:Bind ViewModel.OffsetSeconds, Mode=TwoWay}" SpinButtonPlacementMode="Compact" SmallChange="0.1" LargeChange="1" HorizontalAlignment="Stretch"/>
                             </Grid>
                         </StackPanel>
                     </controls:SettingsCard>
                 </StackPanel>
 
-                <Border Grid.Column="1" Padding="24" CornerRadius="12" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                <Border x:Name="LyricsPreview" Grid.Column="1" Padding="24" CornerRadius="12" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
                     <StackPanel Spacing="18">
-                        <Grid>
+                        <Grid x:Name="LyricsPreviewHeader"
+                              ColumnSpacing="10"
+                              RowSpacing="8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                             <StackPanel Spacing="4">
                                 <TextBlock Text="实时预览" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                <TextBlock Text="当前歌词" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                                <TextBlock Text="当前歌词" Style="{StaticResource SubtitleTextBlockStyle}" TextWrapping="Wrap"/>
                             </StackPanel>
-                            <Border HorizontalAlignment="Right" VerticalAlignment="Center" Padding="10,6" CornerRadius="999" Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                            <Border x:Name="LyricsPlaybackPositionBadge" Grid.Row="1" HorizontalAlignment="Left" VerticalAlignment="Center" Padding="10,6" CornerRadius="999" Background="{ThemeResource SubtleFillColorSecondaryBrush}">
                                 <TextBlock Text="{x:Bind ViewModel.PlaybackPositionText, Mode=OneWay}" FontWeight="SemiBold"/>
                             </Border>
                         </Grid>

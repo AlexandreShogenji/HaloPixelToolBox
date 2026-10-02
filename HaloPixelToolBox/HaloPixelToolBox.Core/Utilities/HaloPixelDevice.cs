@@ -40,6 +40,7 @@ public partial class HaloPixelDevice
         }
         else
         {
+            CurrentDevice = null;
             return false;
         }
     }
@@ -161,6 +162,29 @@ public partial class HaloPixelDevice
         return acknowledged && stateConfirmed;
     }
 
+    public bool TryGetPixelScreenState(out bool enabled, out HaloPixelColor color)
+    {
+        enabled = false;
+        color = new HaloPixelColor(0, 0, 0);
+        if (CurrentDevice is null)
+            return false;
+
+        using var stream = CurrentDevice.Open();
+        stream.ReadTimeout = 250;
+        stream.Write(HidPacketBuilder.BuildPixelScreenStateQuery());
+        var response = WaitForEdifierResponse(
+            stream,
+            0xee,
+            item => IsKnownPixelScreenState(item.Payload),
+            TimeSpan.FromSeconds(1));
+        if (response?.Payload is not { Length: >= 8 } payload)
+            return false;
+
+        enabled = !IsPixelScreenPowerState(payload, false);
+        color = new HaloPixelColor(payload[1], payload[2], payload[3]);
+        return true;
+    }
+
     public void SetAmbientLight(AmbientLightOptions options)
     {
         using var stream = CurrentDevice?.Open();
@@ -189,6 +213,28 @@ public partial class HaloPixelDevice
             response => IsAmbientLightPowerState(response.Payload, enabled),
             TimeSpan.FromSeconds(1)) is not null;
         return acknowledged && stateConfirmed;
+    }
+
+    public bool TryGetAmbientLightEnabled(out bool enabled)
+    {
+        enabled = false;
+        if (CurrentDevice is null)
+            return false;
+
+        using var stream = CurrentDevice.Open();
+        stream.ReadTimeout = 250;
+        stream.Write(HidPacketBuilder.BuildAmbientLightStateQuery());
+        var response = WaitForEdifierResponse(
+            stream,
+            0x6a,
+            item => IsAmbientLightPowerState(item.Payload, true)
+                    || IsAmbientLightPowerState(item.Payload, false),
+            TimeSpan.FromSeconds(1));
+        if (response is null)
+            return false;
+
+        enabled = IsAmbientLightPowerState(response.Payload, true);
+        return true;
     }
 
     public bool CalibrateTime(DateTime localTime)

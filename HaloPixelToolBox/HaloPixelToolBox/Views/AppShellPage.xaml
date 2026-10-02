@@ -69,6 +69,9 @@
         <NavigationView x:Name="navigationView" IsBackButtonVisible="Collapsed" AlwaysShowHeader="False" Canvas.ZIndex="0" IsBackEnabled="{x:Bind ViewModel.CanGoBack, Mode=OneWay}" IsSettingsVisible="False" CompactPaneLength="48" OpenPaneLength="232" DisplayModeChanged="NavigationView_DisplayModeChanged" PaneOpening="NavigationView_PaneOpening" PaneOpened="NavigationView_PaneOpened" PaneClosing="NavigationView_PaneClosing" PaneClosed="NavigationView_PaneClosed">
             <NavigationView.MenuItems>
                 <NavigationViewItem Content="设备控制台" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.MainPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE80F;"/></NavigationViewItem.Icon></NavigationViewItem>
+                <NavigationViewItem Content="音频控制" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.AudioControlPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE767;"/></NavigationViewItem.Icon></NavigationViewItem>
+                <NavigationViewItemHeader Content="Agent"/>
+                <NavigationViewItem Content="DSH 会话" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.DshSessionsPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE8F2;"/></NavigationViewItem.Icon></NavigationViewItem>
                 <NavigationViewItemHeader Content="显示"/>
                 <NavigationViewItem Content="个性场景" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.PersonalSceneToolPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE7F4;"/></NavigationViewItem.Icon></NavigationViewItem>
                 <NavigationViewItem Content="灯光控制" add:NavigationAddition.NavigateTo="HaloPixelToolBox.Views.LightingToolPage"><NavigationViewItem.Icon><FontIcon Glyph="&#xE706;"/></NavigationViewItem.Icon></NavigationViewItem>

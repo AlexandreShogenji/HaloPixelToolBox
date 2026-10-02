@@ -7,6 +7,7 @@ using HaloPixelToolBox.Core.Services;
 using HaloPixelToolBox.Core.Services.Lyrics;
 using HaloPixelToolBox.Core.Services.Scenes;
 using HaloPixelToolBox.Profiles.CrossVersionProfiles;
+using HaloPixelToolBox.Services;
 using System.Diagnostics;
 using System.Globalization;
 using Windows.Storage.Pickers;
@@ -20,6 +21,7 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
     private readonly HaloPixelDisplayService displayService = new();
     private readonly PersonalSceneRestoreService restoreService = new();
     private readonly LyricsTimelineSyncService lyricsTimelineSyncService;
+    private readonly LyricsSubtitleControlService spotifyLyricsControlService = App.LyricsSubtitleControl;
     private readonly Microsoft.UI.Dispatching.DispatcherQueue? dispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
     private readonly LyricsProviderKind[] providerMapping =
     [
@@ -35,7 +37,11 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
     private string currentSpotifyTrackKey = string.Empty;
     private bool isSeekingPlaybackPosition;
     private bool isSpotifyAutoReloading;
-    private bool isProviderReadinessMonitorSyncing;
+    private int providerReadinessMonitorSyncing;
+    private bool isApplyingExternalSpotifyStatus;
+    private bool hasObservedActiveSharedSpotifySession;
+    private bool isPreservingSyncPreferenceDuringPageTransition;
+    private long sharedSpotifyStopVersion;
     private DateTimeOffset lastAutoSyncAttemptAt;
     private readonly CancellationTokenSource providerReadinessMonitorCancellationTokenSource = new();
     private CancellationTokenSource? liveLineSyncCancellationTokenSource;
@@ -120,12 +126,16 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
         lyricsTimelineSyncService.StatusChanged += (_, message) => RunOnUiThread(() =>
         {
             StatusMessage = message;
-            IsLyricsSyncRunning = lyricsTimelineSyncService.IsRunning;
+            IsLyricsSyncRunning = message != "歌词同步已到达末尾"
+                                    && !message.Contains("失败", StringComparison.Ordinal)
+                                    && lyricsTimelineSyncService.IsRunning;
         });
         lyricsTimelineSyncService.ExternalTrackChanged += (_, snapshot) => RunOnUiThread(() =>
         {
             _ = AutoReloadSpotifyTrackAsync(snapshot);
         });
+        spotifyLyricsControlService.StatusChanged += SpotifyLyricsControlService_StatusChanged;
+        ApplySpotifyLyricsStatus(spotifyLyricsControlService.CurrentStatus);
 
         _ = RunProviderReadinessMonitorAsync(providerReadinessMonitorCancellationTokenSource.Token);
     }
@@ -134,6 +144,9 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
     {
         DisplayFeatureProfile.LyricsProviderIndex = Math.Clamp(value, 0, providerMapping.Length - 1);
         NotifyProviderSelectionChanged();
+        if (isApplyingExternalSpotifyStatus)
+            return;
+
         ResetLoadedLyricsState();
         var providerKind = ResolveSelectedProviderKind();
         if (providerKind is not LyricsProviderKind.LocalFile and not LyricsProviderKind.Spotify)
@@ -154,6 +167,9 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
 
     partial void OnEnableLyricsSyncChanged(bool value)
     {
+        if (isApplyingExternalSpotifyStatus)
+            return;
+
         if (value)
             _ = ResumeLyricsSyncAsync();
         else
@@ -212,7 +228,7 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
     {
         try
         {
-            StopLyricsSync();
+            StopLyricsSyncForPageTransition();
             currentTrack = null;
             lastSentCueKey = string.Empty;
             PreviewText = "尚未加载歌词";
@@ -350,36 +366,15 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
 
     private async Task StartSpotifyLyricsSyncAsync()
     {
-        if (currentTrack is null)
-            await LoadLyricsCoreAsync(false);
-
-        if (currentTrack is null || currentTrack.Lines.Count == 0)
-        {
-            StatusMessage = string.IsNullOrWhiteSpace(LocalLyricsFilePath)
-                ? "请先重新加载 Spotify 歌词；自动匹配失败时可选择本地 LRC"
-                : "请先加载歌词";
-            return;
-        }
-
-        var snapshot = await spotifyPlaybackProvider.GetSnapshotAsync();
-        if (!snapshot.HasTrack)
-        {
-            StatusMessage = "未检测到 Spotify 当前播放歌曲，请先打开 Spotify 并播放音乐";
-            return;
-        }
-
-        currentSpotifyTrackKey = BuildSpotifyTrackKey(snapshot);
-        if (snapshot.Position is { } position)
-            SetPlaybackPositionFromSeconds(position.TotalSeconds);
-
-        lastSentCueKey = string.Empty;
-        IsLyricsSyncRunning = true;
-        lyricsTimelineSyncService.StartExternal(
-            currentTrack,
-            spotifyPlaybackProvider.GetSnapshotAsync,
-            IsExpectedSpotifyTrack,
-            SafeTimeSpanFromSeconds(OffsetSeconds),
-            cue => BuildDisplayOptions(cue.Text));
+        var result = await spotifyLyricsControlService.StartSpotifyAsync(
+            (int)Math.Clamp(Math.Round(OffsetSeconds * 1000d), -30_000d, 30_000d),
+            EnableScroll,
+            LocalLyricsFilePath,
+            currentTrack);
+        if (result.Data is not null)
+            ApplySpotifyLyricsStatus(result.Data);
+        else
+            StatusMessage = result.Message;
     }
 
     private async Task AutoReloadSpotifyTrackAsync(LyricsPlaybackSnapshot snapshot)
@@ -410,7 +405,13 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void StopLyricsSync() 
+    private void StopLyricsSync()
+    {
+        StopLocalLyricsSync();
+        spotifyLyricsControlService.RequestStop();
+    }
+
+    private void StopLocalLyricsSync()
     {
         if (liveLineSyncCancellationTokenSource is not null)
         {
@@ -423,8 +424,34 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
         IsLyricsSyncRunning = false;
     }
 
+    private void StopLyricsSyncForPageTransition()
+    {
+        isPreservingSyncPreferenceDuringPageTransition = true;
+        try
+        {
+            StopLyricsSync();
+        }
+        finally
+        {
+            isPreservingSyncPreferenceDuringPageTransition = false;
+        }
+    }
+
     private async Task StopLyricsSyncAndRestoreSceneAsync()
     {
+        var spotifyStatus = spotifyLyricsControlService.CurrentStatus;
+        if (spotifyStatus.State is LyricsSubtitleSessionState.Preparing
+            or LyricsSubtitleSessionState.Running
+            or LyricsSubtitleSessionState.Paused)
+        {
+            var stopped = await spotifyLyricsControlService.StopAsync(restoreScene: true);
+            if (stopped.Data is not null)
+                ApplySpotifyLyricsStatus(stopped.Data);
+            else
+                StatusMessage = stopped.Message;
+            return;
+        }
+
         StopLyricsSync();
         await RestoreCurrentSceneAsync(CancellationToken.None);
     }
@@ -512,31 +539,72 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
 
     private async Task TryStartSyncForReadyProviderAsync(bool force = false, CancellationToken cancellationToken = default)
     {
-        if (!EnableLyricsSync || IsLyricsSyncRunning || isProviderReadinessMonitorSyncing)
+        if (!EnableLyricsSync || IsLyricsSyncRunning
+            || Interlocked.CompareExchange(ref providerReadinessMonitorSyncing, 1, 0) != 0)
             return;
 
-        var now = DateTimeOffset.Now;
-        if (!force && now - lastAutoSyncAttemptAt < TimeSpan.FromSeconds(8))
-            return;
-
-        var providerKind = ResolveSelectedProviderKind();
-        var ready = await IsProviderReadyForAutoSyncAsync(providerKind, cancellationToken);
-        if (!ready)
-        {
-            if (force)
-                StatusMessage = "同步开关已开启，等待当前歌词来源就绪";
-            return;
-        }
-
-        lastAutoSyncAttemptAt = now;
-        isProviderReadinessMonitorSyncing = true;
         try
         {
+            var providerKind = ResolveSelectedProviderKind();
+            var spotifyStopVersion = Interlocked.Read(ref sharedSpotifyStopVersion);
+            if (providerKind == LyricsProviderKind.Spotify
+                && hasObservedActiveSharedSpotifySession
+                && spotifyLyricsControlService.CurrentStatus.State is LyricsSubtitleSessionState.Stopping
+                    or LyricsSubtitleSessionState.Stopped)
+            {
+                DisableLyricsSyncAfterSharedSpotifyStop();
+                return;
+            }
+
+            var now = DateTimeOffset.Now;
+            if (!force && now - lastAutoSyncAttemptAt < TimeSpan.FromSeconds(8))
+                return;
+
+            var ready = await IsProviderReadyForAutoSyncAsync(providerKind, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!EnableLyricsSync
+                || IsLyricsSyncRunning
+                || ResolveSelectedProviderKind() != providerKind
+                || providerKind == LyricsProviderKind.Spotify
+                    && Interlocked.Read(ref sharedSpotifyStopVersion) != spotifyStopVersion)
+            {
+                return;
+            }
+
+            if (providerKind == LyricsProviderKind.Spotify)
+            {
+                var sharedStatus = spotifyLyricsControlService.CurrentStatus;
+                if (sharedStatus.State is LyricsSubtitleSessionState.Preparing
+                    or LyricsSubtitleSessionState.Running
+                    or LyricsSubtitleSessionState.Paused)
+                {
+                    ApplySpotifyLyricsStatus(sharedStatus);
+                    return;
+                }
+
+                if (hasObservedActiveSharedSpotifySession
+                    && sharedStatus.State is LyricsSubtitleSessionState.Stopping
+                        or LyricsSubtitleSessionState.Stopped)
+                {
+                    DisableLyricsSyncAfterSharedSpotifyStop();
+                    return;
+                }
+            }
+
+            if (!ready)
+            {
+                if (force)
+                    StatusMessage = "同步开关已开启，等待当前歌词来源就绪";
+                return;
+            }
+
+            lastAutoSyncAttemptAt = now;
             await StartLyricsSyncAsync();
         }
         finally
         {
-            isProviderReadinessMonitorSyncing = false;
+            Interlocked.Exchange(ref providerReadinessMonitorSyncing, 0);
         }
     }
 
@@ -627,6 +695,102 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
         return string.IsNullOrWhiteSpace(version) ? string.Empty : $" v{version}";
     }
 
+    private void SpotifyLyricsControlService_StatusChanged(object? sender, LyricsSubtitleSessionStatus status)
+    {
+        if (status.State is LyricsSubtitleSessionState.Stopping or LyricsSubtitleSessionState.Stopped)
+            Interlocked.Increment(ref sharedSpotifyStopVersion);
+
+        RunOnUiThread(() => ApplySpotifyLyricsStatus(status));
+    }
+
+    private void ApplySpotifyLyricsStatus(LyricsSubtitleSessionStatus status)
+    {
+        if (status.State is LyricsSubtitleSessionState.Preparing
+            or LyricsSubtitleSessionState.Running
+            or LyricsSubtitleSessionState.Paused)
+        {
+            hasObservedActiveSharedSpotifySession = true;
+            SetLyricsSyncEnabledFromSharedSession(true);
+        }
+
+        if (status.State != LyricsSubtitleSessionState.Stopped)
+        {
+            StopLocalLyricsSync();
+            if (ResolveSelectedProviderKind() != LyricsProviderKind.Spotify)
+            {
+                isApplyingExternalSpotifyStatus = true;
+                try
+                {
+                    SelectedProviderIndex = Array.IndexOf(providerMapping, LyricsProviderKind.Spotify);
+                }
+                finally
+                {
+                    isApplyingExternalSpotifyStatus = false;
+                }
+            }
+        }
+        if (status.State == LyricsSubtitleSessionState.Stopping)
+        {
+            if (isPreservingSyncPreferenceDuringPageTransition)
+                hasObservedActiveSharedSpotifySession = false;
+            else
+                DisableLyricsSyncAfterSharedSpotifyStop();
+        }
+        else if (status.State == LyricsSubtitleSessionState.Stopped
+                 && hasObservedActiveSharedSpotifySession)
+        {
+            // A process-wide stop (for example from DSH) is authoritative. Turn off the
+            // page-level preference without invoking its stop command again, otherwise the
+            // readiness monitor would recreate the Spotify session three seconds later.
+            if (isPreservingSyncPreferenceDuringPageTransition)
+                hasObservedActiveSharedSpotifySession = false;
+            else
+                DisableLyricsSyncAfterSharedSpotifyStop();
+        }
+
+        IsLyricsSyncRunning = status.IsRunning;
+        EnableScroll = status.ScrollEnabled;
+        OffsetSeconds = status.OffsetMilliseconds / 1000d;
+        StatusMessage = status.Message;
+        if (!string.IsNullOrWhiteSpace(status.CurrentLine))
+        {
+            CurrentLyricLine = status.CurrentLine;
+            PreviewText = status.CurrentLine;
+        }
+        else if (!string.IsNullOrWhiteSpace(status.Track)
+                 && status.State != LyricsSubtitleSessionState.Stopped)
+        {
+            CurrentLyricLine = status.State == LyricsSubtitleSessionState.Preparing
+                ? "正在匹配歌词"
+                : "等待同步歌词";
+            PreviewText = string.IsNullOrWhiteSpace(status.Artist)
+                ? status.Track
+                : $"{status.Track} - {status.Artist}";
+        }
+    }
+
+    private void DisableLyricsSyncAfterSharedSpotifyStop()
+    {
+        hasObservedActiveSharedSpotifySession = false;
+        SetLyricsSyncEnabledFromSharedSession(false);
+    }
+
+    private void SetLyricsSyncEnabledFromSharedSession(bool enabled)
+    {
+        if (EnableLyricsSync == enabled)
+            return;
+
+        isApplyingExternalSpotifyStatus = true;
+        try
+        {
+            EnableLyricsSync = enabled;
+        }
+        finally
+        {
+            isApplyingExternalSpotifyStatus = false;
+        }
+    }
+
     private static string GetLiveProviderDisplayName(ILyricsLiveLineProvider liveLineProvider)
     {
         return liveLineProvider.ProviderKind switch
@@ -639,7 +803,7 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
 
     private void StartLiveLineSync(ILyricsLiveLineProvider liveLineProvider)
     {
-        StopLyricsSync();
+        StopLyricsSyncForPageTransition();
         lastSentCueKey = string.Empty;
         IsLyricsSyncRunning = true;
         liveLineSyncCancellationTokenSource = new CancellationTokenSource();
@@ -689,7 +853,10 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
         }
         finally
         {
-            RunOnUiThread(() => IsLyricsSyncRunning = liveLineSyncCancellationTokenSource is not null && !liveLineSyncCancellationTokenSource.IsCancellationRequested);
+            RunOnUiThread(() => IsLyricsSyncRunning = spotifyLyricsControlService.CurrentStatus.IsRunning
+                || lyricsTimelineSyncService.IsRunning
+                || liveLineSyncCancellationTokenSource is not null
+                    && !liveLineSyncCancellationTokenSource.IsCancellationRequested);
         }
     }
 
@@ -752,7 +919,7 @@ public partial class LyricsSubtitleToolPageViewModel : ViewModelBase
 
     private void ResetLoadedLyricsState()
     {
-        StopLyricsSync();
+        StopLyricsSyncForPageTransition();
         currentTrack = null;
         lastSentCueKey = string.Empty;
         currentSpotifyTrackKey = string.Empty;
