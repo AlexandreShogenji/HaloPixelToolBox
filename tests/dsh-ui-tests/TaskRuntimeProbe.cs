@@ -102,6 +102,14 @@ public static class TaskRuntimeProbe
         Reset();var page=new DshSessionsPage();page.RaiseLoaded();
         void Click(string method)=>typeof(DshSessionsPage).GetMethod(method,BindingFlags.NonPublic|BindingFlags.Instance)!.Invoke(page,[page,new RoutedEventArgs()]);
         StackPanel Body(ContentDialog dialog)=>(StackPanel)((ScrollViewer)dialog.Content!).Content!;
+        IEnumerable<DependencyObject> Descendants(DependencyObject parent)
+        {
+            foreach (var child in parent.Children)
+            {
+                yield return child;
+                foreach (var descendant in Descendants(child)) yield return descendant;
+            }
+        }
         ContentDialog.NextShow=dialog=>
         {
             var boxes=Body(dialog).Children.OfType<TextBox>().ToArray();
@@ -117,7 +125,7 @@ public static class TaskRuntimeProbe
         task.Publish(Active("A",[approval]));
         ContentDialog.NextShow=dialog=>
         {
-            var texts=Body(dialog).Children.OfType<TextBlock>().Select(x=>x.Text).ToArray();
+            var texts=Descendants(Body(dialog)).OfType<TextBlock>().Select(x=>x.Text).ToArray();
             check(texts.Contains(approval.Reason)&&texts.Any(x=>x?.Contains("write_file")==true),"approval details show full tool and full long reason without truncation");
             check(dialog.PrimaryButtonText=="仅批准本次"&&dialog.SecondaryButtonText=="拒绝本次"&&dialog.DefaultButton==ContentDialogButton.None,"approval dialog exposes one-shot approval and refusal with no default approval");
             return Task.FromResult(ContentDialogResult.Primary);
@@ -127,7 +135,7 @@ public static class TaskRuntimeProbe
         task.Publish(Active("A",[question]));
         ContentDialog.NextShow=dialog=>
         {
-            var boxes=Body(dialog).Children.OfType<TextBox>().ToArray();
+            var boxes=Descendants(Body(dialog)).OfType<TextBox>().ToArray();
             check(boxes.Length==2&&!dialog.IsPrimaryButtonEnabled,"question dialog gives each question independent input and requires all answers");
             boxes[0].Text="灯效";check(!dialog.IsPrimaryButtonEnabled,"partial multi-question answer cannot submit");
             boxes[1].Text="全部";check(dialog.IsPrimaryButtonEnabled,"complete multi-question answer enables only explicit submission");

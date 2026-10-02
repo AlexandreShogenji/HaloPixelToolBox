@@ -64,7 +64,10 @@ Console.WriteLine($"All {passed} page runtime and XAML probes passed.");
 }
 if (args.Contains("--tasks"))
 {
+    TaskAnswerDraftProbe.Run(Check);
     await TaskRuntimeProbe.RunAsync(Check);
+    await TaskStatusProbe.RunAsync(Check);
+    await TaskQuestionUiProbe.RunAsync(Check);
     Console.WriteLine($"All {passed} task UI and view-model probes passed.");
     return;
 }

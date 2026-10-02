@@ -20,6 +20,10 @@ async Task Until(Func<bool> value)
 DshTaskInteraction Approval(string id="approve-1") => new(id,"approval","exec","write file",[]);
 DshTaskInteraction Question(string id="question-1") => new(id,"question","ask","",[
     new("q1","位置","放在哪里？",[new("工作区","")]), new("q2","名称","文件名？",[])]);
+SemaphoreSlim ActionGate(DshTaskService service) => (SemaphoreSlim)typeof(DshTaskService)
+    .GetField("actions",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.GetValue(service)!;
+void PublishTask(DshTaskService service,DshTaskSnapshot snapshot) => typeof(DshTaskService)
+    .GetMethod("Publish",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.Invoke(service,[snapshot]);
 
 await Test("voice empty create immediately lists and monitors session, then submits only content", async()=>
 {
@@ -683,6 +687,135 @@ await Test("queued automatic restore cannot replace a task created by a user act
     Check(restored.Current.SessionId==created.SessionId&&created.SessionId=="task-2"&&f.Client.Prompts.Single().Prompt=="new raw prompt","stale restore hijacked newly created task");
 });
 
+await Test("release failure still stops locally clears target and prevents automatic restoration",async()=>
+{
+    using var f=new TaskCase();await f.Start();await Until(()=>Directory.GetFiles(f.StateRoot,"*.json").Length==1);
+    f.Client.ReleaseFailure=new IOException("release response lost");var response=await f.Service.RouteVoiceAsync("停止监控");
+    Check(!f.Service.Current.IsMonitoring&&f.Client.Current.VoiceTarget is null&&f.Service.Current.PendingInteractions.Count==0,"release failure retained local monitor or target");
+    Check(Directory.GetFiles(f.StateRoot,"*.json").Length==0&&response.Message.Contains("远端交互释放未确认"),"release failure retained restore identity or hid uncertainty");
+    var reads=f.Client.ReadCount;await Task.Delay(40);
+    Check(f.Client.ReadCount==reads&&f.Client.CancelCount==0&&f.Client.Creates.Count==1&&f.Client.Prompts.Count==1,"stopped loop kept polling or cancelled/replayed work");
+    using var restored=new DshTaskService(f.Client,()=>"C:/tasks",()=>f.Scope,stateRoot:f.StateRoot,pollInterval:TimeSpan.FromMilliseconds(10));
+    f.Client.Signal();await Task.Delay(30);Check(!restored.Current.IsMonitoring,"failed release resurrected stopped monitoring");
+    f.Client.ReleaseFailure=null;await f.Start();Check(f.Client.Creates.Count==2,"stale running state blocked explicitly requested new task");
+});
+
+await Test("replacement release failure leaves old monitoring reliably stopped without creating work",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("completed","old-completed",[]);await Until(()=>f.Service.Current.State=="completed");
+    f.Client.ReleaseFailure=new IOException("release failed");await Throws<InvalidOperationException>(()=>f.Start());
+    Check(!f.Service.Current.IsMonitoring&&f.Client.Current.VoiceTarget is null&&Directory.GetFiles(f.StateRoot,"*.json").Length==0,"replacement failure left a dead monitor flagged active");
+    Check(f.Client.Creates.Count==1&&f.Client.Prompts.Count==1&&f.Client.CancelCount==0&&f.Service.Current.Detail.Contains("未确认"),"replacement failure created work or hid remote uncertainty");
+});
+
+await Test("offline stop clears local identity and reports unconfirmed remote release",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.Disconnect();await Until(()=>f.Service.Current.State=="disconnected");
+    await f.Service.StopMonitoringAsync();
+    Check(!f.Service.Current.IsMonitoring&&f.Client.Current.VoiceTarget is null&&Directory.GetFiles(f.StateRoot,"*.json").Length==0,"offline stop kept monitoring identity");
+    Check(f.Client.ReleaseCount==0&&f.Client.CancelCount==0&&f.Service.Current.Detail.Contains("远端交互释放未确认"),"offline stop attempted unsupported release/cancel or hid uncertainty");
+});
+
+await Test("cancelled release still completes local stop and cannot restart saved monitoring",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.ReleaseFailure=new OperationCanceledException("release timed out");
+    await f.Service.StopMonitoringAsync();
+    Check(!f.Service.Current.IsMonitoring&&f.Client.Current.VoiceTarget is null&&Directory.GetFiles(f.StateRoot,"*.json").Length==0&&f.Client.CancelCount==0,"cancelled release retained local monitoring or cancelled real task");
+});
+
+await Test("adopting selected task waits for actual questions before routing first spoken answer",async()=>
+{
+    using var f=new TaskCase();var selected=new DshSessionSummary("existing","existing task","C:/tasks/existing",DateTimeOffset.Now,"idle");
+    f.Client.SetSessions([selected]);f.Client.SelectVoiceTarget(selected);f.Client.SetRemote("waitingInput","existing-question",[Question()]);
+    var opening=new TaskCompletionSource<DshTaskRemoteState>(TaskCreationOptions.RunContinuationsAsynchronously);
+    f.Client.ReadOverride=(_,ct)=>opening.Task.WaitAsync(ct);var routed=f.Service.RouteVoiceAsync("工作区");await Until(()=>f.Client.ReadCount==1);
+    Check(!routed.IsCompleted&&f.Client.Prompts.Count==0&&f.Client.Responses.Count==0,"first utterance was submitted before task state arrived");
+    opening.SetResult(f.Client.Remote);await routed;f.Client.ReadOverride=null;
+    Check(f.Client.Prompts.Count==0&&f.Client.Responses.Count==0&&f.Service.Current.Detail=="文件名？","first answer was queued as ordinary task content");
+    await f.Service.RouteVoiceAsync("notes.txt");var answer=f.Client.Responses.Single();
+    Check(answer.Id==selected.Id&&answer.Answers!["q1"]=="工作区"&&answer.Answers["q2"]=="notes.txt"&&f.Client.Creates.Count==0,"first adopted question answer lost its identity or created another session");
+});
+
+await Test("failed initial task-state read cannot submit spoken content and is safe to retry",async()=>
+{
+    using var f=new TaskCase();var selected=new DshSessionSummary("existing","existing task","C:/tasks/existing",DateTimeOffset.Now,"idle");
+    f.Client.SetSessions([selected]);f.Client.SelectVoiceTarget(selected);f.Client.ReadFailure=new IOException("initial state unavailable");
+    await Throws<IOException>(()=>f.Service.RouteVoiceAsync("读取 README"));
+    Check(f.Client.Prompts.Count==0&&f.Client.Responses.Count==0&&f.Client.Creates.Count==0&&!f.Service.Current.IsMonitoring,"unverified task accepted speech or started an empty monitor");
+    f.Client.ReadFailure=null;await f.Service.RouteVoiceAsync("读取 README");
+    Check(f.Client.Prompts.Single().Id==selected.Id&&f.Client.Creates.Count==0,"explicit retry lost selected existing target");
+});
+
+await Test("unknown adopted state refuses speech until a verifiable state is available",async()=>
+{
+    using var f=new TaskCase();var selected=new DshSessionSummary("existing","existing task","C:/tasks/existing",DateTimeOffset.Now,"idle");
+    f.Client.SetSessions([selected]);f.Client.SelectVoiceTarget(selected);f.Client.SetRemote("unsupported","unknown",[]);
+    var result=await f.Service.RouteVoiceAsync("读取 README");
+    Check(result.Message.Contains("未发送")&&f.Client.Prompts.Count==0&&f.Client.Responses.Count==0&&f.Client.Creates.Count==0,"unknown initial status submitted a new prompt");
+});
+
+await Test("disconnect and unchanged running recovery both refresh display silently",async()=>
+{
+    using var f=new TaskCase();await f.Start();await Until(()=>f.Client.ReadCount>0);var before=f.Feedback.Count;
+    f.Client.ReadFailure=new IOException("temporary disconnect");await Until(()=>f.Feedback.Any(x=>x.Snapshot.State=="disconnected"));
+    Check(f.Feedback.Last().Cue=="","disconnect replayed a sound cue");
+    f.Client.ReadFailure=null;await Until(()=>f.Feedback.Skip(before).Any(x=>x.Snapshot.State=="running"&&x.Cue==""));
+    Check(f.Cues.Count(c=>c=="task_started")==1&&f.Cues.Count(c=>c=="task_progress")==0,"unchanged running recovery repeated an audio cue");
+});
+
+await Test("same completion recovery refreshes display without repeating completion cue",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("completed","same-completion",[]);await Until(()=>f.Cues.Count(c=>c=="task_completed")==1);
+    f.Client.ReadFailure=new IOException("temporary disconnect");await Until(()=>f.Feedback.Any(x=>x.Snapshot.State=="disconnected"));var afterDisconnect=f.Feedback.Count;
+    f.Client.ReadFailure=null;await Until(()=>f.Feedback.Skip(afterDisconnect).Any(x=>x.Snapshot.State=="completed"&&x.Cue==""));
+    Check(f.Cues.Count(c=>c=="task_completed")==1,"same completion recovery replayed terminal sound");
+});
+
+await Test("queued legacy approval refuses same-id request whose contents changed",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingApproval","original",[Approval()]);await Until(()=>f.Service.Current.NeedsAttention);
+    var gate=ActionGate(f.Service);await gate.WaitAsync();var answer=f.Service.RespondApprovalAsync("approve-1",true);
+    PublishTask(f.Service,f.Service.Current with{PendingInteractions=[Approval() with{Reason="different operation"}]});gate.Release();
+    await Throws<InvalidOperationException>(()=>answer);Check(f.Client.Responses.Count==0,"queued id-only approval applied to changed request contents");
+});
+
+await Test("queued expected response cannot cross to another task with identical interaction",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingApproval","original",[Approval()]);await Until(()=>f.Service.Current.NeedsAttention);
+    var original=f.Service.Current.PendingInteractions.Single();var gate=ActionGate(f.Service);await gate.WaitAsync();
+    var answer=f.Service.RespondApprovalAsync(original,true);PublishTask(f.Service,f.Service.Current with{SessionId="other-task"});gate.Release();
+    await Throws<InvalidOperationException>(()=>answer);Check(f.Client.Responses.Count==0,"queued answer crossed into a different task session");
+});
+
+await Test("same-id revised question discards previously collected voice answers",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","old-question",[Question()]);await Until(()=>f.Service.Current.NeedsAttention);
+    await f.Service.RouteVoiceAsync("old location");var changed=Question() with{Questions=[new("q1","目录","新的输出目录？",[]),new("q2","名称","新文件名？",[])]};
+    f.Client.SetRemote("waitingInput","changed-question",[changed]);await Until(()=>f.Service.Current.Detail=="新的输出目录？");
+    await f.Service.RouteVoiceAsync("new location");Check(f.Client.Responses.Count==0&&f.Service.Current.Detail=="新文件名？","revised same-id question reused the old first answer");
+    await f.Service.RouteVoiceAsync("new-name.txt");Check(f.Client.Responses.Single().Answers!["q1"]=="new location","revised question retained stale answer content");
+});
+
+await Test("queued question copies original option schema before mutable lists change",async()=>
+{
+    using var f=new TaskCase();await f.Start();var options=new List<DshTaskOption>{new("工作区","原选项")};
+    var question=Question() with{Questions=[new("q1","位置","放在哪里？",options),new("q2","名称","文件名？",[])]};
+    f.Client.SetRemote("waitingInput","question",[question]);await Until(()=>f.Service.Current.NeedsAttention);
+    var gate=ActionGate(f.Service);await gate.WaitAsync();
+    var answer=f.Service.RespondQuestionAsync("question-1",new Dictionary<string,string>{{"q1","工作区"},{"q2","notes.txt"}});
+    options[0]=new("另一个位置","新选项");gate.Release();
+    await Throws<InvalidOperationException>(()=>answer);Check(f.Client.Responses.Count==0,"queued question followed mutated original schema references");
+});
+
+await Test("queued question preserves answer values captured when submission was requested",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","question",[Question()]);await Until(()=>f.Service.Current.NeedsAttention);
+    var answers=new Dictionary<string,string>{{"q1","工作区"},{"q2","notes.txt"}};var gate=ActionGate(f.Service);await gate.WaitAsync();
+    var reply=f.Service.RespondQuestionAsync(f.Service.Current.PendingInteractions.Single(),answers);
+    answers["q2"]="changed-later.txt";gate.Release();await reply;
+    Check(f.Client.Responses.Single().Answers!["q2"]=="notes.txt","queued question sent subsequently edited draft content");
+});
+
 Console.WriteLine($"RESULT {passed}/{passed+failed} passed"); return failed==0?0:1;
 
 internal sealed class TaskCase: IDisposable
@@ -692,7 +825,8 @@ internal sealed class TaskCase: IDisposable
     public string Scope {get;set;}="scope-A";
     public string StateRoot {get;}=Path.Combine(Path.GetTempPath(),"halo-routing-case-"+Guid.NewGuid().ToString("N"));
     public System.Collections.Concurrent.ConcurrentQueue<string> Cues {get;}=new();
-    public TaskCase() => Service=new(Client,()=>"C:/tasks",()=>Scope,feedback:(_,cue,_)=>{Cues.Enqueue(cue);return Task.CompletedTask;},
+    public System.Collections.Concurrent.ConcurrentQueue<(DshTaskSnapshot Snapshot,string Cue)> Feedback {get;}=new();
+    public TaskCase() => Service=new(Client,()=>"C:/tasks",()=>Scope,feedback:(snapshot,cue,_)=>{Cues.Enqueue(cue);Feedback.Enqueue((snapshot,cue));return Task.CompletedTask;},
         stateRoot:StateRoot,
         pollInterval:TimeSpan.FromMilliseconds(10));
     public Task<DshTaskSnapshot> Start()=>Service.StartAsync(new("C:/test","test","raw prompt"));
@@ -709,6 +843,9 @@ internal sealed class FakeTaskClient:IDshTaskSessionClient
     public Exception? CreateFailure {get;set;}
     public Exception? SubmitFailure {get;set;}
     public Exception? ReadFailure {get;set;}
+    public Exception? ReleaseFailure {get;set;}
+    public Func<string,CancellationToken,Task<DshTaskRemoteState>>? ReadOverride {get;set;}
+    public int ReadCount {get;private set;}
     public bool ServerAvailable {get;set;}=true;
     public bool RequireAdoption {get;set;}
     private bool adopted;
@@ -736,8 +873,11 @@ internal sealed class FakeTaskClient:IDshTaskSessionClient
         return Task.FromResult(new DshTaskSubmission(id,Guid.NewGuid().ToString(),AcceptSubmit));
     }
     public Task<DshTaskRemoteState> ReadTaskStateAsync(string id,CancellationToken ct=default)
-        =>ReadFailure is not null?Task.FromException<DshTaskRemoteState>(ReadFailure):!ServerAvailable||RequireAdoption&&!adopted
+    {
+        ReadCount++;
+        return ReadOverride is not null?ReadOverride(id,ct):ReadFailure is not null?Task.FromException<DshTaskRemoteState>(ReadFailure):!ServerAvailable||RequireAdoption&&!adopted
             ?Task.FromException<DshTaskRemoteState>(new IOException("host unavailable or task not adopted")):Task.FromResult(Remote);
+    }
     public Task RespondTaskInteractionAsync(string id,string interaction,string type,string? outcome,IReadOnlyDictionary<string,string>? answers,CancellationToken ct=default)
     {
         Responses.Add((id,interaction,type,outcome,answers));
@@ -745,7 +885,7 @@ internal sealed class FakeTaskClient:IDshTaskSessionClient
         return Task.CompletedTask;
     }
     public Task CancelTaskSessionAsync(string id,CancellationToken ct=default){CancelCount++;return Task.CompletedTask;}
-    public Task ReleaseTaskSessionAsync(string id,CancellationToken ct=default){ReleaseCount++;return Task.CompletedTask;}
+    public Task ReleaseTaskSessionAsync(string id,CancellationToken ct=default){ReleaseCount++;return ReleaseFailure is null?Task.CompletedTask:Task.FromException(ReleaseFailure);}
     public void SelectVoiceTarget(DshSessionSummary s)=>Current=Current with{VoiceTarget=s};
     public void ClearVoiceTarget()=>Current=Current with{VoiceTarget=null};
 }

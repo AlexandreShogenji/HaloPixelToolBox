@@ -54,6 +54,7 @@ namespace Microsoft.UI.Xaml
         public double TestTop { get; set; }
         public double MinHeight { get; set; }
         public double MaxHeight { get; set; }
+        public double MaxWidth { get; set; }
         public Visibility Visibility { get; set; } = Visibility.Visible;
         public XamlRoot? XamlRoot { get; set; } = new();
         public HorizontalAlignment HorizontalAlignment { get; set; }
@@ -116,6 +117,42 @@ namespace Microsoft.UI.Xaml.Controls
         public object? FontWeight { get; set; }
     }
     public sealed class StackPanel : FrameworkElement { public double Spacing { get; set; } }
+    public class CheckBox : FrameworkElement
+    {
+        private bool? isChecked = false;
+        public object? Content { get; set; }
+        public bool? IsChecked
+        {
+            get => isChecked;
+            set
+            {
+                if (isChecked == value) return;
+                isChecked = value;
+                if (value == true) Checked?.Invoke(this, new());
+                else Unchecked?.Invoke(this, new());
+            }
+        }
+        public event EventHandler<RoutedEventArgs>? Checked;
+        public event EventHandler<RoutedEventArgs>? Unchecked;
+    }
+    public sealed class RadioButton : CheckBox { public string? GroupName { get; set; } }
+    public sealed class ComboBox : FrameworkElement
+    {
+        private int selectedIndex = -1;
+        public object? Header { get; set; }
+        public object? ItemsSource { get; set; }
+        public int SelectedIndex
+        {
+            get => selectedIndex;
+            set
+            {
+                if (selectedIndex == value) return;
+                selectedIndex = value;
+                SelectionChanged?.Invoke(this, new());
+            }
+        }
+        public event EventHandler<SelectionChangedEventArgs>? SelectionChanged;
+    }
     public enum ContentDialogButton { None, Primary }
     public enum ContentDialogResult { None, Primary, Secondary }
     public sealed class ContentDialogButtonClickEventArgs : EventArgs { public bool Cancel { get; set; } }

@@ -7,6 +7,7 @@ public sealed partial class DshSessionsPage
 {
     private ContentDialog? taskDialog;
     private Action? taskDialogContextChanged;
+    private readonly DshTaskAnswerDrafts taskAnswerDrafts = new();
 
     private string TaskDialogScope => App.DshSessions.Current.Home.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).ToUpperInvariant()
         + "\n" + DisplayFeatureProfile.DshProfileName;
@@ -73,71 +74,177 @@ public sealed partial class DshSessionsPage
         var generation = scrollGeneration;
         var scope = TaskDialogScope;
         var snapshot = ViewModel.TaskSnapshot;
-        var interaction = snapshot.PendingInteractions.FirstOrDefault();
+        taskAnswerDrafts.Synchronize(scope, snapshot);
+        var requests = snapshot.PendingInteractions.Select(DshTaskInteractionIdentity.Capture).ToArray();
+        DshTaskInteraction? interaction = requests.FirstOrDefault();
+        IReadOnlyList<DshTaskQuestionAnswer> answers = [];
+        var unsubscribeAnswers = new List<Action>();
         var body = new StackPanel { Spacing = 12 };
         body.Children.Add(new TextBlock { Text = snapshot.StatusText, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
         body.Children.Add(new TextBlock { Text = snapshot.WorkingDirectory, FontSize = 12, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
-        if (!string.IsNullOrWhiteSpace(snapshot.Detail)) body.Children.Add(TaskDetailText(snapshot.Detail));
-        if (!string.IsNullOrWhiteSpace(ViewModel.TaskOperationStatus)) body.Children.Add(TaskDetailText(ViewModel.TaskOperationStatus));
-        var answers = new Dictionary<string, TextBox>(StringComparer.Ordinal);
-        var knownApproval = interaction?.Type == "approval";
-        var knownQuestion = interaction?.Type == "question" && interaction.Questions.Count > 0;
-        if (interaction is not null)
-        {
-            body.Children.Add(new TextBlock { Text = $"待处理 {snapshot.PendingInteractions.Count} 项 · 当前请求 {interaction.Id}", FontSize = 12, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
-            if (!string.IsNullOrWhiteSpace(interaction.ToolName)) body.Children.Add(TaskDetailText($"工具：{interaction.ToolName}"));
-            if (!string.IsNullOrWhiteSpace(interaction.Reason)) body.Children.Add(TaskDetailText(interaction.Reason));
-            foreach (var question in interaction.Questions)
-            {
-                if (!string.IsNullOrWhiteSpace(question.Header)) body.Children.Add(new TextBlock { Text = question.Header, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
-                body.Children.Add(TaskDetailText(question.Question));
-                if (question.Options.Count > 0)
-                    body.Children.Add(new TextBlock { Text = string.Join("\n", question.Options.Select(option => string.IsNullOrWhiteSpace(option.Description) ? option.Label : $"{option.Label}：{option.Description}")), FontSize = 12, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
-                if (!answers.ContainsKey(question.Id))
-                {
-                    var answer = new TextBox { PlaceholderText = question.MultiSelect ? "填写选择，可列出多项；也可以自由回答。" : "填写本题答案，也可以自由回答。",
-                        MaxLength = 4096, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 52, MaxHeight = 120 };
-                    answers.Add(question.Id, answer);
-                    body.Children.Add(answer);
-                }
-            }
-            if (!knownApproval && !knownQuestion) body.Children.Add(TaskDetailText("此请求类型暂不支持从这里答复，请打开原会话处理。"));
-        }
-        else if (!string.IsNullOrWhiteSpace(snapshot.FinalText)) body.Children.Add(TaskDetailText(snapshot.FinalText));
+        var operationStatus = TaskDetailText(ViewModel.TaskOperationStatus);
+        body.Children.Add(operationStatus);
+        var requestBody = new StackPanel { Spacing = 12 };
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot, Title = string.IsNullOrWhiteSpace(snapshot.Title) ? "音箱任务" : snapshot.Title,
-            PrimaryButtonText = knownApproval ? "仅批准本次" : knownQuestion ? "提交答案" : string.Empty,
-            SecondaryButtonText = knownApproval ? "拒绝本次" : string.Empty,
             CloseButtonText = "关闭", DefaultButton = ContentDialogButton.None, Content = TaskDialogBody(body)
         };
         bool Current() => pageIsLoaded && generation == scrollGeneration && scope == TaskDialogScope
             && ViewModel.TaskSnapshot.SessionId == snapshot.SessionId;
         bool Pending() => Current() && interaction is not null
-            && ViewModel.IsTaskInteractionCurrent(snapshot.SessionId, interaction.Id, interaction.Type);
+            && ViewModel.IsTaskInteractionCurrent(snapshot.SessionId, interaction);
+        bool SameRequest() => interaction is not null
+            && ViewModel.TaskSnapshot.PendingInteractions.Any(item => DshTaskInteractionIdentity.Matches(item, interaction))
+            && App.DshTasks.Current.SessionId == snapshot.SessionId
+            && App.DshTasks.Current.PendingInteractions.Any(item => DshTaskInteractionIdentity.Matches(item, interaction));
         void Update()
         {
-            dialog.IsPrimaryButtonEnabled = Pending() && (knownApproval || knownQuestion && answers.Values.All(answer => !string.IsNullOrWhiteSpace(answer.Text)));
-            dialog.IsSecondaryButtonEnabled = Pending() && knownApproval;
+            var approval = interaction?.Type == "approval";
+            var question = interaction?.Type == "question" && interaction.Questions.Count > 0;
+            dialog.PrimaryButtonText = approval ? "仅批准本次" : question ? "提交答案" : string.Empty;
+            dialog.SecondaryButtonText = approval ? "拒绝本次" : string.Empty;
+            dialog.IsPrimaryButtonEnabled = Pending() && (approval || question && answers.Count > 0 && answers.All(answer => answer.HasAnswer));
+            dialog.IsSecondaryButtonEnabled = Pending() && approval;
+            operationStatus.Text = ViewModel.TaskOperationStatus;
+            operationStatus.Visibility = string.IsNullOrWhiteSpace(operationStatus.Text) ? Visibility.Collapsed : Visibility.Visible;
         }
-        foreach (var answer in answers.Values) answer.TextChanged += (_, _) => Update();
+        void ClearAnswerHandlers()
+        {
+            foreach (var unsubscribe in unsubscribeAnswers) unsubscribe();
+            unsubscribeAnswers.Clear();
+        }
+        void ShowRequest()
+        {
+            ClearAnswerHandlers();
+            requestBody.Children.Clear();
+            answers = [];
+            if (interaction is null)
+            {
+                if (!string.IsNullOrWhiteSpace(snapshot.Detail)) requestBody.Children.Add(TaskDetailText(snapshot.Detail));
+                if (!string.IsNullOrWhiteSpace(snapshot.FinalText)) requestBody.Children.Add(TaskDetailText(snapshot.FinalText));
+            }
+            else if (SameRequest())
+            {
+                if (!string.IsNullOrWhiteSpace(interaction.ToolName)) requestBody.Children.Add(TaskDetailText($"工具：{interaction.ToolName}"));
+                if (!string.IsNullOrWhiteSpace(interaction.Reason)) requestBody.Children.Add(TaskDetailText(interaction.Reason));
+                if (interaction.Type == "question" && interaction.Questions.Count > 0)
+                {
+                    answers = taskAnswerDrafts.GetOrCreate(scope, snapshot.SessionId, interaction);
+                    foreach (var answer in answers)
+                        requestBody.Children.Add(CreateTaskQuestionAnswer(answer, Update, unsubscribeAnswers));
+                }
+                else if (interaction.Type != "approval")
+                    requestBody.Children.Add(TaskDetailText("此请求类型暂不支持从这里答复，请打开原会话处理。"));
+            }
+            Update();
+        }
+        if (requests.Length > 1)
+        {
+            var selector = new ComboBox
+            {
+                Header = $"待处理请求（{requests.Length} 项）", HorizontalAlignment = HorizontalAlignment.Stretch,
+                ItemsSource = requests.Select((item, index) => $"{index + 1}. " + (item.Type == "approval"
+                    ? "授权 · " + item.ToolName : "问题 · " + (item.Questions.FirstOrDefault()?.Header is { Length: > 0 } header ? header : "等待回答"))).ToArray()
+            };
+            selector.SelectionChanged += (_, _) =>
+            {
+                if (selector.SelectedIndex < 0 || selector.SelectedIndex >= requests.Length) return;
+                interaction = requests[selector.SelectedIndex];
+                ShowRequest();
+            };
+            body.Children.Add(selector);
+            selector.SelectedIndex = 0;
+        }
+        body.Children.Add(requestBody);
+        ShowRequest();
         dialog.PrimaryButtonClick += (_, args) => args.Cancel = !dialog.IsPrimaryButtonEnabled || !Pending();
         dialog.SecondaryButtonClick += (_, args) => args.Cancel = !dialog.IsSecondaryButtonEnabled || !Pending();
         taskDialog = dialog;
-        taskDialogContextChanged = () => { if (!Current()) dialog.Hide(); else Update(); };
+        taskDialogContextChanged = () =>
+        {
+            taskAnswerDrafts.Synchronize(TaskDialogScope, ViewModel.TaskSnapshot);
+            Update();
+            if (!Current() || interaction is not null && !SameRequest()) dialog.Hide();
+        };
         Update();
         try
         {
             var result = await dialog.ShowAsync();
             if (!Pending() || interaction is null) return;
-            if (knownApproval && result is ContentDialogResult.Primary or ContentDialogResult.Secondary)
-                await ViewModel.RespondTaskApprovalAsync(snapshot.SessionId, interaction.Id, result == ContentDialogResult.Primary);
-            else if (knownQuestion && result == ContentDialogResult.Primary && answers.Values.All(answer => !string.IsNullOrWhiteSpace(answer.Text)))
-                await ViewModel.RespondTaskQuestionAsync(snapshot.SessionId, interaction.Id,
-                    answers.ToDictionary(pair => pair.Key, pair => pair.Value.Text.Trim(), StringComparer.Ordinal));
+            if (interaction.Type == "approval" && result is ContentDialogResult.Primary or ContentDialogResult.Secondary)
+                await ViewModel.RespondTaskApprovalAsync(snapshot.SessionId, interaction, result == ContentDialogResult.Primary);
+            else if (interaction.Type == "question" && result == ContentDialogResult.Primary && answers.Count > 0 && answers.All(answer => answer.HasAnswer))
+                await ViewModel.RespondTaskQuestionAsync(snapshot.SessionId, interaction,
+                    answers.ToDictionary(answer => answer.Question.Id, answer => answer.Answer, StringComparer.Ordinal));
         }
         catch (Exception exception) { if (Current()) ViewModel.TaskOperationStatus = $"无法完成本次请求：{exception.Message}"; }
-        finally { ClearTaskDialog(dialog); }
+        finally
+        {
+            ClearAnswerHandlers();
+            taskAnswerDrafts.Synchronize(TaskDialogScope, ViewModel.TaskSnapshot);
+            ClearTaskDialog(dialog);
+        }
+    }
+
+    private StackPanel CreateTaskQuestionAnswer(DshTaskQuestionAnswer answer, Action changed, List<Action> unsubscribe)
+    {
+        var question = answer.Question;
+        var panel = new StackPanel { Spacing = 8 };
+        if (!string.IsNullOrWhiteSpace(question.Header))
+            panel.Children.Add(new TextBlock { Text = question.Header, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(TaskDetailText(question.Question));
+        var optionSetters = new List<Action<bool>>();
+        var synchronizing = false;
+        var group = "TaskQuestion-" + Guid.NewGuid().ToString("N");
+        for (var index = 0; index < question.Options.Count; index++)
+        {
+            var optionIndex = index;
+            var option = question.Options[index];
+            var label = new StackPanel { Spacing = 2, MaxWidth = Math.Max(160, Math.Min(380, (XamlRoot?.Size.Width ?? 600) - 160)) };
+            label.Children.Add(TaskDetailText(option.Label));
+            if (!string.IsNullOrWhiteSpace(option.Description))
+                label.Children.Add(new TextBlock { Text = option.Description, FontSize = 12, TextWrapping = TextWrapping.Wrap });
+            if (question.MultiSelect)
+            {
+                var choice = new CheckBox { Content = label, HorizontalAlignment = HorizontalAlignment.Stretch };
+                choice.Checked += (_, _) => { if (!synchronizing) answer.SetOptionSelected(optionIndex, true); };
+                choice.Unchecked += (_, _) => { if (!synchronizing) answer.SetOptionSelected(optionIndex, false); };
+                optionSetters.Add(value => choice.IsChecked = value);
+                panel.Children.Add(choice);
+            }
+            else
+            {
+                var choice = new RadioButton { Content = label, GroupName = group, HorizontalAlignment = HorizontalAlignment.Stretch };
+                choice.Checked += (_, _) => { if (!synchronizing) answer.SetOptionSelected(optionIndex, true); };
+                optionSetters.Add(value => choice.IsChecked = value);
+                panel.Children.Add(choice);
+            }
+        }
+        var freeText = new TextBox
+        {
+            Header = question.Options.Count > 0 ? "或自行填写答案" : "答案",
+            PlaceholderText = "输入本题答案…", MaxLength = 4096, AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap, MinHeight = 52, MaxHeight = 120
+        };
+        freeText.TextChanged += (_, _) => { if (!synchronizing) answer.FreeText = freeText.Text; };
+        panel.Children.Add(freeText);
+        void Synchronize()
+        {
+            synchronizing = true;
+            try
+            {
+                for (var index = 0; index < optionSetters.Count; index++) optionSetters[index](answer.IsOptionSelected(index));
+                if (freeText.Text != answer.FreeText) freeText.Text = answer.FreeText;
+            }
+            finally { synchronizing = false; }
+            changed();
+        }
+        EventHandler handler = (_, _) => Synchronize();
+        answer.Changed += handler;
+        unsubscribe.Add(() => answer.Changed -= handler);
+        Synchronize();
+        return panel;
     }
 
     private static TextBlock TaskDetailText(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };

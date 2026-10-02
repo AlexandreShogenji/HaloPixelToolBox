@@ -12,6 +12,8 @@ public sealed class TaskServiceStub
     public Func<DshTaskStartRequest,CancellationToken,Task<DshTaskSnapshot>>? Starter;
     public Func<CancellationToken,Task>? Monitor;
     public Func<string,CancellationToken,Task<DshTaskSubmission>>? Sender;
+    public Func<DshTaskInteraction,bool,CancellationToken,Task>? ApprovalResponder;
+    public Func<DshTaskInteraction,IReadOnlyDictionary<string,string>,CancellationToken,Task>? QuestionResponder;
     public void Publish(DshTaskSnapshot snapshot) { Current=snapshot;Changed?.Invoke(this,snapshot); }
     public async Task<DshTaskSnapshot> StartAsync(DshTaskStartRequest request,CancellationToken ct=default)
     {
@@ -29,11 +31,33 @@ public sealed class TaskServiceStub
     public Task CancelAsync(CancellationToken ct=default) { CancelCalls++;return Task.CompletedTask; }
     public Task RespondApprovalAsync(string id,bool approved,CancellationToken ct=default) { ApproveCalls++;LastApproval=(id,approved);Publish(Current with { PendingInteractions=Current.PendingInteractions.Where(x=>x.Id!=id).ToArray() });return Task.CompletedTask; }
     public Task RespondQuestionAsync(string id,IReadOnlyDictionary<string,string> answers,CancellationToken ct=default) { QuestionCalls++;LastQuestion=(id,answers);Publish(Current with { PendingInteractions=Current.PendingInteractions.Where(x=>x.Id!=id).ToArray() });return Task.CompletedTask; }
+    public async Task RespondApprovalAsync(DshTaskInteraction expected,bool approved,CancellationToken ct=default)
+    {
+        var sessionId=Current.SessionId;
+        if(expected.Type!="approval"||!Current.CanRespond||!Current.PendingInteractions.Any(item=>DshTaskInteractionIdentity.Matches(item,expected)))
+            throw new InvalidOperationException("授权请求已改变。");
+        if(ApprovalResponder is not null) await ApprovalResponder(expected,approved,ct);
+        ct.ThrowIfCancellationRequested();
+        if(Current.SessionId!=sessionId||!Current.PendingInteractions.Any(item=>DshTaskInteractionIdentity.Matches(item,expected)))
+            throw new InvalidOperationException("授权请求已改变。");
+        await RespondApprovalAsync(expected.Id,approved,ct);
+    }
+    public async Task RespondQuestionAsync(DshTaskInteraction expected,IReadOnlyDictionary<string,string> answers,CancellationToken ct=default)
+    {
+        var sessionId=Current.SessionId;
+        if(expected.Type!="question"||!Current.CanRespond||!Current.PendingInteractions.Any(item=>DshTaskInteractionIdentity.Matches(item,expected)))
+            throw new InvalidOperationException("问题已改变。");
+        if(QuestionResponder is not null) await QuestionResponder(expected,answers,ct);
+        ct.ThrowIfCancellationRequested();
+        if(Current.SessionId!=sessionId||!Current.PendingInteractions.Any(item=>DshTaskInteractionIdentity.Matches(item,expected)))
+            throw new InvalidOperationException("问题已改变。");
+        await RespondQuestionAsync(expected.Id,answers,ct);
+    }
     public Task<DshTaskSubmission> SendMessageAsync(string text,CancellationToken ct=default) { SendCalls++; return Sender?.Invoke(text,ct) ?? Task.FromResult(new DshTaskSubmission(Current.SessionId,"REQUEST",true)); }
     public void Reset()
     {
         StartCalls=MonitorCalls=StopCalls=CancelCalls=ApproveCalls=QuestionCalls=SendCalls=0;
-        LastStart=null;LastApproval=null;LastQuestion=null;Starter=null;Monitor=null;Sender=null;Publish(DshTaskSnapshot.Initial);
+        LastStart=null;LastApproval=null;LastQuestion=null;Starter=null;Monitor=null;Sender=null;ApprovalResponder=null;QuestionResponder=null;Publish(DshTaskSnapshot.Initial);
     }
 }
 public sealed class VoiceServiceStub

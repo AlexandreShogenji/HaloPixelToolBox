@@ -9,6 +9,7 @@
     <Compile Include="../../src/HaloPixelToolBox/Services/Dsh/DshTaskService.cs" Link="Services/DshTaskService.cs" />
     <Compile Include="../../src/HaloPixelToolBox/Services/Dsh/DshTaskVoiceParser.cs" Link="Services/DshTaskVoiceParser.cs" />
     <Compile Include="../../src/HaloPixelToolBox/Models/Dsh/DshTasks.cs" Link="Models/DshTasks.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/Models/Dsh/DshTaskInteractionIdentity.cs" Link="Models/DshTaskInteractionIdentity.cs" />
     <Compile Include="../../src/HaloPixelToolBox/Models/Dsh/DshSessions.cs" Link="Models/DshSessions.cs" />
   </ItemGroup>
 </Project>

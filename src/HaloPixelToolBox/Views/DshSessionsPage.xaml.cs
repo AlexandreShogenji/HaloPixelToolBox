@@ -102,6 +102,7 @@ public sealed partial class DshSessionsPage : Page
         ResetComposerInput();
         sessionTitleDialog?.Hide();
         taskDialog?.Hide();
+        taskAnswerDrafts.Clear();
         HistoryListView.RemoveHandler(UIElement.PointerWheelChangedEvent, historyWheelHandler);
         HistoryListView.RemoveHandler(UIElement.PointerPressedEvent, historyPointerPressedHandler);
         HistoryListView.RemoveHandler(UIElement.PointerReleasedEvent, historyPointerReleasedHandler);
@@ -122,6 +123,8 @@ public sealed partial class DshSessionsPage : Page
 
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(ViewModel.TaskSnapshot))
+            taskAnswerDrafts.Synchronize(TaskDialogScope, ViewModel.TaskSnapshot);
         if (e.PropertyName is nameof(ViewModel.TaskSnapshot) or nameof(ViewModel.CanRespondToTask)
             or nameof(ViewModel.CanStartTask) or nameof(ViewModel.IsConnected))
             taskDialogContextChanged?.Invoke();

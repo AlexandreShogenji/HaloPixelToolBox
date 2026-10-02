@@ -16,6 +16,9 @@
     <Compile Include="../../src/HaloPixelToolBox/Models/Dsh/DshTasks.cs" Link="DshTasks.cs" />
     <Compile Include="../../src/HaloPixelToolBox/ViewModels/DshSessionsPageViewModel.Tasks.cs" Link="DshSessionsPageViewModel.Tasks.cs" />
     <Compile Include="../../src/HaloPixelToolBox/Views/DshSessionsPage.Tasks.cs" Link="DshSessionsPage.Tasks.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/Models/Dsh/DshTaskInteractionIdentity.cs" Link="DshTaskInteractionIdentity.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/ViewModels/DshTaskQuestionAnswer.cs" Link="DshTaskQuestionAnswer.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/ViewModels/DshTaskAnswerDrafts.cs" Link="DshTaskAnswerDrafts.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="../../src/HaloPixelToolBox/Views/DshSessionsPage.xaml" Link="Fixtures/DshSessionsPage.xaml" CopyToOutputDirectory="PreserveNewest" />

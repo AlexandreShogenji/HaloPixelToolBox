@@ -18,6 +18,10 @@ public partial class DshSessionsPageViewModel
     private int taskSelectionVersion;
     private int pendingTaskSelectionVersion;
     private bool applyingAutomaticSessionSelection;
+    private string taskStatusScopeKey = string.Empty;
+    private string taskStatusSessionId = string.Empty;
+    private DshTaskInteraction? taskStatusInteraction;
+    private bool settingTaskStatusContext;
     [ObservableProperty] private DshTaskSnapshot taskSnapshot = DshTaskSnapshot.Initial;
     [ObservableProperty] private bool isTaskActionBusy;
     [ObservableProperty] private string taskOperationStatus = string.Empty;
@@ -108,6 +112,7 @@ public partial class DshSessionsPageViewModel
 
     private void ApplyTaskSnapshot(DshTaskSnapshot snapshot)
     {
+        ReconcileTaskOperationStatus(snapshot);
         var monitoring = snapshot.IsMonitoring && !string.IsNullOrWhiteSpace(snapshot.SessionId);
         var newTaskSession = monitoring && (!observedTaskWasMonitoring || observedTaskSessionId != snapshot.SessionId);
         observedTaskWasMonitoring = monitoring;
@@ -206,10 +211,40 @@ public partial class DshSessionsPageViewModel
     partial void OnIsTaskActionBusyChanged(bool value) => NotifyTaskActions();
     partial void OnTaskOperationStatusChanged(string value)
     {
+        if (!settingTaskStatusContext)
+        {
+            taskStatusScopeKey = GetCurrentScopeKey();
+            taskStatusSessionId = TaskSnapshot.SessionId;
+            taskStatusInteraction = null;
+        }
         OnPropertyChanged(nameof(TaskOperationStatusVisibility));
         OnPropertyChanged(nameof(TaskPanelVisibility));
         OnPropertyChanged(nameof(TaskSummary));
         OnPropertyChanged(nameof(TaskDetails));
+    }
+
+    private void SetTaskOperationStatus(string status, string sessionId, DshTaskInteraction? interaction = null)
+    {
+        settingTaskStatusContext = true;
+        try
+        {
+            taskStatusScopeKey = GetCurrentScopeKey();
+            taskStatusSessionId = sessionId;
+            taskStatusInteraction = interaction is null ? null : DshTaskInteractionIdentity.Capture(interaction);
+            TaskOperationStatus = status;
+        }
+        finally { settingTaskStatusContext = false; }
+    }
+
+    private void ReconcileTaskOperationStatus(DshTaskSnapshot snapshot)
+    {
+        if (string.IsNullOrEmpty(TaskOperationStatus)) return;
+        // Polling preserves a current task's error or unconfirmed submission.
+        // A different task, or a resolved/replaced request, cannot inherit it.
+        if (taskStatusScopeKey != GetCurrentScopeKey() || taskStatusSessionId != snapshot.SessionId
+            || snapshot.State != "disconnected" && !IsTaskActionBusy && taskStatusInteraction is { } interaction
+                && !snapshot.PendingInteractions.Any(item => DshTaskInteractionIdentity.Matches(item, interaction)))
+            SetTaskOperationStatus(string.Empty, snapshot.SessionId);
     }
 
     private void NotifyTaskActions()
@@ -330,7 +365,7 @@ public partial class DshSessionsPageViewModel
         await RunTaskActionAsync(async cancellationToken =>
         {
             await App.DshTasks.StopMonitoringAsync(cancellationToken);
-            return "已停止监控；DSH 中的任务仍保留。";
+            return "已停止监控；DSH 中的任务仍保留。" + App.DshTasks.Current.Detail;
         }, "正在停止监控…");
     }
 
@@ -346,40 +381,77 @@ public partial class DshSessionsPageViewModel
     }
 
     public bool IsTaskInteractionCurrent(string sessionId, string interactionId, string type)
-        => CanRespondToTask && App.DshTasks.Current.SessionId == sessionId
-            && TaskSnapshot.SessionId == sessionId
-            && App.DshTasks.Current.PendingInteractions.Any(item => item.Id == interactionId && item.Type == type)
-            && TaskSnapshot.PendingInteractions.Any(item => item.Id == interactionId && item.Type == type);
+        => FindTaskInteraction(interactionId, type) is { } expected && IsTaskInteractionCurrent(sessionId, expected);
+
+    public bool IsTaskInteractionCurrent(string sessionId, DshTaskInteraction expected)
+        => !IsTaskActionBusy && HasCurrentTaskInteraction(sessionId, expected);
+
+    private bool HasCurrentTaskInteraction(string sessionId, DshTaskInteraction expected)
+        => TaskScopeMatches && TaskConnectionCurrent && TaskSnapshot.CanRespond && App.DshTasks.Current.CanRespond
+            && sessionCapabilities.CanRespondToTasks && App.DshSessions.Current.Capabilities.CanRespondToTasks
+            && App.DshTasks.Current.SessionId == sessionId && TaskSnapshot.SessionId == sessionId
+            && App.DshTasks.Current.PendingInteractions.Any(item => DshTaskInteractionIdentity.Matches(item, expected))
+            && TaskSnapshot.PendingInteractions.Any(item => DshTaskInteractionIdentity.Matches(item, expected));
+
+    private DshTaskInteraction? FindTaskInteraction(string interactionId, string type)
+        => TaskSnapshot.PendingInteractions.FirstOrDefault(item => item.Id == interactionId && item.Type == type);
 
     public async Task RespondTaskApprovalAsync(string sessionId, string interactionId, bool approved)
     {
-        if (!IsTaskInteractionCurrent(sessionId, interactionId, "approval"))
+        if (FindTaskInteraction(interactionId, "approval") is not { } expected)
         {
-            TaskOperationStatus = "授权请求已改变，请重新打开当前请求。";
+            SetTaskOperationStatus("授权请求已改变，请重新打开当前请求。", sessionId,
+                new(interactionId, "approval", string.Empty, string.Empty, []));
+            return;
+        }
+        await RespondTaskApprovalAsync(sessionId, expected, approved);
+    }
+
+    public async Task RespondTaskApprovalAsync(string sessionId, DshTaskInteraction expected, bool approved)
+    {
+        if (expected.Type != "approval" || !IsTaskInteractionCurrent(sessionId, expected))
+        {
+            SetTaskOperationStatus("授权请求已改变，请重新打开当前请求。", sessionId, expected);
             return;
         }
         await RunTaskActionAsync(async cancellationToken =>
         {
-            await App.DshTasks.RespondApprovalAsync(interactionId, approved, cancellationToken);
+            if (!HasCurrentTaskInteraction(sessionId, expected))
+                throw new InvalidOperationException("授权请求已改变，请重新打开当前请求。");
+            await App.DshTasks.RespondApprovalAsync(expected, approved, cancellationToken);
             return approved ? "已仅批准本次请求。" : "已拒绝本次请求。";
-        }, "正在提交本次授权答复…");
+        }, "正在提交本次授权答复…", sessionId, expected);
     }
 
     public async Task RespondTaskQuestionAsync(string sessionId, string interactionId, IReadOnlyDictionary<string, string> answers)
     {
-        if (!IsTaskInteractionCurrent(sessionId, interactionId, "question"))
+        if (FindTaskInteraction(interactionId, "question") is not { } expected)
         {
-            TaskOperationStatus = "问题已改变，请重新打开当前问题。";
+            SetTaskOperationStatus("问题已改变，请重新打开当前问题。", sessionId,
+                new(interactionId, "question", string.Empty, string.Empty, []));
+            return;
+        }
+        await RespondTaskQuestionAsync(sessionId, expected, answers);
+    }
+
+    public async Task RespondTaskQuestionAsync(string sessionId, DshTaskInteraction expected, IReadOnlyDictionary<string, string> answers)
+    {
+        if (expected.Type != "question" || !IsTaskInteractionCurrent(sessionId, expected))
+        {
+            SetTaskOperationStatus("问题已改变，请重新打开当前问题。", sessionId, expected);
             return;
         }
         await RunTaskActionAsync(async cancellationToken =>
         {
-            await App.DshTasks.RespondQuestionAsync(interactionId, answers, cancellationToken);
+            if (!HasCurrentTaskInteraction(sessionId, expected))
+                throw new InvalidOperationException("问题已改变，请重新打开当前问题。");
+            await App.DshTasks.RespondQuestionAsync(expected, answers, cancellationToken);
             return "已提交本次问题的答案。";
-        }, "正在提交答案…");
+        }, "正在提交答案…", sessionId, expected);
     }
 
-    private async Task RunTaskActionAsync(Func<CancellationToken, Task<string>> action, string status)
+    private async Task RunTaskActionAsync(Func<CancellationToken, Task<string>> action, string status,
+        string? expectedSessionId = null, DshTaskInteraction? expectedInteraction = null)
     {
         if (!attached || pageCancellation is null || IsTaskActionBusy || !TaskScopeMatches) return;
         var operation = ++taskActionGeneration;
@@ -388,25 +460,30 @@ public partial class DshSessionsPageViewModel
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(pageCancellation.Token);
         taskActionCancellation = cancellation;
         IsTaskActionBusy = true;
-        TaskOperationStatus = status;
+        SetTaskOperationStatus(status, expectedSessionId ?? TaskSnapshot.SessionId, expectedInteraction);
+        bool ContextCurrent() => attached && generation == viewGeneration && scope == GetCurrentScopeKey()
+            && operation == taskActionGeneration && (expectedSessionId is null
+                || TaskSnapshot.SessionId == expectedSessionId && App.DshTasks.Current.SessionId == expectedSessionId);
         try
         {
             var resultMessage = await action(cancellation.Token);
-            if (attached && generation == viewGeneration && scope == GetCurrentScopeKey() && operation == taskActionGeneration)
+            if (ContextCurrent())
             {
                 ApplyTaskSnapshot(App.DshTasks.Current);
-                TaskOperationStatus = resultMessage;
+                SetTaskOperationStatus(resultMessage, TaskSnapshot.SessionId);
             }
         }
         catch (OperationCanceledException)
         {
-            if (attached && generation == viewGeneration && scope == GetCurrentScopeKey() && operation == taskActionGeneration)
-                TaskOperationStatus = "操作已中断，请查看任务会话确认结果；不会自动重发。";
+            if (ContextCurrent())
+                SetTaskOperationStatus("操作已中断，请查看任务会话确认结果；不会自动重发。",
+                    expectedSessionId ?? TaskSnapshot.SessionId, expectedInteraction);
         }
         catch (Exception exception)
         {
-            if (attached && generation == viewGeneration && scope == GetCurrentScopeKey() && operation == taskActionGeneration)
-                TaskOperationStatus = $"任务操作未完成：{exception.Message}";
+            if (ContextCurrent())
+                SetTaskOperationStatus($"任务操作未完成：{exception.Message}",
+                    expectedSessionId ?? TaskSnapshot.SessionId, expectedInteraction);
         }
         finally
         {
@@ -414,6 +491,7 @@ public partial class DshSessionsPageViewModel
             {
                 taskActionCancellation = null;
                 IsTaskActionBusy = false;
+                ReconcileTaskOperationStatus(App.DshTasks.Current);
                 NotifyTaskActions();
             }
         }

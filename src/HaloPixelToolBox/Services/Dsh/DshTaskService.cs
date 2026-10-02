@@ -23,7 +23,9 @@ public sealed class DshTaskService : IDisposable
     private DshTaskSnapshot current = DshTaskSnapshot.Initial;
     private string activeScope = string.Empty;
     private string revision = string.Empty;
+    private string lastCueIdentity = string.Empty;
     private string questionInteractionId = string.Empty;
+    private DshTaskInteraction? questionInteractionSchema;
     private readonly Dictionary<string, string> voiceAnswers = [];
     private (string Directory, string Title, string Scope)? voiceDraft;
     private bool awaitingVoicePrompt;
@@ -56,7 +58,9 @@ public sealed class DshTaskService : IDisposable
         {
             if (Current.IsMonitoring && Current.State is not ("completed" or "failed" or "cancelled" or "idle"))
                 throw new InvalidOperationException("已有任务正在监控，请先停止监控或结束当前任务。");
-            await StopCoreAsync(release: true, cancellationToken);
+            var stopFailure = await StopCoreAsync(release: true, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (stopFailure is not null) throw new InvalidOperationException(stopFailure);
             activeScope = scopeFactory();
             Publish(DshTaskSnapshot.Initial with { State = "creating", StatusText = "正在创建任务", IsBusy = true });
             if (!client.Current.IsConnected) await client.ConnectAsync(cancellationToken);
@@ -110,19 +114,22 @@ public sealed class DshTaskService : IDisposable
                 || expectedRestoreGeneration != generation || Current.IsMonitoring || Current.IsBusy))
                 return;
             if (session.IsDeviceControl || session.IsArchived) throw new ArgumentException("请选择未归档的普通任务会话。");
-            await StopCoreAsync(release: true, cancellationToken);
+            var stopFailure = await StopCoreAsync(release: true, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (stopFailure is not null) throw new InvalidOperationException(stopFailure);
             if (expectedRestoreScope is not null && expectedRestoreScope != scopeFactory()) return;
             activeScope = scopeFactory();
             await client.AdoptTaskSessionAsync(session.Id, cancellationToken);
             EnsureScope();
-            var awaitingPrompt = false;
-            if (restoreAwaitingPrompt)
-            {
-                var remote = await client.ReadTaskStateAsync(session.Id, cancellationToken);
-                EnsureScope();
-                awaitingPrompt = !remote.HasSubmittedPrompt && remote.TaskStatus == "idle" && remote.PendingInteractions.Count == 0;
-            }
+            // The first utterance may be an answer to an existing question.
+            // Fetch its actual state before making this task interactive.
+            var remote = await client.ReadTaskStateAsync(session.Id, cancellationToken);
+            EnsureScope();
+            cancellationToken.ThrowIfCancellationRequested();
+            var awaitingPrompt = restoreAwaitingPrompt && !remote.HasSubmittedPrompt
+                && remote.TaskStatus == "idle" && remote.PendingInteractions.Count == 0;
             BeginMonitoring(session, awaitingPrompt);
+            await ApplyRemoteStateAsync(remote, monitoring!.Token, force: true);
             SaveIdentity();
             _ = MonitorLoopAsync(session.Id, generation, monitoring!.Token);
         }
@@ -135,8 +142,10 @@ public sealed class DshTaskService : IDisposable
         monitoring = CancellationTokenSource.CreateLinkedTokenSource(shutdown.Token);
         generation++;
         revision = string.Empty;
+        lastCueIdentity = string.Empty;
         voiceAnswers.Clear();
         questionInteractionId = string.Empty;
+        questionInteractionSchema = null;
         awaitingVoicePrompt = awaitingPrompt;
         client.SelectVoiceTarget(session);
         Publish(new(session.Id, session.Title, session.WorkingDirectory,
@@ -183,15 +192,34 @@ public sealed class DshTaskService : IDisposable
     }
 
     public Task RespondApprovalAsync(string interactionId, bool approve, CancellationToken cancellationToken = default)
-        => RespondAsync(interactionId, "approval", approve ? "allowed-once" : "rejected", null, cancellationToken);
+    {
+        var snapshot = Current;
+        return RespondAsync(snapshot.PendingInteractions.SingleOrDefault(item => item.Id == interactionId && item.Type == "approval"),
+            "approval", approve ? "allowed-once" : "rejected", null, snapshot.SessionId, scopeFactory(), cancellationToken);
+    }
+
+    public Task RespondApprovalAsync(DshTaskInteraction? expected, bool approve, CancellationToken cancellationToken = default)
+        => RespondAsync(expected, "approval", approve ? "allowed-once" : "rejected", null,
+            Current.SessionId, scopeFactory(), cancellationToken);
 
     public Task RespondQuestionAsync(string interactionId, IReadOnlyDictionary<string, string> answers,
         CancellationToken cancellationToken = default)
-        => RespondAsync(interactionId, "question", null, answers, cancellationToken);
-
-    private async Task RespondAsync(string interactionId, string type, string? outcome,
-        IReadOnlyDictionary<string, string>? answers, CancellationToken cancellationToken)
     {
+        var snapshot = Current;
+        return RespondAsync(snapshot.PendingInteractions.SingleOrDefault(item => item.Id == interactionId && item.Type == "question"),
+            "question", null, new Dictionary<string, string>(answers), snapshot.SessionId, scopeFactory(), cancellationToken);
+    }
+
+    public Task RespondQuestionAsync(DshTaskInteraction? expected, IReadOnlyDictionary<string, string> answers,
+        CancellationToken cancellationToken = default)
+        => RespondAsync(expected, "question", null, new Dictionary<string, string>(answers),
+            Current.SessionId, scopeFactory(), cancellationToken);
+
+    private async Task RespondAsync(DshTaskInteraction? expected, string type, string? outcome,
+        IReadOnlyDictionary<string, string>? answers, string expectedSessionId, string expectedScope,
+        CancellationToken cancellationToken)
+    {
+        expected = expected is null ? null : CaptureInteraction(expected);
         await actions.WaitAsync(cancellationToken);
         var actionScope = string.Empty;
         var actionSessionId = string.Empty;
@@ -200,20 +228,25 @@ public sealed class DshTaskService : IDisposable
             actionScope = scopeFactory();
             actionSessionId = Current.SessionId;
             EnsureActive();
-            var pending = Current.PendingInteractions.SingleOrDefault(item => item.Id == interactionId && item.Type == type)
+            if (expectedScope != actionScope || expectedSessionId != actionSessionId)
+                throw new InvalidOperationException("当前任务已改变，未发送原请求的回答。");
+            var pending = Current.PendingInteractions.SingleOrDefault(item => item.Id == expected?.Id && item.Type == type)
                 ?? throw new InvalidOperationException("该请求已不在等待中，未发送回答。");
+            if (!DshTaskInteractionIdentity.Matches(expected, pending))
+                throw new InvalidOperationException("请求内容已改变，请重新查看后回答，未发送旧回答。");
             if (type == "question" && (answers is null || answers.Count != pending.Questions.Count
                 || pending.Questions.Any(q => !answers.ContainsKey(q.Id))))
                 throw new ArgumentException("请逐项回答本次请求中的所有问题。");
             var id = Current.SessionId;
             Publish(Current with { IsBusy = true });
-            await client.RespondTaskInteractionAsync(id, interactionId, type, outcome, answers, cancellationToken);
+            await client.RespondTaskInteractionAsync(id, pending.Id, type, outcome, answers, cancellationToken);
             EnsureActive(id);
             voiceAnswers.Clear();
             questionInteractionId = string.Empty;
+            questionInteractionSchema = null;
             revision = string.Empty;
             Publish(Current with { IsBusy = false, State = "running", StatusText = "回答已提交",
-                PendingInteractions = Current.PendingInteractions.Where(p => p.Id != interactionId).ToArray() });
+                PendingInteractions = Current.PendingInteractions.Where(p => p.Id != pending.Id).ToArray() });
         }
         catch
         {
@@ -246,31 +279,55 @@ public sealed class DshTaskService : IDisposable
         await actions.WaitAsync(cancellationToken);
         try
         {
-            await StopCoreAsync(release: true, cancellationToken);
-            Publish(Current with { IsMonitoring = false, IsBusy = false, PendingInteractions = [], StatusText = "已停止监控", Detail = "真实任务未被取消。" });
-            var file = IdentityPath();
-            if (File.Exists(file)) File.Delete(file);
+            var failure = await StopCoreAsync(release: true, cancellationToken);
+            Publish(Current with { IsMonitoring = false, IsBusy = false, PendingInteractions = [], StatusText = "已停止监控",
+                Detail = failure is null ? "真实任务未被取消。" : failure + " 真实任务未被取消。" });
         }
         finally { actions.Release(); }
     }
 
-    private async Task StopCoreAsync(bool release, CancellationToken token)
+    private async Task<string?> StopCoreAsync(bool release, CancellationToken token)
     {
         var previous = Current;
+        var previousScope = activeScope;
         monitoring?.Cancel();
         generation++;
         voiceAnswers.Clear();
         questionInteractionId = string.Empty;
+        questionInteractionSchema = null;
         voiceDraft = null;
         awaitingVoicePrompt = false;
-        if (release && previous.IsMonitoring && activeScope == scopeFactory() && client.Current.IsConnected)
-            await client.ReleaseTaskSessionAsync(previous.SessionId, token);
+        if (previous.IsMonitoring)
+            Publish(previous with { IsMonitoring = false, IsBusy = false, PendingInteractions = [],
+                StatusText = "已停止监控", Detail = "真实任务未被取消。" });
         if (client.Current.VoiceTarget?.Id == previous.SessionId) client.ClearVoiceTarget();
+        var failures = new List<string>();
+        if (previous.IsMonitoring && previousScope.Length > 0)
+        {
+            try
+            {
+                var file = IdentityPath(previousScope);
+                if (File.Exists(file)) File.Delete(file);
+            }
+            catch (Exception exception) { failures.Add("监控恢复记录清理失败：" + exception.Message); }
+        }
+        if (release && previous.IsMonitoring)
+        {
+            if (previousScope == scopeFactory() && client.Current.IsConnected)
+            {
+                try { await client.ReleaseTaskSessionAsync(previous.SessionId, token); }
+                catch (Exception exception) { failures.Add("远端交互释放未确认：" + exception.Message + "；请在原会话核对。"); }
+            }
+            else failures.Add("远端交互释放未确认，请在原会话核对。");
+        }
+        var failure = failures.Count == 0 ? null : string.Join(" ", failures);
+        if (failure is not null)
+            Publish(Current with { StatusText = "已停止监控", Detail = failure + " 真实任务未被取消。" });
+        return failure;
     }
 
     private async Task MonitorLoopAsync(string sessionId, long epoch, CancellationToken token)
     {
-        var lastCue = string.Empty;
         var consecutiveFailures = 0;
         while (!token.IsCancellationRequested && epoch == generation)
         {
@@ -301,48 +358,7 @@ public sealed class DshTaskService : IDisposable
                     if (token.IsCancellationRequested || epoch != generation) return;
                     EnsureActive(sessionId);
                     consecutiveFailures = 0;
-                    if (remote.Revision != revision || Current.State is "unknown" or "disconnected")
-                    {
-                        var previousRevision = revision;
-                        revision = remote.Revision;
-                        if (remote.HasSubmittedPrompt || remote.PendingInteractions.Count > 0) awaitingVoicePrompt = false;
-                        var state = remote.PendingInteractions.Any(p => p.Type == "approval") ? "waitingApproval"
-                            : remote.PendingInteractions.Any(p => p.Type == "question") ? "waitingInput"
-                            : awaitingVoicePrompt && remote.TaskStatus == "idle" ? "awaitingPrompt" : remote.TaskStatus;
-                        if (state is not ("idle" or "awaitingPrompt" or "running" or "waitingApproval" or "waitingInput" or "completed" or "failed" or "cancelled"))
-                            state = "unknown";
-                        var pending = remote.PendingInteractions.FirstOrDefault(p => p.Type == (state == "waitingApproval" ? "approval" : "question"));
-                        var nextQuestion = pending?.Type == "question" && questionInteractionId == pending.Id
-                            ? pending.Questions.FirstOrDefault(q => !voiceAnswers.ContainsKey(q.Id))
-                            : pending?.Questions.FirstOrDefault();
-                        var detail = pending?.Type == "approval" ? pending.ToolName + "：" + pending.Reason
-                            : nextQuestion?.Question
-                                ?? (state == "awaitingPrompt" ? "请继续说要执行的指令，或在会话输入框发送；将使用当前会话。" : remote.ProgressText);
-                        var previousState = Current.State;
-                        var previousDetail = Current.Detail;
-                        Publish(Current with { State = state, StatusText = StatusLabel(state), Detail = detail,
-                            FinalText = remote.FinalText, PendingInteractions = remote.PendingInteractions });
-                        var cue = state switch
-                        {
-                            "waitingApproval" => "approval_required", "waitingInput" => "input_required",
-                            "completed" => "task_completed", "failed" => "task_failed", "cancelled" => "task_cancelled",
-                            "awaitingPrompt" => string.Empty,
-                            _ => "task_progress"
-                        };
-                        var cueIdentity = state + ":" + pending?.Id;
-                        var sameStateRecovered = previousState is "unknown" or "disconnected"
-                            && remote.Revision == previousRevision && lastCue == cueIdentity;
-                        var shouldCue = pending is not null ? lastCue != cueIdentity
-                            : state != previousState && !sameStateRecovered;
-                        if (shouldCue)
-                        {
-                            lastCue = cueIdentity;
-                            await FeedbackAsync(cue, token);
-                        }
-                        else if (detail != previousDetail)
-                            await FeedbackAsync(string.Empty, token);
-                        SaveIdentity();
-                    }
+                    await ApplyRemoteStateAsync(remote, token);
                 }
                 finally { actions.Release(); }
             }
@@ -357,14 +373,62 @@ public sealed class DshTaskService : IDisposable
                 }
                 consecutiveFailures = Math.Min(consecutiveFailures + 1, 16);
                 if (Current.State != "disconnected" || Current.Detail != exception.Message)
+                {
                     Publish(Current with { State = "disconnected", StatusText = "任务状态暂不可用", Detail = exception.Message,
                         PendingInteractions = [], IsBusy = false });
+                    await FeedbackAsync(string.Empty, token);
+                }
             }
             var delay = consecutiveFailures == 0 ? pollInterval
                 : TimeSpan.FromMilliseconds(Math.Min(30000, pollInterval.TotalMilliseconds * Math.Pow(2, consecutiveFailures)));
             try { await Task.Delay(delay, token); }
             catch (OperationCanceledException) { return; }
         }
+    }
+
+    private async Task ApplyRemoteStateAsync(DshTaskRemoteState remote, CancellationToken token, bool force = false)
+    {
+        if (!force && remote.Revision == revision && Current.State is not ("unknown" or "disconnected")) return;
+        var previousRevision = revision;
+        revision = remote.Revision;
+        if (remote.HasSubmittedPrompt || remote.PendingInteractions.Count > 0) awaitingVoicePrompt = false;
+        var state = remote.PendingInteractions.Any(p => p.Type == "approval") ? "waitingApproval"
+            : remote.PendingInteractions.Any(p => p.Type == "question") ? "waitingInput"
+            : awaitingVoicePrompt && remote.TaskStatus == "idle" ? "awaitingPrompt" : remote.TaskStatus;
+        if (state is not ("idle" or "awaitingPrompt" or "running" or "waitingApproval" or "waitingInput" or "completed" or "failed" or "cancelled"))
+            state = "unknown";
+        var pending = remote.PendingInteractions.FirstOrDefault(p => p.Type == (state == "waitingApproval" ? "approval" : "question"));
+        var nextQuestion = pending?.Type == "question" && questionInteractionId == pending.Id
+            && DshTaskInteractionIdentity.Matches(questionInteractionSchema, pending)
+            ? pending.Questions.FirstOrDefault(q => !voiceAnswers.ContainsKey(q.Id))
+            : pending?.Questions.FirstOrDefault();
+        var detail = pending?.Type == "approval" ? pending.ToolName + "：" + pending.Reason
+            : nextQuestion?.Question
+                ?? (state == "awaitingPrompt" ? "请继续说要执行的指令，或在会话输入框发送；将使用当前会话。" : remote.ProgressText);
+        var previousState = Current.State;
+        var previousDetail = Current.Detail;
+        Publish(Current with { State = state, StatusText = StatusLabel(state), Detail = detail,
+            FinalText = remote.FinalText, PendingInteractions = remote.PendingInteractions });
+        var cue = state switch
+        {
+            "waitingApproval" => "approval_required", "waitingInput" => "input_required",
+            "completed" => "task_completed", "failed" => "task_failed", "cancelled" => "task_cancelled",
+            "awaitingPrompt" => string.Empty,
+            _ => "task_progress"
+        };
+        var cueIdentity = state + ":" + pending?.Id;
+        var sameStateRecovered = previousState is "unknown" or "disconnected"
+            && remote.Revision == previousRevision && lastCueIdentity == cueIdentity;
+        var shouldCue = pending is not null ? lastCueIdentity != cueIdentity
+            : state != previousState && !sameStateRecovered;
+        lastCueIdentity = cueIdentity;
+        if (shouldCue)
+        {
+            await FeedbackAsync(cue, token);
+        }
+        else if (detail != previousDetail || previousState is "unknown" or "disconnected")
+            await FeedbackAsync(string.Empty, token);
+        SaveIdentity();
     }
 
     public async Task<DshTaskVoiceResult> RouteVoiceAsync(string text, CancellationToken cancellationToken = default)
@@ -391,7 +455,8 @@ public sealed class DshTaskService : IDisposable
         }
         if (normalized is "任务状态" or "查询任务状态" or "当前任务状态" or "查询当前任务状态")
             return new(true, Current.StatusText + (Current.Detail.Length > 0 ? "：" + Current.Detail : ""));
-        if (normalized is "停止监控" or "停止任务监控") { await StopMonitoringAsync(cancellationToken); return new(true, "已停止监控，真实任务未取消。"); }
+        if (normalized is "停止监控" or "停止任务监控")
+        { await StopMonitoringAsync(cancellationToken); return new(true, Current.StatusText + "。" + Current.Detail); }
         if (normalized is "取消任务" or "取消当前任务" or "停止当前任务" or "取消当前轮")
         {
             if (awaitingVoicePrompt)
@@ -474,20 +539,26 @@ public sealed class DshTaskService : IDisposable
             await MonitorAsync(target, cancellationToken);
         }
         EnsureActive();
+        if (Current.State is "unknown" or "disconnected")
+            return new(true, "当前任务状态尚未确认，请等待状态恢复后再说；未发送本次消息。");
         var pendingApproval = Current.PendingInteractions.Where(p => p.Type == "approval").ToArray();
         if (pendingApproval.Length > 0)
         {
             if (pendingApproval.Length != 1) return new(true, "有多个授权请求，请在会话页逐项确认。");
             if (normalized is "同意" or "批准" or "允许本次" or "批准本次" or "同意本次")
-            { await RespondApprovalAsync(pendingApproval[0].Id, true, cancellationToken); return new(true, "已批准本次请求。"); }
+            { await RespondApprovalAsync(pendingApproval[0], true, cancellationToken); return new(true, "已批准本次请求。"); }
             if (normalized is "拒绝" or "不同意" or "拒绝本次" or "不允许")
-            { await RespondApprovalAsync(pendingApproval[0].Id, false, cancellationToken); return new(true, "已拒绝本次请求。"); }
+            { await RespondApprovalAsync(pendingApproval[0], false, cancellationToken); return new(true, "已拒绝本次请求。"); }
             return new(true, "当前正在等待授权。请先查看请求内容，再明确说批准本次或拒绝本次。");
         }
         var question = Current.PendingInteractions.FirstOrDefault(p => p.Type == "question");
         if (question is not null)
         {
-            if (questionInteractionId != question.Id) { voiceAnswers.Clear(); questionInteractionId = question.Id; }
+            if (questionInteractionId != question.Id || !DshTaskInteractionIdentity.Matches(questionInteractionSchema, question))
+            {
+                voiceAnswers.Clear(); questionInteractionId = question.Id;
+                questionInteractionSchema = CaptureInteraction(question);
+            }
             var next = question.Questions.FirstOrDefault(q => !voiceAnswers.ContainsKey(q.Id));
             if (next is null) return new(true, "本次回答已收集，请查看会话中的提交状态。");
             voiceAnswers[next.Id] = normalized is "跳过此题" or "跳过这个问题" ? "" : text.Trim();
@@ -498,7 +569,7 @@ public sealed class DshTaskService : IDisposable
                 await FeedbackAsync("input_required", cancellationToken);
                 return new(true, "已记录。下一个问题：" + following.Question);
             }
-            await RespondQuestionAsync(question.Id, new Dictionary<string, string>(voiceAnswers), cancellationToken);
+            await RespondQuestionAsync(question, new Dictionary<string, string>(voiceAnswers), cancellationToken);
             return new(true, "本次问题的回答已提交，任务将继续。");
         }
         // Approval words outside a live request must never become an implicit authorization.
@@ -539,8 +610,11 @@ public sealed class DshTaskService : IDisposable
         "completed" => "本轮任务已完成", "failed" => "本轮任务失败", "cancelled" => "当前轮已取消", "idle" => "任务空闲",
         "awaitingPrompt" => "任务已新建，等待内容", _ => "任务状态未确认"
     };
-    private string IdentityPath() => Path.Combine(stateRoot,
-        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(activeScope))) + ".json");
+    private string IdentityPath() => IdentityPath(activeScope);
+    private string IdentityPath(string scope) => Path.Combine(stateRoot,
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(scope))) + ".json");
+    private static DshTaskInteraction CaptureInteraction(DshTaskInteraction source)
+        => source with { Questions = source.Questions.Select(question => question with { Options = question.Options.ToArray() }).ToArray() };
     private void SaveIdentity()
     {
         if (Current.SessionId.Length == 0 || !Current.IsMonitoring || activeScope != scopeFactory()) return;
@@ -571,6 +645,7 @@ public sealed class DshTaskService : IDisposable
         awaitingVoicePrompt = false;
         voiceAnswers.Clear();
         questionInteractionId = string.Empty;
+        questionInteractionSchema = null;
         Publish(DshTaskSnapshot.Initial with { State = "disconnected", StatusText = "配置已改变，监控已停止" });
         if (client.Current.VoiceTarget?.Id == previousSessionId) client.ClearVoiceTarget();
     }
