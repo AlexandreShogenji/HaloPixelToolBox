@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>Uninstall</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>..\..\HaloPixelToolBox\HaloPixelToolBox\Assets\appicon.ico</ApplicationIcon>
+    <ApplicationIcon>..\..\src\HaloPixelToolBox\Assets\appicon.ico</ApplicationIcon>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>false</SelfContained>
     <DebugType>none</DebugType>

@@ -1,4 +1,4 @@
-* text=auto
+* text=auto eol=lf
 
 # Binary assets must never pass through line-ending conversion or text diffs.
 *.bin binary

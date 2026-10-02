@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0"/>
+    <Using Include="Microsoft.UI.Xaml"/>
+    <Using Include="Microsoft.UI.Xaml.Controls"/>
+    <Using Include="HaloPixelToolBox.ViewModels"/>
+    <Compile Include="../../src/HaloPixelToolBox/ViewModels/DshSessionsPageViewModel.cs" Link="DshSessionsPageViewModel.cs"/>
+    <Compile Include="../../src/HaloPixelToolBox/ViewModels/DshSessionsPageViewModel.Voice.cs" Link="DshSessionsPageViewModel.Voice.cs"/>
+    <Compile Include="../../src/HaloPixelToolBox/ViewModels/ViewModelBase.cs" Link="ViewModelBase.cs"/>
+    <Compile Include="../../src/HaloPixelToolBox/Models/Dsh/DshSessions.cs" Link="DshSessions.cs"/>
+    <Compile Include="../../src/HaloPixelToolBox/Views/DshSessionsPage.xaml.cs" Link="DshSessionsPage.xaml.cs"/>
+    <Compile Include="../../src/HaloPixelToolBox/Models/Dsh/DshTasks.cs" Link="DshTasks.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/ViewModels/DshSessionsPageViewModel.Tasks.cs" Link="DshSessionsPageViewModel.Tasks.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/Views/DshSessionsPage.Tasks.cs" Link="DshSessionsPage.Tasks.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../src/HaloPixelToolBox/Views/DshSessionsPage.xaml" Link="Fixtures/DshSessionsPage.xaml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

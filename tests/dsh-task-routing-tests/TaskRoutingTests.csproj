@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/HaloPixelToolBox/Services/Dsh/DshTaskService.cs" Link="Services/DshTaskService.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/Services/Dsh/DshTaskVoiceParser.cs" Link="Services/DshTaskVoiceParser.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/Models/Dsh/DshTasks.cs" Link="Models/DshTasks.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/Models/Dsh/DshSessions.cs" Link="Models/DshSessions.cs" />
+  </ItemGroup>
+</Project>

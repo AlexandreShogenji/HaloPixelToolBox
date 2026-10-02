@@ -19,10 +19,10 @@ function Resolve-SafeRepositoryPath {
 
 $cleanTargets = @(
     "obj",
-    "HaloPixelToolBox\HaloPixelToolBox\bin",
-    "HaloPixelToolBox\HaloPixelToolBox\obj",
-    "HaloPixelToolBox\HaloPixelToolBox.Core\bin",
-    "HaloPixelToolBox\HaloPixelToolBox.Core\obj",
+    "src\HaloPixelToolBox\bin",
+    "src\HaloPixelToolBox\obj",
+    "src\HaloPixelToolBox.Core\bin",
+    "src\HaloPixelToolBox.Core\obj",
     "packaging\HaloPixelToolBox.Installer\bin",
     "packaging\HaloPixelToolBox.Installer\obj",
     "packaging\HaloPixelToolBox.Installer\Resources\Resource\Source.zip",
@@ -33,6 +33,15 @@ $cleanTargets = @(
     "packaging\HaloPixelToolBox.Uninstaller\obj",
     "artifacts\cache"
 )
+
+$testsRoot = Join-Path $RepoRoot "tests"
+if (Test-Path -LiteralPath $testsRoot -PathType Container) {
+    foreach ($testProject in Get-ChildItem -LiteralPath $testsRoot -Filter "*.csproj" -File -Recurse) {
+        $projectDirectory = $testProject.DirectoryName.Substring($RepoPrefix.Length)
+        $cleanTargets += Join-Path $projectDirectory "bin"
+        $cleanTargets += Join-Path $projectDirectory "obj"
+    }
+}
 
 foreach ($relativePath in $cleanTargets) {
     $target = Resolve-SafeRepositoryPath -RelativePath $relativePath

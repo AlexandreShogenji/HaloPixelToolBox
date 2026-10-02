@@ -5,7 +5,7 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "check": "node --check index.js && node --check bridge-core.js && node --test tests/*.test.mjs"
+    "check": "node --check index.js && node --check bridge-core.js && node --test ../../../tests/dsh-session-bridge/bridge.test.mjs"
   },
   "files": [
     "index.js",

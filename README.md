@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="HaloPixelToolBox/HaloPixelToolBox/Assets/icon.png" width="96" alt="HaloPixelToolBox 图标">
+  <img src="src/HaloPixelToolBox/Assets/icon.png" width="96" alt="HaloPixelToolBox 图标">
   <h1>HaloPixelToolBox</h1>
   <p>花再 / HaloPixel 字幕屏与音箱像素屏的 Windows 桌面控制工具箱</p>
   <p>
@@ -14,17 +14,17 @@
   </p>
 </div>
 
-当前稳定版为 **v3.1.1**。它把设备状态、字幕音箱音量、设备校时、场景入口和灯光控制集中到一套 WinUI 3 界面中，并通过 USB HID 直接与兼容设备通信。
+当前版本为 **v3.2.0**。它把设备状态、字幕音箱音量、设备校时、场景入口和灯光控制集中到一套 WinUI 3 界面中，并通过 USB HID 直接与兼容设备通信。
 
 ![设备控制台：设备连接、实时预览、音量和校时](docs/images/dashboard.jpg)
 
-## v3.1.1 改进
+## v3.2.0 改进
 
-- 安装完成页提供“打开 HaloPixelToolBox”和“关闭安装器”两个明确操作。
-- 安装版新增独立卸载程序，并注册到 Windows“已安装的应用”和开始菜单；卸载时保留个人设置、日志与模型缓存。
-- 主窗口初始尺寸调整为 950×800，减少首次打开时的屏幕占用。
-- 清理场景页和浏览器字幕页的多余占位标签。
-- 安装器使用 Windows 图形界面子系统启动，不再伴随终端窗口。
+- 新增 DSH 会话页、聊天输入与会话管理，音箱设备口令复用固定控制会话。
+- 接通本地语音唤醒、设备控制与普通 DSH 任务创建、监控、问答和授权链路；支持后台断线恢复，失败时不自动重发。
+- 设备插件扩展到 25 个 Tool，区分氛围灯效、配色预设与像素场景，并支持歌词、自定义字幕、默认场景与自动关灯设置。
+- 新增 256×32 自定义画板、电脑熄屏和每日时间段自动关灯，改善窗口缩放与设置展开布局。
+- 整理源码、回归测试和发布脚本，提供统一测试入口。独立音效保留开发预览，后续开发暂缓。
 
 ## v3.0 功能亮点
 
@@ -113,7 +113,7 @@ ASR 与唤醒判断在本机完成，默认不保存原始录音；识别后的�
 
 工具箱保留现有 `config.txt` 的原始内容并备份，追加受控 Include，只维护自身的 `HaloPixelToolBox/AudioControl.txt`；处理范围限定到所选播放设备。曲线调节合并后自动保存，未安装组件、端点未注册、音频增强已关闭或文件不可写时显示真实配置状态，不把本地保存当作已经听感生效。音效关闭会移除工具箱自身的 EQ、增益和平衡过滤器，保留曲线与其他用户过滤器。
 
-自动增益余量会按最高 EQ 提升量压低前级增益，是补偿而非动态限幅器。Equalizer APO 的实际效果须在端点配置完成后播放音频验证；ASIO、WASAPI 独占等绕过系统效果的方式不在当前处理范围内。协议、文件与存储测试见 `integrations/audio-control-tests`，输出枚举测试见 `integrations/audio-endpoint-tests`。组件安装与配置参考 [Equalizer APO 官方文档](https://sourceforge.net/p/equalizerapo/wiki/Documentation/)。
+自动增益余量会按最高 EQ 提升量压低前级增益，是补偿而非动态限幅器。Equalizer APO 的实际效果须在端点配置完成后播放音频验证；ASIO、WASAPI 独占等绕过系统效果的方式不在当前处理范围内。协议、文件与存储测试见 `tests/audio-control-tests`，输出枚举测试见 `tests/audio-endpoint-tests`。组件安装与配置参考 [Equalizer APO 官方文档](https://sourceforge.net/p/equalizerapo/wiki/Documentation/)。
 
 ### 灯光控制
 
@@ -160,7 +160,7 @@ ASR 与唤醒判断在本机完成，默认不保存原始录音；识别后的�
 ## 下载与安装
 
 1. 打开 [GitHub Releases](https://github.com/AlexandreShogenji/HaloPixelToolBox/releases/latest)。
-2. 普通用户下载 `HaloPixelToolBox-v3.1.1-installer-win-x64.exe`；无需安装时可使用 `HaloPixelToolBox-v3.1.1-win-x64.zip` 便携包。
+2. 普通用户下载 `HaloPixelToolBox-v3.2.0-installer-win-x64.exe`；无需安装时可使用 `HaloPixelToolBox-v3.2.0-win-x64.zip` 便携包。
 3. 使用 USB 连接兼容的 HaloPixel / 花再设备，再启动工具箱。
 
 系统要求：Windows 10 1809 或更高版本、x64、[.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)。当前安装器未做代码签名，Windows 可能显示“未知发布者”；可用 Release 附带的 `SHA256SUMS.txt` 核对下载文件。
@@ -198,20 +198,35 @@ ASR 与唤醒判断在本机完成，默认不保存原始录音；识别后的�
 
 ## 开发与构建
 
+源码与工具按用途分开：
+
+```text
+src/             WinUI 主程序与设备核心库
+tests/           DSH、语音和音频的离线回归测试
+integrations/    DeepSeek Harness 插件与会话桥接
+eng/             版本、测试、构建和清理脚本
+packaging/       安装器、封装器与卸载器
+docs/images/     功能界面和设备演示
+artifacts/       本机构建产物与归档，不进入 Git
+```
+
 仓库使用 .NET 8、WinUI 3 和 WPF。`Directory.Build.props` 是产品版本的主来源，`eng/Set-Version.ps1` 会同步四段程序集版本和 MSIX manifest 版本。
 
 ```powershell
 # 设置下一版本
-powershell -ExecutionPolicy Bypass -File eng/Set-Version.ps1 -Version 3.1.1
+powershell -ExecutionPolicy Bypass -File eng/Set-Version.ps1 -Version 3.2.0
 
-# 构建主程序与核心库
-dotnet build HaloPixelToolBox.sln -c Release -p:Platform=x64
+# 运行离线回归、构建主程序与核心库
+powershell -ExecutionPolicy Bypass -File eng/Test.ps1 -Suite All
+dotnet build src/HaloPixelToolBox/HaloPixelToolBox.csproj -c Release -p:Platform=x64
 
 # 生成安装器、便携 ZIP 与 SHA256SUMS.txt；版本默认从 Directory.Build.props 读取
 powershell -ExecutionPolicy Bypass -File eng/Build-Release.ps1 -Platform x64 -Runtime win-x64
 ```
 
 最终发布文件位于 `artifacts/release/v<版本号>/`；打包时生成的展开目录和嵌入 ZIP 会自动清理。详细贡献、Git 与发布约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+离线回归需要 .NET 8 SDK、Node.js 20 或以上、Python 与 NumPy；`eng/Test.ps1` 支持按 `Dsh`、`Audio`、`Voice` 分组运行，并可通过 `-PythonPath` 指定现有 Python 环境。测试不启动真实模型任务、麦克风或设备。GitHub 的 Windows 构建工作流使用同一入口；使用软件本身不需要这些开发依赖。DSH 与语音链路的可选运行依赖按上面的对应章节准备，不随安装器安装本机模型或个人配置。
 
 ## 致谢与许可
 

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/HaloPixelToolBox/Models/Dsh/DshSessions.cs" Link="DshSessions.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/Services/Dsh/DshSessionsService.cs" Link="DshSessionsService.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/Services/Dsh/DshDeviceHistoryReader.cs" Link="DshDeviceHistoryReader.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/Services/Dsh/DshDeviceSessionIdentity.cs" Link="DshDeviceSessionIdentity.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/Services/Dsh/DshExecutableResolver.cs" Link="DshExecutableResolver.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/Services/Dsh/DshDeviceSessionPreset.cs" Link="DshDeviceSessionPreset.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/Services/Dsh/DshOwnedProcessJob.cs" Link="DshOwnedProcessJob.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/Services/Dsh/DshIntegrationService.cs" Link="DshIntegrationService.cs" />
+  </ItemGroup>
+</Project>

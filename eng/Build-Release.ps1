@@ -45,7 +45,7 @@ $ParsedVersion = [Version]$VersionCore
 $PatchVersion = if ($ParsedVersion.Build -ge 0) { $ParsedVersion.Build } else { 0 }
 $AssemblyVersion = "{0}.{1}.{2}.0" -f $ParsedVersion.Major, $ParsedVersion.Minor, $PatchVersion
 
-$AppProject = Join-Path $RepoRoot "HaloPixelToolBox\HaloPixelToolBox\HaloPixelToolBox.csproj"
+$AppProject = Join-Path $RepoRoot "src\HaloPixelToolBox\HaloPixelToolBox.csproj"
 $UninstallerProject = Join-Path $RepoRoot "packaging\HaloPixelToolBox.Uninstaller\HaloPixelToolBox.Uninstaller.csproj"
 $InstallerProject = Join-Path $RepoRoot "packaging\HaloPixelToolBox.Installer\HaloPixelToolBox.Installer.csproj"
 $PackageProject = Join-Path $RepoRoot "packaging\HaloPixelToolBox.Installer.Package\HaloPixelToolBox.Installer.Package.csproj"
@@ -61,6 +61,28 @@ $PackagePublishDir = Join-Path $VersionReleaseRoot "HaloPixelToolBox.Installer.P
 $PortableZip = Join-Path $VersionReleaseRoot "HaloPixelToolBox-$VersionTag-$Runtime.zip"
 $FinalInstallerExe = Join-Path $VersionReleaseRoot "HaloPixelToolBox-$VersionTag-installer-$Runtime.exe"
 $ChecksumFile = Join-Path $VersionReleaseRoot "SHA256SUMS.txt"
+
+[xml]$appProjectXml = Get-Content -LiteralPath $AppProject
+$pluginBundles = @($appProjectXml.Project.ItemGroup.Content | Where-Object {
+    $_.Include -match '^Assets[\\/]Integrations[\\/]DeepSeekHarness[\\/]dsh-halo-pixelbar-tools-[^\\/]+\.tgz$'
+} | ForEach-Object { [string]$_.Include })
+if ($pluginBundles.Count -ne 1) {
+    throw "Expected exactly one bundled PixelBar plugin in $AppProject, found $($pluginBundles.Count)."
+}
+$RequiredAppPayloadFiles = @(
+    "HaloPixelToolBox.exe",
+    "HaloPixelToolBox.dll",
+    "HaloPixelToolBox.Core.dll",
+    "resources.pri",
+    "LICENSE.txt",
+    $pluginBundles[0],
+    "Assets\Integrations\DeepSeekHarness\SessionBridge\index.js",
+    "Assets\Integrations\DeepSeekHarness\SessionBridge\bridge-core.js",
+    "Assets\Integrations\DeepSeekHarness\SessionBridge\package.json",
+    "Assets\VoiceAgent\voice_agent_host.py",
+    "Assets\VoiceAgent\reply-xiaoxiao-loud.wav",
+    "Assets\VoiceAgent\reply-received-xiaoxiao.wav"
+)
 
 function Assert-ChildPath {
     param(
@@ -153,6 +175,49 @@ function Test-ZipEntry {
     }
 }
 
+function Assert-AppPayload {
+    param([Parameter(Mandatory = $true)][string]$Directory)
+
+    foreach ($relativePath in $RequiredAppPayloadFiles) {
+        $requiredFile = Join-Path $Directory $relativePath
+        if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf) -or
+            (Get-Item -LiteralPath $requiredFile).Length -eq 0) {
+            throw "Application payload is missing a required file: $relativePath"
+        }
+    }
+
+    # These are runtime data directories, never source assets or release content.
+    # In particular, the bundled Python host and fixed WAV prompts remain allowed.
+    $privateDirectoryNames = @(
+        ".git", ".dsh", ".cache", "CrossVersion", "DshSessionBridge",
+        "DshTasks", "modelscope", "Logs", "captures"
+    )
+    $privateExtensions = @(".xpf", ".log", ".pcap", ".pcapng", ".sqlite", ".sqlite3", ".db", ".pfx", ".publishsettings")
+    $directoryPrefix = [System.IO.Path]::GetFullPath($Directory).TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+    foreach ($file in Get-ChildItem -LiteralPath $Directory -File -Recurse -Force) {
+        $relativePath = $file.FullName.Substring($directoryPrefix.Length)
+        $segments = $relativePath -split '[\\/]'
+        $hasPrivateDirectory = @($segments | Select-Object -SkipLast 1 | Where-Object { $_ -in $privateDirectoryNames }).Count -gt 0
+        $hasPrivateFile = $file.Extension -in $privateExtensions -or
+            $file.Name -match '^\.env(?:\..*)?$' -or
+            $file.Name -in @("settings.local.json", "settings.yaml", "settings.yml") -or
+            $relativePath.Replace("\", "/") -eq "AudioControl/profiles.json"
+        if ($hasPrivateDirectory -or $hasPrivateFile) {
+            throw "Refusing to package local configuration, credentials, recordings or task data: $relativePath"
+        }
+    }
+}
+
+function Assert-AppPayloadZip {
+    param([Parameter(Mandatory = $true)][string]$ZipPath)
+
+    foreach ($relativePath in $RequiredAppPayloadFiles) {
+        if (-not (Test-ZipEntry -ZipPath $ZipPath -EntryPath $relativePath)) {
+            throw "Application archive is missing a required file: $relativePath"
+        }
+    }
+}
+
 $VersionProperties = @(
     "-p:Version=$VersionValue",
     "-p:AssemblyVersion=$AssemblyVersion",
@@ -171,12 +236,11 @@ try {
     Write-Host "Publishing HaloPixelToolBox $VersionTag for $Runtime..."
     Invoke-DotNet publish $AppProject "-c" $Configuration "-p:Platform=$Platform" "-p:PublishProfile=" "-r" $Runtime "--self-contained" "false" "-o" $AppPublishDir @VersionProperties
     Copy-Item -LiteralPath $LicenseFile -Destination (Join-Path $AppPublishDir "LICENSE.txt") -Force
+    Assert-AppPayload -Directory $AppPublishDir
 
     Write-Host "Creating portable application: $PortableZip"
     New-ZipFromDirectory -SourceDirectory $AppPublishDir -DestinationPath $PortableZip
-    if (-not (Test-ZipEntry -ZipPath $PortableZip -EntryPath "HaloPixelToolBox.exe")) {
-        throw "Portable archive does not contain HaloPixelToolBox.exe"
-    }
+    Assert-AppPayloadZip -ZipPath $PortableZip
     if (Test-ZipEntry -ZipPath $PortableZip -EntryPath "Uninstaller/Uninstall.exe") {
         throw "Portable archive must not contain the installed-app uninstaller"
     }
@@ -193,9 +257,7 @@ try {
 
     Write-Host "Creating embedded app payload: $InstallerSourceZip"
     New-ZipFromDirectory -SourceDirectory $AppPublishDir -DestinationPath $InstallerSourceZip
-    if (-not (Test-ZipEntry -ZipPath $InstallerSourceZip -EntryPath "HaloPixelToolBox.exe")) {
-        throw "Installer payload does not contain HaloPixelToolBox.exe"
-    }
+    Assert-AppPayloadZip -ZipPath $InstallerSourceZip
     if (-not (Test-ZipEntry -ZipPath $InstallerSourceZip -EntryPath "Uninstaller/Uninstall.exe")) {
         throw "Installer payload does not contain Uninstaller/Uninstall.exe"
     }

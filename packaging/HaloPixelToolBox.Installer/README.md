@@ -1,6 +1,6 @@
 # HaloPixelToolBox 安装器打包说明
 
-安装器项目负责把主程序发布目录中的文件安装到用户选择的位置。它依赖一个嵌入资源：`Resources\Resource\Source.zip`。该压缩包内部应直接包含 `HaloPixelToolBox.exe` 和运行所需文件，而不是再套一层目录。
+安装器项目负责把主程序发布目录中的文件安装到用户选择的位置。它依赖一个嵌入资源：`Resources\Resource\Source.zip`。虽然名字叫 Source，这个压缩包是主程序的二进制安装载荷，不是源码；内部应直接包含 `HaloPixelToolBox.exe` 和运行所需文件，而不是再套一层目录。
 
 推荐使用仓库根目录的发布脚本完成完整打包：
 
@@ -18,9 +18,11 @@ powershell -ExecutionPolicy Bypass -File eng/Build-Release.ps1 -Platform x64 -Ru
 6. 生成并嵌入 `HaloPixelToolBox.Installer.Package` 所需的 `Source.zip`。
 7. 按 `Directory.Build.props` 中的当前版本，把最终安装器 EXE、便携 ZIP 和 SHA256 校验文件输出到 `artifacts/release/v<版本号>/`，并清理展开目录和临时嵌入包。
 
+脚本会核对主程序、内置 PixelBar 插件、DSH 会话桥接、语音工作进程与固定提示音是否进入便携包和安装载荷，并拒绝将本机设置、DSH 会话状态、模型缓存、日志或抓包文件装入发行包。Python、识别模型、DeepSeek Harness 与可选 Equalizer APO 不随主程序打包，首次使用时按主 README 配置。
+
 如果必须手动打包，请按以下顺序操作：
 
-1. 发布 `HaloPixelToolBox/HaloPixelToolBox/HaloPixelToolBox.csproj`。
+1. 发布 `src/HaloPixelToolBox/HaloPixelToolBox.csproj`。
 2. 将此时的主程序发布目录压缩为便携 ZIP。
 3. 发布 `packaging/HaloPixelToolBox.Uninstaller/HaloPixelToolBox.Uninstaller.csproj`，并把输出复制到主程序发布目录的 `Uninstaller` 子目录。
 4. 将安装版主程序发布目录中的全部内容压缩为 `Resources\Resource\Source.zip`。

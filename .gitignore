@@ -25,8 +25,8 @@ mono_crash.*
 x64/
 x86/
 [Ww][Ii][Nn]32/
-!/HaloPixelToolBox/HaloPixelToolBox/Utilities/Helpers/Win32/
-!/HaloPixelToolBox/HaloPixelToolBox/Utilities/Helpers/Win32/**
+!/src/HaloPixelToolBox/Utilities/Helpers/Win32/
+!/src/HaloPixelToolBox/Utilities/Helpers/Win32/**
 [Aa][Rr][Mm]/
 [Aa][Rr][Mm]64/
 bld/
@@ -366,6 +366,12 @@ MigrationBackup/
 FodyWeavers.xsd
 /packaging/HaloPixelToolBox.Installer.Package/Source.zip
 /packaging/HaloPixelToolBox.Installer/Resources/Resource/Source.zip
+
+# Generated integration packages and Python environment caches
+/integrations/**/*.tgz
+__pycache__/
+*.py[cod]
+.venv/
 
 # Local development plans and scratch notes
 /docs/*

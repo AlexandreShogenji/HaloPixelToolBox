@@ -57,7 +57,10 @@
 
 仓库根目录的 `global.json` 固定 .NET SDK 版本，`Directory.Build.props` 统一产品版本和编译器配置，`.gitattributes` 负责 Git 文本与二进制文件规则。这三个文件依赖根目录作用域，请保留在当前位置。
 
-- `HaloPixelToolBox/`：主程序和核心库。
+- `src/HaloPixelToolBox/`：WinUI 主程序；Services 按 DSH、语音、设备控制、灯光和音频分类，保留既有命名空间。
+- `src/HaloPixelToolBox.Core/`：设备协议、显示、歌词和场景核心库。
+- `tests/`：链接真实源码的离线回归测试；只使用假会话、假设备或隔离临时数据。
+- `integrations/`：可分发的 DeepSeek Harness 工具插件与会话桥接模块。
 - `packaging/`：卸载器、WPF 安装器与最终单文件封装器，共同组成安装版发布链路。
 - `eng/`：版本、构建、品牌资源和工作区清理脚本。
 - `docs/images/`：README 使用的软件界面截图。
@@ -76,11 +79,14 @@
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File eng/Set-Version.ps1 -Version <版本号>
-dotnet build HaloPixelToolBox.sln -c Release -p:Platform=x64
+powershell -ExecutionPolicy Bypass -File eng/Test.ps1 -Suite All
+dotnet build src/HaloPixelToolBox/HaloPixelToolBox.csproj -c Release -p:Platform=x64
 powershell -ExecutionPolicy Bypass -File eng/Build-Release.ps1 -Platform x64 -Runtime win-x64
 ```
 
-发布脚本按顺序生成主程序、便携包、卸载器、安装器和单文件封装器，最终文件写入 `artifacts/release/v<版本号>/`。上传同目录中的安装器 EXE、便携 ZIP 和 `SHA256SUMS.txt` 到同名 GitHub Release；Release 说明应包含用户可见功能、兼容范围、验证场景和已知限制。
+发布脚本按顺序生成主程序、便携包、卸载器、安装器和单文件封装器，最终文件写入 `artifacts/release/v<版本号>/`。`Source.zip` 是临时嵌入的发布二进制载荷；安装器只能在该顺序中构建，平时直接构建主程序即可。上传同目录中的安装器 EXE、便携 ZIP 和 `SHA256SUMS.txt` 到同名 GitHub Release；Release 说明应包含用户可见功能、兼容范围、验证场景和已知限制。
+
+发布前确保功能、目录整理与版本记录分别形成可追踪提交，工作区干净，版本标签指向通过构建和回归的提交。分支、标签和默认分支采用普通快进推送，避免改写已发布历史；如果远端有新提交，先整合并重新验证。GitHub Release 上传完成后核对三个附件的名称、大小与校验和。
 
 ### 本地归档与清理
 

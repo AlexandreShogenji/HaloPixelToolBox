@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $propsPath = Join-Path $repoRoot "Directory.Build.props"
-$manifestPath = Join-Path $repoRoot "HaloPixelToolBox\HaloPixelToolBox\Package.appxmanifest"
+$manifestPath = Join-Path $repoRoot "src\HaloPixelToolBox\Package.appxmanifest"
 $assemblyVersion = "$Version.0"
 $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
