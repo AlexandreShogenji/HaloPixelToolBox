@@ -202,7 +202,8 @@ public sealed partial class DshSessionsPage
             var optionIndex = index;
             var option = question.Options[index];
             var label = new StackPanel { Spacing = 2, MaxWidth = Math.Max(160, Math.Min(380, (XamlRoot?.Size.Width ?? 600) - 160)) };
-            label.Children.Add(TaskDetailText(option.Label));
+            // Keep label clicks on the choice control instead of selecting text.
+            label.Children.Add(new TextBlock { Text = option.Label, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = false });
             if (!string.IsNullOrWhiteSpace(option.Description))
                 label.Children.Add(new TextBlock { Text = option.Description, FontSize = 12, TextWrapping = TextWrapping.Wrap });
             if (question.MultiSelect)
