@@ -607,6 +607,7 @@ public sealed partial class DshTaskService : IDisposable
             if (intent == DshVoiceIntent.DeviceControl) return new(false, "");
             var prompt = DshTaskVoiceParser.ReadPrompt(text);
             if (prompt is null && (normalized.Length == 0 || normalized is "好的" or "好" or "嗯" or "继续"
+                || IsInteractionCommand(normalized)
                 || DshTaskVoiceParser.IsApprovalReply(text)
                 || DshTaskVoiceParser.IsCreationCandidate(text)))
                 return new(true, "请告诉我新任务要做什么；或说取消创建。") { ListenForReply = true };
@@ -621,6 +622,7 @@ public sealed partial class DshTaskService : IDisposable
             EnsureActive();
             var prompt = DshTaskVoiceParser.ReadPrompt(text);
             if (prompt is null && (normalized.Length == 0 || normalized is "好的" or "好" or "嗯" or "继续"
+                || IsInteractionCommand(normalized)
                 || DshTaskVoiceParser.IsApprovalReply(text)))
                 return new(true, "会话已新建，尚未提交任务内容。请告诉我要执行什么；或说取消创建。") { ListenForReply = true };
             await SendMessageAsync(prompt ?? text.Trim(), cancellationToken);

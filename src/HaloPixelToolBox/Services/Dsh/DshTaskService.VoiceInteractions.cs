@@ -15,8 +15,15 @@ public sealed partial class DshTaskService
     private static bool IsRepeat(string text) => text is "重听" or "重听问题" or "重复问题" or "再说一遍" or "重复一遍" or "有哪些选项" or "读出选项" or "当前问题" or "继续回答"
         or "问题详情" or "选项详情" or "完整问题";
     private static bool IsInteractionCommand(string text) => IsRepeat(text) || text is "上一题" or "修改上一题" or "重选" or "重新选择"
-        or "重新回答" or "取消回答" or "取消选择" or "清空答案" or "确认提交" or "提交答案" or "确认答案" or "检查答案" or "我选了哪些"
+        or "重新回答" or "取消回答" or "取消选择" or "清空答案" or "确认提交" or "提交答案" or "确认答案" or "确认" or "确定" or "检查答案" or "我选了哪些"
         || Regex.IsMatch(text, @"^(?:(?:修改|重答)第?.+题|(?:加选|加上|取消选择|去掉).+)$");
+
+    private static bool IsAnswerConfirmation(string text, string normalized, bool complete)
+        // Normalization removes punctuation; keep a spoken question from authorizing a reply.
+        // Short confirmation words remain valid answer data until the whole draft is ready.
+        => !text.Contains('?') && !text.Contains('？')
+            && (normalized is "确认提交" or "提交答案" or "确认答案"
+                || complete && normalized is "确认" or "确定");
 
     private DshTaskQuestion? NextVoiceQuestion(DshTaskInteraction request)
         => request.Questions.FirstOrDefault(q => q.Id == voiceQuestionFocus && !voiceAnswers.ContainsKey(q.Id))
@@ -36,10 +43,24 @@ public sealed partial class DshTaskService
         {
             var index = single.Options.ToList().FindIndex(option => option.Label.Trim() == answer);
             if (index >= 0)
-                return $"已选第{index + 1}项：{DshSpokenInteraction.SummarizeLabel(single.Options[index].Label)}。说确认提交，或说其他序号改选。";
+                return $"已选第{index + 1}项：{DshSpokenInteraction.SummarizeLabel(single.Options[index].Label)}。说确认，或说其他序号改选。";
         }
         return "请核对答案。" + string.Join("；", request.Questions.Select((q, i) => $"第{i + 1}题：{voiceAnswers.GetValueOrDefault(q.Id, "尚未回答")}"))
-            + "。说确认提交；可说修改上一题。";
+            + "。说确认；可说修改上一题。";
+    }
+
+    private string AnswerConfirmationRetry(DshTaskInteraction request)
+    {
+        // A completed draft is still selected when recognition fails. Do not report
+        // a missing option or replay the entire question at the confirmation stage.
+        if (request.Questions.Count == 1 && request.Questions[0] is { MultiSelect: false } single
+            && voiceAnswers.TryGetValue(single.Id, out var answer))
+        {
+            var index = single.Options.ToList().FindIndex(option => option.Label.Trim() == answer);
+            if (index >= 0)
+                return $"已保留第{index + 1}项，尚未提交。请说确认，或说其他序号改选。";
+        }
+        return "答案已保留，尚未提交。请说确认；可说检查答案或修改第几题。";
     }
 
     private string ApprovalPrompt(IReadOnlyList<DshTaskInteraction> interactions)
@@ -167,7 +188,7 @@ public sealed partial class DshTaskService
                 if (IsRepeat(normalized) || normalized is "检查答案" or "我选了哪些")
                     return InteractionReply(normalized is "检查答案" or "我选了哪些" ? AnswerReview(question)
                         : QuestionPrompt(question, next ?? question.Questions.LastOrDefault()));
-                if (normalized is "确认提交" or "提交答案" or "确认答案")
+                if (IsAnswerConfirmation(text, normalized, next is null))
                 {
                     if (next is not null) return InteractionReply("还有问题没有回答。" + QuestionPrompt(question, next));
                     submission = CaptureInteraction(question);
@@ -189,14 +210,14 @@ public sealed partial class DshTaskService
                                 voiceAnswers[single.Id] = replacement.Answer;
                                 return InteractionReply(AnswerReview(question));
                             }
-                            return InteractionReply("未改选。" + replacement.Error + "。" + AnswerReview(question));
+                            return InteractionReply(AnswerConfirmationRetry(question));
                         }
-                        return InteractionReply(AnswerReview(question));
+                        return InteractionReply(AnswerConfirmationRetry(question));
                     }
                     if (normalized is "跳过此题" or "跳过这个问题" or "下一题")
                         return InteractionReply("这道题尚未回答，不能直接跳过。" + QuestionPrompt(question, next));
                     var parsed = DshSpokenInteraction.ParseAnswer(next, text);
-                    if (!parsed.Success) return InteractionReply(parsed.Error + "。" + QuestionPrompt(question, next));
+                    if (!parsed.Success) return InteractionReply(parsed.Error + "说重听可再听选项。");
                     voiceAnswers[next.Id] = parsed.Answer;
                     voiceQuestionFocus = string.Empty;
                     var following = NextVoiceQuestion(question);

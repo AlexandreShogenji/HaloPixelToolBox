@@ -405,7 +405,7 @@ await Test("voice two-question flow sends once only after all answers and explic
     using var f=new TaskCase(); await f.Start(); f.Client.SetRemote("waitingInput","q1",[Question()]); await Until(()=>f.Service.Current.NeedsAttention);
     var first=await f.Service.RouteVoiceAsync("工作区"); Check(first.Message.Contains("文件名")&&f.Client.Responses.Count==0,"first answered all");
     var review=await f.Service.RouteVoiceAsync("notes.txt");
-    Check(review.ListenForReply&&review.Message.Contains("确认提交")&&f.Client.Responses.Count==0,"all answers submitted without confirmation");
+    Check(review.ListenForReply&&review.Message.Contains("说确认")&&f.Client.Responses.Count==0,"all answers submitted without confirmation");
     var submitted=await f.Service.RouteVoiceAsync("确认提交");var answer=f.Client.Responses.Single();
     Check(!submitted.ListenForReply,"submitted answer opened an unrelated capture");
     Check(answer.Answers is { Count:2 }&&answer.Answers["q1"]=="工作区"&&answer.Answers["q2"]=="notes.txt","answers misbound");

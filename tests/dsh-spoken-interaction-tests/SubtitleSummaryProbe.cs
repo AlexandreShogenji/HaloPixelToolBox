@@ -130,9 +130,42 @@ internal static class SubtitleSummaryProbe
         var reviewPages = Reply(review, review.Detail, "answer review", true);
         Assert(reviewPages.Any(page => page.StartsWith("答1：", StringComparison.Ordinal) && page.Contains("深色夜间")), "review identifies first answer by question number");
         Assert(reviewPages.Any(page => page.StartsWith("答2：", StringComparison.Ordinal) && page.Contains("搜索") && page.Contains("颜色标签")), "review preserves both selected options and question number");
-        Assert(reviewPages.Any(page => page.Contains("确认提交")), "review explicitly requires confirmation");
+        Assert(reviewPages.Any(page => page.Contains("尚未提交") && page.Contains("说确认")), "review retains unsubmitted status and short confirmation command");
         var longReview = review with { VoiceAnswers = new Dictionary<string, string> { [single.Id] = longText, [multi.Id] = "搜索 | 颜色标签" } };
         Assert(Task(longReview, "long answer review").Any(page => page.StartsWith("答1：", StringComparison.Ordinal) && page.EndsWith("…")), "long review answer keeps number and signals omitted detail");
+        var retryReview = review with { Detail = "答案已保留，尚未提交。请说确认；可说检查答案或修改第几题。" };
+        Assert(Reply(retryReview, retryReview.Detail, "unclear multi-question confirmation", true).SequenceEqual(reviewPages),
+            "unclear confirmation retains all answer reviews and never returns to question options");
+
+        var singleRequest = questionRequest with { Questions = [single] };
+        var selectedSingle = asking with { PendingInteractions = [singleRequest], VoiceInteractionId = singleRequest.Id,
+            VoiceAnswers = new Dictionary<string, string> { [single.Id] = "深色夜间" },
+            Detail = "已选第2项：深色夜间。说确认，或说其他序号改选。" };
+        var selectedPages = Reply(selectedSingle, selectedSingle.Detail, "single choice awaiting confirmation", true);
+        Assert(selectedPages.Any(page => page.StartsWith("已选第2项：", StringComparison.Ordinal) && page.Contains("深色夜间")),
+            "single-choice confirmation preserves the chosen ordinal and label");
+        Assert(selectedPages.Any(page => page.Contains("尚未提交") && page.Contains("说确认") && page.Contains("改选序号")),
+            "single-choice confirmation shows unsubmitted status and short next actions");
+        Assert(selectedPages.All(page => !page.StartsWith("选项", StringComparison.Ordinal) && !page.Contains("单选：")),
+            "a selected single choice does not replay every option");
+        var retrySingle = selectedSingle with { Detail = "已保留第2项，尚未提交。请说确认，或说其他序号改选。" };
+        Assert(Reply(retrySingle, retrySingle.Detail, "unclear single-choice confirmation", true).SequenceEqual(selectedPages),
+            "unclear confirmation keeps the selected ordinal instead of saying no option was found");
+        var mismatchedDetail = retrySingle with { Detail = "已保留第1项，尚未提交。请说确认，或说其他序号改选。" };
+        Assert(Task(mismatchedDetail, "draft identity wins over prose").SequenceEqual(selectedPages),
+            "structured retained draft determines selected ordinal instead of parsing spoken prose");
+        var longSingle = selectedSingle with { VoiceAnswers = new Dictionary<string, string> { [single.Id] = single.Options[2].Label },
+            Detail = "已选第3项：" + single.Options[2].Label + "。说确认，或说其他序号改选。" };
+        var longSinglePages = Reply(longSingle, longSingle.Detail, "long single-choice confirmation", true);
+        Assert(longSinglePages.Any(page => page.StartsWith("已选第3项：", StringComparison.Ordinal) && page.EndsWith("…")),
+            "long selected option keeps its ordinal and explicitly elides only its label");
+        Assert(longSinglePages.Any(page => page.Contains("尚未提交") && page.Contains("说确认")),
+            "long selected label cannot crowd out pending confirmation");
+        var customSingle = retrySingle with { VoiceAnswers = new Dictionary<string, string> { [single.Id] = "我的自定义主题" } };
+        var customSinglePages = Reply(customSingle, customSingle.Detail, "custom answer on single-choice question", true);
+        Assert(customSinglePages.Any(page => page.StartsWith("答1：", StringComparison.Ordinal) && page.Contains("我的自定义主题"))
+            && customSinglePages.All(page => !page.StartsWith("已选第", StringComparison.Ordinal) && !page.StartsWith("选项", StringComparison.Ordinal)),
+            "custom answer remains visible without assigning an invented option number");
 
         var free = new DshTaskQuestion("body", "", "请说明具体需要执行的任务内容", []);
         var freeTask = asking with { PendingInteractions = [questionRequest with { Questions = [free] }], Detail = "" };
@@ -148,9 +181,9 @@ internal static class SubtitleSummaryProbe
         var secondApproval = approval with { Id = "permission-2", Reason = "写入备忘录正式目录，需要用户确认覆盖范围" };
         var selectedApproval = asking with { PendingInteractions = [approval, secondApproval],
             Detail = $"需要你授权。工具：{secondApproval.ToolName}。请求内容：{secondApproval.Reason}。说批准本次或拒绝本次；说重听可再听一遍。" };
-        var selectedPages = Reply(selectedApproval, selectedApproval.Detail, "second permission with same tool", true);
-        Assert(selectedPages.Any(page => page.Contains("批准本次") && page.Contains("拒绝本次")), "selected second approval proceeds to one-request decision");
-        Assert(selectedPages.All(page => !page.Contains("选择授权")), "selected approval does not loop back to list even when tool names match");
+        var selectedApprovalPages = Reply(selectedApproval, selectedApproval.Detail, "second permission with same tool", true);
+        Assert(selectedApprovalPages.Any(page => page.Contains("批准本次") && page.Contains("拒绝本次")), "selected second approval proceeds to one-request decision");
+        Assert(selectedApprovalPages.All(page => !page.Contains("选择授权")), "selected approval does not loop back to list even when tool names match");
         var unmatchedApproval = selectedApproval with { Detail = "需要你授权。工具：write_file。请求内容：已经失效的操作。说批准本次或拒绝本次；说重听可再听一遍。" };
         Assert(Task(unmatchedApproval, "stale approval focus").Any(page => page.Contains("选择授权")), "stale reason cannot focus another request solely by matching its tool");
 

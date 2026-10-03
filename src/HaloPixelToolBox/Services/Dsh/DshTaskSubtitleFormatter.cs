@@ -81,8 +81,19 @@ internal static class DshTaskSubtitleFormatter
         if (spokenIndex.Success && int.TryParse(spokenIndex.Groups["n"].Value, out var focused)
             && focused > 0 && focused <= request.Questions.Count) index = focused - 1;
         if (index < 0 || snapshot.Detail.StartsWith("请核对答案", StringComparison.Ordinal))
+        {
+            if (request.Questions.Count == 1 && request.Questions[0] is { MultiSelect: false } single
+                && answers.TryGetValue(single.Id, out var answer))
+            {
+                // The retained draft, rather than words in a failed recognition,
+                // owns the displayed choice until an explicit confirmation.
+                var selected = single.Options.ToList().FindIndex(option => option.Label.Trim() == answer);
+                if (selected >= 0)
+                    return [Label($"已选第{selected + 1}项：", answer), "尚未提交；说确认或改选序号"];
+            }
             return request.Questions.Select((q, i) => Label($"答{i + 1}：", answers.GetValueOrDefault(q.Id, "尚未回答")))
-                .Append("核对后说确认提交；可修改第几题").ToArray();
+                .Append("尚未提交；说确认或修改第几题").ToArray();
+        }
         var question = request.Questions[index];
         var title = string.IsNullOrWhiteSpace(question.Header) ? question.Question : question.Header;
         var pages = new List<string> { Label($"题{index + 1}/{request.Questions.Count}：", title) };
