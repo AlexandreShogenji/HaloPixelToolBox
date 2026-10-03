@@ -703,7 +703,7 @@ public sealed class VoiceAgentService : IDisposable
                 return;
             }
             // Only positively identified device commands may enter its fixed persona.
-            if (!DshTaskVoiceParser.IsDeviceCommand(command))
+            if (DshVoiceIntentRouter.Classify(command) != DshVoiceIntent.DeviceControl)
             {
                 UpdateSnapshot(VoiceAgentPhase.CoolingDown, "请确认会话去向",
                     "请说明是控制音箱，还是新建或继续 DSH 任务。",

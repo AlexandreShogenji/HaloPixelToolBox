@@ -194,8 +194,8 @@ internal static class DshSpokenInteraction
             catch (PlatformNotSupportedException) { }
         }
         // Keep core choice vocabulary usable when the platform lacks Chinese conversion data.
-        const string traditional = "選擇項個號兩與還並請幫義訂薦議儲存顏標籤搜尋開關聲時歷錄淺紙張資料設會話畫為顯這來復雲動隨機後燈詞場圖簡繁體聽說內容刪備忘錄頂閉權限預設";
-        const string simplified =  "选择项个号两与还并请帮义订荐议储存颜标签搜寻开关声时历录浅纸张资料设会话画为显这来复云动随机后灯词场图简繁体听说内容删备忘录顶闭权限预设";
+        const string traditional = "選擇項個號兩與還並請幫義訂薦議儲存顏標籤搜尋開關聲時歷錄淺紙張資料設會話畫為顯這來復雲動隨機後燈詞場圖簡繁體聽說內容刪備忘錄頂閉權限預設換鐘認現煩劃繪";
+        const string simplified =  "选择项个号两与还并请帮义订荐议储存颜标签搜寻开关声时历录浅纸张资料设会话画为显这来复云动随机后灯词场图简繁体听说内容删备忘录顶闭权限预设换钟认现烦划绘";
         var result = new StringBuilder(value.Length);
         foreach (var character in value)
         {

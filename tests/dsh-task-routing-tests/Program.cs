@@ -74,6 +74,133 @@ await Test("ordinary time/scene commands stay on device route", async()=>
         Check(!(await f.Service.RouteVoiceAsync(command)).Handled,"task stole device command: "+command);
 });
 
+await Test("scene changes bypass a completed selected task across clock categories and polite traditional phrases", async()=>
+{
+    using var f=new TaskCase();await f.Start();var target=f.Service.Current.SessionId;
+    f.Client.SetRemote("completed","scene-route-completed",[]);await Until(()=>f.Service.Current.State=="completed");
+    foreach(var command in new[]{"换一个时钟场景","请换一个时钟场景","帮我换个时钟场景","请帮我换一个时钟场景。",
+        "換一個時鐘場景","請幫我換個時鐘場景","换一个自定义场景","切换到自定义第二个场景","请换个动画场景","換個時鐘場景"})
+    {
+        Check(DshVoiceIntentRouter.Classify(command)==DshVoiceIntent.DeviceControl,"clear scene request was not admitted to the device route: "+command);
+        var routed=await f.Service.RouteVoiceAsync(command);
+        Check(!routed.Handled&&f.Client.Prompts.Count==1&&f.Client.Creates.Count==1&&f.Client.Responses.Count==0,"scene change reached completed task history: "+command);
+        Check(f.Service.Current.SessionId==target&&f.Client.Current.VoiceTarget?.Id==target&&f.Client.CancelCount==0&&f.Client.ReleaseCount==0,"device detour changed the selected task: "+command);
+    }
+});
+
+await Test("draw or change ASR ambiguity is clarified locally without a target or remote side effects", async()=>
+{
+    using var f=new TaskCase();
+    foreach(var command in new[]{"画一个时钟场景","画个时钟场景。","请帮我画一个时钟场景","畫一個時鐘場景"})
+    {
+        Check(DshVoiceIntentRouter.Classify(command)==DshVoiceIntent.ClarifySceneIntent,"ambiguous ASR text silently chose a route: "+command);
+        var clarification=await f.Service.RouteVoiceAsync(command);
+        Check(clarification.Handled&&clarification.ListenForReply&&!string.IsNullOrWhiteSpace(clarification.Message),"ambiguous scene request did not ask for a spoken clarification: "+command);
+        Check(f.Client.Creates.Count==0&&f.Client.Prompts.Count==0&&f.Client.Responses.Count==0&&f.Client.AdoptCount==0,"ambiguous text created or continued a remote session: "+command);
+    }
+});
+
+await Test("draw or change ASR ambiguity cannot append to a selected ordinary conversation", async()=>
+{
+    using var f=new TaskCase();var target=new DshSessionSummary("memo-task","备忘录前端链路验收","C:/tasks/memo",DateTimeOffset.Now,"idle");
+    f.Client.SelectVoiceTarget(target);
+    var clarification=await f.Service.RouteVoiceAsync("画一个时钟场景。");
+    Check(clarification.Handled&&clarification.ListenForReply&&f.Client.Prompts.Count==0&&f.Client.Creates.Count==0&&f.Client.AdoptCount==1,"ASR scene ambiguity entered the selected memo conversation instead of only reading its pending state");
+    Check(f.Client.Current.VoiceTarget?.Id==target.Id,"clarification replaced the ordinary task target");
+});
+
+await Test("an empty task accepts scene drawing as content while keeping explicit scene changes on the device route", async()=>
+{
+    using var f=new TaskCase();await f.Service.RouteVoiceAsync("新建任务");var target=f.Service.Current.SessionId;
+    Check(!(await f.Service.RouteVoiceAsync("换一个时钟场景")).Handled&&f.Client.Prompts.Count==0&&f.Service.Current.State=="awaitingPrompt","device scene change consumed the pending task body");
+    Check(DshVoiceIntentRouter.Classify("画一个时钟场景",awaitingTaskContent:true)==DshVoiceIntent.Task,"explicitly requested task content remained ambiguous");
+    var submitted=await f.Service.RouteVoiceAsync("画一个时钟场景");
+    Check(submitted.Handled&&f.Client.Prompts.Single()==(target,"画一个时钟场景")&&f.Client.Creates.Count==1,"drawing content did not fill the same new task");
+});
+
+await Test("explicit task-content marker keeps a scene-change body in the newly created task", async()=>
+{
+    using var f=new TaskCase();await f.Service.RouteVoiceAsync("新建任务");var target=f.Service.Current.SessionId;
+    var submitted=await f.Service.RouteVoiceAsync("任务内容，换一个时钟场景");
+    Check(submitted.Handled&&f.Client.Prompts.Single()==(target,"换一个时钟场景")&&f.Client.Creates.Count==1,"explicit task content escaped to device control");
+});
+
+await Test("a creation draft asking for task content accepts bare scene drawing without another clarification", async()=>
+{
+    using var f=new TaskCase();await f.Service.RouteVoiceAsync("新建一个绘画进行DSH的任务");
+    Check(f.Client.Creates.Count==0&&f.Client.Prompts.Count==0,"test did not establish an unsubmitted creation draft");
+    Check(!(await f.Service.RouteVoiceAsync("换一个时钟场景")).Handled&&f.Client.Creates.Count==0,"scene control filled or erased the creation draft");
+    var submitted=await f.Service.RouteVoiceAsync("画一个时钟场景");
+    Check(submitted.Handled&&f.Client.Creates.Single().Prompt=="画一个时钟场景"&&f.Client.Prompts.Single().Prompt=="画一个时钟场景","requested task content was treated as ambiguous or routed to the device");
+});
+
+await Test("explicit drawing and task content stay in the ordinary task rather than changing device scenes", async()=>
+{
+    using var f=new TaskCase();await f.Start();var target=f.Service.Current.SessionId;
+    foreach(var command in new[]{"绘制一个时钟场景","任务内容，画一个时钟场景","任务内容：换一个时钟场景"})
+    {
+        Check(DshVoiceIntentRouter.Classify(command)==DshVoiceIntent.Task,"explicit task content became a device command or clarification: "+command);
+        var count=f.Client.Prompts.Count;var result=await f.Service.RouteVoiceAsync(command);
+        Check(result.Handled&&f.Client.Prompts.Count==count+1&&f.Client.Prompts.Last()==(target,command)&&f.Client.Creates.Count==1,"explicit task text changed route or body: "+command);
+    }
+});
+
+await Test("negated conditional and instructional scene phrases do not become device actions", async()=>
+{
+    using var f=new TaskCase();await f.Start();var target=f.Service.Current.SessionId;
+    foreach(var command in new[]{"不要换时钟场景","如果有时钟场景就换一个","怎么切换时钟场景","教我换一个时钟场景"})
+    {
+        Check(DshVoiceIntentRouter.Classify(command)==DshVoiceIntent.Task,"non-imperative scene text was admitted as a device action: "+command);
+        var count=f.Client.Prompts.Count;var result=await f.Service.RouteVoiceAsync(command);
+        Check(result.Handled&&f.Client.Prompts.Count==count+1&&f.Client.Prompts.Last()==(target,command),"scene discussion changed route or body: "+command);
+    }
+});
+
+await Test("selected task is restored before deciding whether scene-like speech answers its pending question", async()=>
+{
+    using var f=new TaskCase();var target=new DshSessionSummary("task-1","绘图任务","C:/tasks/drawing",DateTimeOffset.Now,"idle");
+    f.Client.SelectVoiceTarget(target);
+    var question=new DshTaskInteraction("restored-scene-answer","question","ask","",[new("content","内容","请说出要绘制的内容",[])]);
+    f.Client.SetRemote("waitingInput","restored-scene-question",[question]);
+    Check(!f.Service.Current.IsMonitoring,"test unexpectedly restored the selected task before speech");
+    var review=await f.Service.RouteVoiceAsync("画一个时钟场景");
+    Check(review.Handled&&review.ListenForReply&&f.Client.AdoptCount==1&&f.Service.Current.NeedsAttention&&f.Service.Current.VoiceAnswers["content"]=="画一个时钟场景"
+        &&f.Client.Prompts.Count==0&&f.Client.Responses.Count==0,"restored pending answer was intercepted as ambiguity or appended as a task prompt");
+    await f.Service.RouteVoiceAsync("确认提交");
+    Check(f.Client.Responses.Single().Answers!["content"]=="画一个时钟场景"&&f.Client.Prompts.Count==0,"restored answer could not be confirmed without submitting another task prompt");
+});
+
+await Test("pending free answers preserve bare draw and change scene words as answer data", async()=>
+{
+    foreach(var answer in new[]{"画一个时钟场景","换一个时钟场景","畫一個時鐘場景"})
+    {
+        using var f=new TaskCase();await f.Start();
+        var question=new DshTaskInteraction("scene-answer","question","ask","",[new("content","内容","请说出要展示的内容",[])]);
+        f.Client.SetRemote("waitingInput","scene-answer-pending",[question]);await Until(()=>f.Service.Current.NeedsAttention);
+        Check(DshVoiceIntentRouter.Classify(answer,true)==DshVoiceIntent.InteractionReply,"pending answer was reinterpreted as a command: "+answer);
+        var review=await f.Service.RouteVoiceAsync(answer);
+        Check(review.Handled&&review.ListenForReply&&f.Service.Current.VoiceAnswers["content"]==answer&&f.Client.Responses.Count==0&&f.Client.Prompts.Count==1,"pending scene answer was not preserved for confirmation: "+answer);
+        await f.Service.RouteVoiceAsync("确认提交");
+        Check(f.Client.Responses.Single().Answers!["content"]==answer&&f.Client.Prompts.Count==1,"confirmed answer changed or also became task content: "+answer);
+    }
+});
+
+await Test("explicit speaker scene control leaves a pending question and its existing answer intact", async()=>
+{
+    using var f=new TaskCase();await f.Start();
+    var question=new DshTaskInteraction("scene-bypass","question","ask","",[new("content","内容","请说出要展示的内容",[])]);
+    f.Client.SetRemote("waitingInput","scene-bypass-pending",[question]);await Until(()=>f.Service.Current.NeedsAttention);
+    await f.Service.RouteVoiceAsync("画一个时钟场景");var before=f.Service.Current;
+    foreach(var command in new[]{"音箱控制，换一个时钟场景","音箱控制請換一個時鐘場景"})
+    {
+        Check(DshVoiceIntentRouter.Classify(command,true)==DshVoiceIntent.DeviceControl,"explicit speaker command lost priority during a question: "+command);
+        Check(!(await f.Service.RouteVoiceAsync(command)).Handled&&f.Service.Current.NeedsAttention&&f.Service.Current.VoiceAnswers["content"]=="画一个时钟场景"
+            &&f.Service.Current.VoiceAnswerRevision==before.VoiceAnswerRevision&&f.Client.Responses.Count==0&&f.Client.Prompts.Count==1,"speaker command consumed or replaced the pending answer: "+command);
+    }
+    await f.Service.RouteVoiceAsync("确认提交");
+    Check(f.Client.Responses.Single().Answers!["content"]=="画一个时钟场景","device detour prevented confirming the original answer");
+});
+
 await Test("default scene aliases stay on device route instead of active task", async()=>
 {
     using var f=new TaskCase(); await f.Start();

@@ -6,7 +6,7 @@
 dotnet run --project tests/dsh-task-routing-tests/TaskRoutingTests.csproj -c Release
 ```
 
-项目以相对路径编译真实的 `DshTaskService`、`DshTaskVoiceParser` 和状态模型，使用最小 Profile stub 与假会话客户端，不依赖主 App 的 WinUI 构建。
+项目以相对路径编译真实的 `DshTaskService`、`DshTaskVoiceParser`、`DshVoiceIntentRouter` 和状态模型，使用最小 Profile stub 与假会话客户端，不依赖主 App 的 WinUI 构建。
 
 测试覆盖数字和口语创建、明确创建时立即建立空会话、等待正文期间禁止重复创建或提交确认词、低置信任务草稿及自然正文、空闲状态轮询、等待内容状态恢复与远端提交核对、设备控制穿插、没有普通目标时的路由澄清、非创建表达、目录与正文隔离、精确授权和多题回答。假客户端记录请求，不启动 DSH Host、实际任务、ASR、麦克风或设备，也不访问网络。监控身份文件只写入系统临时目录内的独立测试目录。
 
@@ -25,3 +25,5 @@ dotnet run --project tests/dsh-task-routing-tests/TaskRoutingTests.csproj -c Rel
 麦克风入口的上下文检查使用播报时保存的快照：旧快照不能批准或拒绝另一个剩余授权，等待操作队列期间请求结构变化也不能记入或提交答案。回归同时核对拒绝旧输入时不会发普通提示词、新建会话或取消任务。
 
 每项输出 `PASS` 或 `FAIL`，出现失败时退出码为 1。HTTP 通道与真实 DSH 兼容性验证不属于这组路由测试。
+
+场景意图回归覆盖“换一个时钟场景”的简繁体与礼貌前缀、ASR“画/换”歧义的本地澄清、已完成任务不得吞下设备口令，以及创建草稿和待填内容时保留绘制任务。真实待答问题中的画/换表达仍是答案，显式音箱控制不会覆盖答案草稿；恢复未监控目标后先读取待答状态。否定、教学和条件句不得因包含时钟场景而误判为设备操作。

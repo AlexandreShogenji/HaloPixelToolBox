@@ -452,9 +452,10 @@ public sealed partial class DshTaskService : IDisposable
     private async Task<DshTaskVoiceResult> RouteVoiceCoreAsync(string text, DshTaskSnapshot? expectedContext, CancellationToken cancellationToken)
     {
         var normalized = DshSpokenInteraction.NormalizeCommand(text);
+        var intent = DshVoiceIntentRouter.Classify(text, Current.IsMonitoring && Current.NeedsAttention,
+            awaitingVoicePrompt || voiceDraft is not null);
         // An explicit answer is data, even when its body contains a task/device command.
-        if (Current.IsMonitoring && Current.NeedsAttention && System.Text.RegularExpressions.Regex.IsMatch(text.Trim(),
-            @"^(?:(?:我的)?(?:回答|答案|自由回答|自定义回答|自定義回答|自訂回答)\s*[:：]|我的答案是|回答是|答案是|自定义回答|自定義回答|自訂回答)"))
+        if (Current.IsMonitoring && Current.NeedsAttention && DshVoiceIntentRouter.IsExplicitAnswer(text))
             return await RouteInteractionVoiceAsync(text, expectedContext, cancellationToken);
         if (awaitingVoicePrompt && activeScope != scopeFactory())
         {
@@ -530,7 +531,7 @@ public sealed partial class DshTaskService : IDisposable
         {
             if (draft.Scope != scopeFactory())
             { voiceDraft = null; return new(true, "DSH 配置已改变，请重新创建任务。"); }
-            if (DshTaskVoiceParser.IsDeviceCommand(text)) return new(false, "");
+            if (intent == DshVoiceIntent.DeviceControl) return new(false, "");
             var prompt = DshTaskVoiceParser.ReadPrompt(text);
             if (prompt is null && (normalized.Length == 0 || normalized is "好的" or "好" or "嗯" or "继续"
                 || DshTaskVoiceParser.IsApprovalReply(text)
@@ -541,8 +542,7 @@ public sealed partial class DshTaskService : IDisposable
             var started = await StartAsync(new(draft.Directory, draft.Title, prompt), cancellationToken);
             return new(true, started.State == "unknown" ? started.StatusText : "任务已提交，已开始监控。");
         }
-        if (DshTaskVoiceParser.IsDeviceCommand(text) && (!Current.NeedsAttention
-            || normalized.StartsWith("设备") || normalized.StartsWith("音箱控制"))) return new(false, "");
+        if (intent == DshVoiceIntent.DeviceControl) return new(false, "");
         if (awaitingVoicePrompt && !Current.NeedsAttention)
         {
             EnsureActive();
@@ -559,9 +559,13 @@ public sealed partial class DshTaskService : IDisposable
                 return new(true, "当前没有等待中的任务授权请求，未发送授权。");
             var target = client.Current.VoiceTarget;
             if (target is null || target.IsDeviceControl || target.IsArchived)
+            {
+                if (intent == DshVoiceIntent.ClarifySceneIntent)
+                    return new(true, DshVoiceIntentRouter.SceneClarification(text)) { ListenForReply = true };
                 return new(true, DshTaskVoiceParser.IsTaskRelated(text)
                     ? "当前没有选定的 DSH 任务。请先说新建一个 DSH 任务，或在会话页选择普通任务作为音箱目标。"
                     : "请说明是控制音箱，还是新建或继续 DSH 任务。");
+            }
             await MonitorAsync(target, cancellationToken);
         }
         EnsureActive();
@@ -569,6 +573,8 @@ public sealed partial class DshTaskService : IDisposable
             return new(true, "当前任务状态尚未确认，请等待状态恢复后再说；未发送本次消息。");
         if (Current.NeedsAttention)
             return await RouteInteractionVoiceAsync(text, expectedContext, cancellationToken);
+        if (intent == DshVoiceIntent.ClarifySceneIntent)
+            return new(true, DshVoiceIntentRouter.SceneClarification(text)) { ListenForReply = true };
         if (IsInteractionCommand(normalized))
             return new(true, "当前没有等待回答的问题。可以说任务状态，或继续说任务指令。");
         // Approval words outside a live request must never become an implicit authorization.

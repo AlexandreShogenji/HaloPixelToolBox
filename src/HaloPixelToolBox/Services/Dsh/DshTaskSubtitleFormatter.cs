@@ -99,6 +99,7 @@ internal static class DshTaskSubtitleFormatter
         // later qualifications/negations, so its first sentence is not a reliable summary.
         (string Prefix, string Summary)[] notices =
         [
+            ("听到的是“画场景”", "切换场景还是绘制？请说明"),
             ("问题已更新", "问题已更新；旧回答未提交"),
             ("问题已经变化", "问题已变化；旧回答未提交"),
             ("原授权请求已变化", "授权已变化；旧决定未提交"),
