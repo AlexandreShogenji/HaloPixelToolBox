@@ -11,11 +11,11 @@ internal sealed record DshSpokenAnswer(bool Success, string Answer, string Error
 /// <summary>Deterministic spoken answers; an uncertain choice never becomes free text implicitly.</summary>
 internal static class DshSpokenInteraction
 {
-    private static readonly Regex RecommendedSuffix = new(@"\s*[\[(]\s*(?:recommended|推荐|建议)\s*[\])]\s*$", RegexOptions.IgnoreCase);
-    private static readonly Regex ChoicePrefix = new(@"^(?:请|麻烦)?(?:帮我)?(?:我想选择|我想选|我选择|我要选择|我要选|我选|选择|选中|选(?!项))\s*", RegexOptions.IgnoreCase);
+    private static readonly Regex RecommendedSuffix = new(@"\s*[\[（(]\s*(?:recommended|推荐|建议|推薦|建議)\s*[\]）)]\s*$", RegexOptions.IgnoreCase);
+    private static readonly Regex ChoicePrefix = new(@"^(?:请|麻烦)?(?:帮我)?(?:那就选|就选|我想选择|我想选|我选择|我要选择|我要选|我选|选择|选中|选(?!项))\s*", RegexOptions.IgnoreCase);
     private static readonly Regex ChoiceSeparator = new(@"(?:(?:以及|还有|并且|加上|和|及|与|跟|、|，|,|；|;|\||\+|&|\band\b)\s*)+", RegexOptions.IgnoreCase);
     private static readonly Regex UnsafeChoice = new(@"不要|别选|不选|不想|不确定|不知道|不是|除外|除了|取消|没有|没想|不太|先不|不需要|暂不|不对|稍等|等一下|重说|重选|重复|再说|什么意思|为什么|怎么|什么|有哪些|哪一个|能不能|能否|还是|或者|或是|随便|随机|都行|建议|推荐|[?？]|(?:吗|呢)$|\b(?:no|not|except|or|don't)\b", RegexOptions.IgnoreCase);
-    private const string Retry = "请说选项序号或名称；其他答案请以“我的答案是”开头。";
+    private const string Retry = "请说第几项，或选项名称。";
 
     public static DshSpokenAnswer ParseAnswer(DshTaskQuestion question, string text)
     {
@@ -53,6 +53,9 @@ internal static class DshSpokenInteraction
         var exact = ExactMatches(NormalizeName(spoken), names);
         if (exact.Length == 1) return Selected(question, exact);
         if (exact.Length > 1) return Failure("这个名称对应多个选项，请说序号。");
+        // ASR keeps hesitation sounds as words. Strip only a leading pause filler;
+        // never erase negation, a question, or substantive words inside an answer.
+        spoken = Regex.Replace(spoken, @"^(?:(?:嗯+|呃+|额+)[\s，,、。]*)+", string.Empty).Trim();
         spoken = ChoicePrefix.Replace(spoken, string.Empty).Trim();
         exact = ExactMatches(NormalizeName(spoken), names);
         if (exact.Length == 1) return Selected(question, exact);
@@ -71,7 +74,8 @@ internal static class DshSpokenInteraction
             if (token.Length == 0) return Failure("有一个选项没有听清。" + Retry);
             var name = NormalizeName(token);
             var matches = ExactMatches(name, names);
-            if (matches.Length == 0 && TryOrdinal(token, out var ordinal))
+            var ordinalToken = Regex.Replace(token, @"(?:吧|呀|啊|就行|就可以了|好了)$", string.Empty).Trim();
+            if (matches.Length == 0 && TryOrdinal(ordinalToken, out var ordinal))
             {
                 if (ordinal < 1 || ordinal > names.Length) return Failure($"这一题只有 {names.Length} 个选项，请重新选择。");
                 selected.Add(ordinal - 1);
@@ -93,23 +97,55 @@ internal static class DshSpokenInteraction
     public static string BuildQuestionPrompt(DshTaskQuestion question, int index, int total)
     {
         ArgumentNullException.ThrowIfNull(question);
-        var prompt = new StringBuilder($"第 {index + 1}/{total} 题：");
-        var wording = (string.IsNullOrWhiteSpace(question.Question) ? question.Header : question.Question).Trim();
+        var prompt = new StringBuilder(total > 1 ? $"第 {index + 1}/{total} 题：" : string.Empty);
+        var wording = CleanSpokenText(string.IsNullOrWhiteSpace(question.Question) ? question.Header : question.Question);
+        if (wording.Length == 0) wording = question.Options.Count > 0 ? "请选择" : "请回答";
+        var abbreviated = false;
+        if (wording.EnumerateRunes().Count() > 64)
+        {
+            // The full schema remains in the session and is used for answer validation.
+            // Speak the short header for long explanatory questions, not the metadata.
+            var header = CleanSpokenText(question.Header);
+            wording = string.IsNullOrWhiteSpace(header) ? ShortSpokenLabel(wording, 64, ref abbreviated)
+                : ShortSpokenLabel(header, 32, ref abbreviated);
+            abbreviated = true;
+        }
         prompt.Append(wording);
         if (wording.Length == 0 || !"。！？.!?".Contains(wording[^1])) prompt.Append('。');
         for (var option = 0; option < question.Options.Count; option++)
         {
-            prompt.Append(option + 1).Append('：').Append(question.Options[option].Label.Trim()).Append('；');
+            var label = RecommendedSuffix.Replace(CleanSpokenText(question.Options[option].Label), string.Empty);
+            prompt.Append(option + 1).Append('：').Append(ShortSpokenLabel(label, 32, ref abbreviated))
+                .Append(option + 1 == question.Options.Count ? '。' : '；');
         }
-        if (question.Options.Count == 0) prompt.Append("请直接说出答案。");
+        if (abbreviated) prompt.Append("详情见会话。");
+        if (question.Options.Count == 0) prompt.Append("请直接说答案。");
         else
         {
             prompt.Append(question.MultiSelect && question.Options.Count > 1
-                ? $"可多选，请说序号或名称，例如“一和{(question.Options.Count > 2 ? "三" : "二")}”。"
-                : $"{(question.MultiSelect ? "可多选" : "单选")}，请说序号或名称，例如“第一项”。");
-            prompt.Append("其他答案请说“我的答案是”加上内容。");
+                ? $"可多选，说一和{(question.Options.Count > 2 ? "三" : "二")}这样的序号。"
+                : "请说第几项。");
         }
         return prompt.ToString();
+    }
+
+    private static string CleanSpokenText(string value)
+        => Regex.Replace(Regex.Replace(value ?? string.Empty, @"[`*#]+", string.Empty), @"\s+", " ").Trim();
+
+    /// <summary>Presentation only: always submit the original label, never this shortened text.</summary>
+    public static string SummarizeLabel(string value, int maxRunes = 32)
+    {
+        if (maxRunes < 2) throw new ArgumentOutOfRangeException(nameof(maxRunes));
+        var abbreviated = false;
+        return ShortSpokenLabel(RecommendedSuffix.Replace(CleanSpokenText(value), string.Empty), maxRunes, ref abbreviated);
+    }
+
+    private static string ShortSpokenLabel(string value, int runeLimit, ref bool abbreviated)
+    {
+        var runes = value.EnumerateRunes().ToArray();
+        if (runes.Length <= runeLimit) return value;
+        abbreviated = true;
+        return string.Concat(runes.Take(runeLimit - 1).Select(rune => rune.ToString())) + "…";
     }
 
     /// <summary>Split without truncating the tail or breaking a Unicode scalar's UTF-8 bytes.</summary>

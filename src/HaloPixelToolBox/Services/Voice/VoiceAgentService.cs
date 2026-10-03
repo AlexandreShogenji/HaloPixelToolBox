@@ -92,6 +92,8 @@ public sealed class VoiceAgentService : IDisposable
     private SpokenTaskContext? spokenTaskContext;
     private sealed record DeviceVoiceContext(Process Worker, string Command, long Timestamp);
     private DeviceVoiceContext? previousDeviceContext;
+    private sealed record DeviceReplyContext(Process Worker, DshDeviceCommandResult Result, long Timestamp);
+    private DeviceReplyContext? pendingDeviceReply;
     private readonly object snapshotGate = new();
     private readonly object snapshotNotificationGate = new();
     private Process? workerProcess;
@@ -326,6 +328,7 @@ public sealed class VoiceAgentService : IDisposable
             Interlocked.Exchange(ref taskPromptVersion, 0);
             Interlocked.Exchange(ref attentionPromptSequence, 0);
             Volatile.Write(ref spokenTaskContext, null);
+            Volatile.Write(ref pendingDeviceReply, null);
             workerProcess = process;
             terminalWorkerProcess = null;
             workerCancellation = new CancellationTokenSource();
@@ -341,6 +344,12 @@ public sealed class VoiceAgentService : IDisposable
             try
             {
                 await Task.WhenAll(readySource.Task, deviceSessionTask).WaitAsync(startupTimeout.Token);
+                // A question may already exist when the microphone starts. Bind
+                // its identity before accepting ordinal replies from this worker.
+                var pendingTask = App.DshTasks.Current;
+                if (pendingTask.NeedsAttention)
+                    await SendTaskNotificationAsync(pendingTask.State == "waitingApproval" ? "approval_required" : "input_required",
+                        pendingTask.Detail, true, false, startupTimeout.Token, pendingTask);
                 return true;
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -463,13 +472,19 @@ public sealed class VoiceAgentService : IDisposable
         {
             var taskSnapshot = CaptureTaskContext(expectedContext ?? App.DshTasks.Current);
             if (expectedContext is not null && !SameTaskContext(taskSnapshot, App.DshTasks.Current)) return;
-            var version = string.IsNullOrWhiteSpace(text) && !listenAfter && !completeTurn
-                ? 0 : Interlocked.Increment(ref taskPromptVersion);
             await taskSpeechGate.WaitAsync(cancellationToken);
             try
             {
-                if (version != 0 && version != Interlocked.Read(ref taskPromptVersion)) return;
                 if (expectedContext is not null && !SameTaskContext(taskSnapshot, App.DshTasks.Current)) return;
+                // Startup and the monitor can discover the same pending request
+                // concurrently. Deduplicate under the same lock, before assigning
+                // a new version that would invalidate a user already answering.
+                var announced = Volatile.Read(ref spokenTaskContext);
+                if (expectedContext is not null && announced is not null
+                    && announced.Version == Interlocked.Read(ref taskPromptVersion)
+                    && SameTaskContext(announced.Snapshot, taskSnapshot)) return;
+                var version = string.IsNullOrWhiteSpace(text) && !listenAfter && !completeTurn
+                    ? 0 : Interlocked.Increment(ref taskPromptVersion);
                 if (version != 0) Volatile.Write(ref spokenTaskContext, new SpokenTaskContext(version, taskSnapshot));
                 // Queue each logical prompt atomically. The worker splits it during synthesis;
                 // separate queue entries could drop the final resume instruction on overflow.
@@ -683,10 +698,46 @@ public sealed class VoiceAgentService : IDisposable
         try
         {
             var routingCommand = command;
+            DshDeviceReplyTarget? deviceReplyTarget = null;
+            var deviceReply = Interlocked.Exchange(ref pendingDeviceReply, null);
             // Consume context once. A task, clarification, failure or worker
             // restart cannot leave a stale "another one" shortcut behind.
             var previousDevice = Interlocked.Exchange(ref previousDeviceContext, null);
             if (!expectedTask.NeedsAttention && !App.DshTasks.Current.NeedsAttention
+                && deviceReply?.Worker == process && DshDeviceReplyRouting.TryResolve(command, deviceReply.Result,
+                    Stopwatch.GetElapsedTime(deviceReply.Timestamp), out var deviceAnswer, out var replyTarget))
+            {
+                routingCommand = deviceAnswer;
+                deviceReplyTarget = replyTarget;
+            }
+            else if (!expectedTask.NeedsAttention && !App.DshTasks.Current.NeedsAttention
+                && deviceReply is not null && DshDeviceReplyRouting.IsOrdinalReply(command))
+            {
+                const string expired = "音箱选项已过期，请重新说要切换的配色或场景。";
+                UpdateSnapshot(VoiceAgentPhase.CoolingDown, "请重新选择音箱选项", expired,
+                    lastTranscript: command, lastResponse: expired, isRunning: true,
+                    expectedWorker: process, workerToken: cancellationToken);
+                await SendTaskNotificationAsync("task_progress", expired, false, true, cancellationToken);
+                notificationOwnsResume = true;
+                return;
+            }
+            else if (!expectedTask.NeedsAttention && !App.DshTasks.Current.NeedsAttention
+                && deviceReply?.Worker == process && Stopwatch.GetElapsedTime(deviceReply.Timestamp) <= TimeSpan.FromSeconds(90)
+                && DshVoiceIntentRouter.Classify(command) == DshVoiceIntent.Task && !DshTaskVoiceParser.IsTaskRelated(command))
+            {
+                // A bare name after a device choice must not become a message
+                // to an unrelated development task. Ask for a bound ordinal.
+                const string choose = "请选择第几项；也可以说音箱控制，再说完整名称。";
+                Volatile.Write(ref pendingDeviceReply, deviceReply);
+                UpdateSnapshot(VoiceAgentPhase.CoolingDown, "等待音箱选项", choose,
+                    lastTranscript: command, lastResponse: choose, isRunning: true,
+                    expectedWorker: process, workerToken: cancellationToken);
+                await SendTaskNotificationAsync("input_required", choose, true, true, cancellationToken);
+                notificationOwnsResume = true;
+                return;
+            }
+            if (!expectedTask.NeedsAttention && !App.DshTasks.Current.NeedsAttention
+                && deviceReplyTarget is null
                 && previousDevice?.Worker == process
                 && DshVoiceIntentRouter.TryResolveDeviceFollowUp(command, previousDevice.Command,
                     Stopwatch.GetElapsedTime(previousDevice.Timestamp), out var resolved))
@@ -713,7 +764,8 @@ public sealed class VoiceAgentService : IDisposable
                 await DshTaskFeedback.PublishVoiceReplyAsync(reply, cancellationToken, isTaskReply: true,
                     expectedForegroundRevision: replyForegroundRevision);
                 await SendTaskNotificationAsync(listenForReply ? "input_required" : "task_progress",
-                    reply, listenForReply, true, cancellationToken);
+                    listenForReply || DshSpokenInteraction.NormalizeCommand(command) is "朗读任务结果" or "读出任务结果"
+                        ? reply : DshTaskFeedback.SpeechSummary(reply), listenForReply, true, cancellationToken);
                 notificationOwnsResume = true;
                 return;
             }
@@ -734,7 +786,7 @@ public sealed class VoiceAgentService : IDisposable
             var result = await App.DshSessions.ExecuteDeviceCommandAsync(
                 routingCommand,
                 Math.Clamp(options.CommandTimeoutSeconds, 30, 300),
-                cancellationToken);
+                cancellationToken, expectedReplyTarget: deviceReplyTarget);
             if (result.Success && result.CalledTools.Count > 0 && IsActiveWorker(process, cancellationToken))
                 Volatile.Write(ref previousDeviceContext, new(process, routingCommand, Stopwatch.GetTimestamp()));
             var response = result.Success
@@ -762,8 +814,12 @@ public sealed class VoiceAgentService : IDisposable
                 return;
             }
             await DshTaskFeedback.PublishVoiceReplyAsync(spokenResponse, cancellationToken);
+            var listenForDeviceReply = !App.DshTasks.Current.NeedsAttention && DshDeviceReplyRouting.CanContinue(result);
+            if (listenForDeviceReply)
+                Volatile.Write(ref pendingDeviceReply, new(process, result, Stopwatch.GetTimestamp()));
             await SendTaskNotificationAsync(result.Success ? "task_completed" : "task_failed",
-                spokenResponse, false, true, cancellationToken);
+                listenForDeviceReply ? spokenResponse + "。请说第几项。" : DshTaskFeedback.SpeechSummary(spokenResponse),
+                listenForDeviceReply, true, cancellationToken);
             notificationOwnsResume = true;
         }
         catch (OperationCanceledException)

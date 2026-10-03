@@ -247,7 +247,8 @@ public sealed partial class DshSessionsService : IDisposable
     }
 
     public async Task<DshDeviceCommandResult> ExecuteDeviceCommandAsync(
-        string command, int timeoutSeconds = 120, CancellationToken cancellationToken = default)
+        string command, int timeoutSeconds = 120, CancellationToken cancellationToken = default,
+        DshDeviceReplyTarget? expectedReplyTarget = null)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         command = command.Trim();
@@ -260,7 +261,22 @@ public sealed partial class DshSessionsService : IDisposable
         var sent = false;
         try
         {
-            await PrepareDeviceSessionAsync(linked.Token);
+            if (expectedReplyTarget is not null)
+            {
+                var replyOptions = optionsFactory();
+                var replyHome = ResolveHome(replyOptions.Home);
+                BridgeDescriptor? replyEndpoint;
+                lock (stateGate) replyEndpoint = endpoint;
+                // A reply must never start/reconnect a different scope or create
+                // a substitute conversation just because settings changed.
+                if (!DeviceReplyTargetMatches(expectedReplyTarget, replyHome, replyOptions.Profile)
+                    || !Current.IsConnected || replyEndpoint is not { CanPrompt: true }
+                    || !SameHome(replyEndpoint.Home, replyHome) || replyEndpoint.Profile != replyOptions.Profile
+                    || !ProcessIsAlive(replyEndpoint.Pid)
+                    || !await ProbeReadyDeviceEndpointAsync(replyEndpoint, linked.Token))
+                    return DeviceReplyTargetChanged(expectedReplyTarget);
+            }
+            else await PrepareDeviceSessionAsync(linked.Token);
             var options = optionsFactory();
             var home = ResolveHome(options.Home);
             BridgeDescriptor connected;
@@ -269,7 +285,10 @@ public sealed partial class DshSessionsService : IDisposable
             if (!connected.CanPrompt || !SameHome(connected.Home, home) || connected.Profile != options.Profile)
                 throw new InvalidOperationException("DSH 配置已变更，请重新连接后再说口令。");
 
-            sessionId = ReadSavedDeviceSession(home);
+            sessionId = ReadSavedDeviceSession(home, options.Profile);
+            if (expectedReplyTarget is not null
+                && (!DeviceReplyTargetMatches(expectedReplyTarget, home, options.Profile) || sessionId != expectedReplyTarget.SessionId))
+                return DeviceReplyTargetChanged(expectedReplyTarget);
             if (sessionId.Length == 0)
             {
                 sessionId = Guid.TryParse(connected.DeviceSessionId, out _) ? connected.DeviceSessionId
@@ -285,6 +304,12 @@ public sealed partial class DshSessionsService : IDisposable
             }
             Publish(Current with { DeviceSessionId = sessionId });
             linked.Token.ThrowIfCancellationRequested();
+            if (expectedReplyTarget is not null)
+            {
+                var latestOptions = optionsFactory();
+                if (!DeviceReplyTargetMatches(expectedReplyTarget, ResolveHome(latestOptions.Home), latestOptions.Profile))
+                    return DeviceReplyTargetChanged(expectedReplyTarget);
+            }
             requestId = Guid.NewGuid().ToString("D");
             sent = true;
             using var document = await RequestAsync(connected, "v1/device-command", linked.Token,
@@ -306,7 +331,8 @@ public sealed partial class DshSessionsService : IDisposable
             // Return the confirmed outcome immediately. A list refresh is only a
             // UI update; it must not add latency or change the command outcome.
             ScheduleCommandRefresh();
-            return result;
+            return result.Success && result.Completed
+                ? result with { ReplyTarget = new(sessionId, home, options.Profile) } : result;
         }
         catch (OperationCanceledException) { throw; }
         catch (BridgeRequestException exception) when (IsAdmissionRejection(exception.Code))
@@ -323,6 +349,14 @@ public sealed partial class DshSessionsService : IDisposable
         }
         finally { commandGate.Release(); }
     }
+
+    private bool DeviceReplyTargetMatches(DshDeviceReplyTarget target, string home, string profile)
+        => Guid.TryParse(target.SessionId, out _) && SameHome(target.Home, home) && target.Profile == profile
+            && ReadSavedDeviceSession(home, profile) == target.SessionId;
+
+    private static DshDeviceCommandResult DeviceReplyTargetChanged(DshDeviceReplyTarget target)
+        => new(false, "音箱会话或配置已变化，刚才的选项未发送。请重新说出音箱指令。", string.Empty, target.SessionId, [], [])
+            { ErrorCode = "reply_target_changed" };
 
     public async Task<DshDeviceCommandResult> SendMessageAsync(
         string sessionId, string message, CancellationToken cancellationToken = default)
@@ -907,9 +941,9 @@ public sealed partial class DshSessionsService : IDisposable
             DisplayFeatureProfile.DshVoiceTargetWorkingDirectory, DateTimeOffset.MinValue, "unknown");
     }
 
-    private string ReadSavedDeviceSession(string home)
+    private string ReadSavedDeviceSession(string home, string? profile = null)
     {
-        var profile = optionsFactory().Profile;
+        profile ??= optionsFactory().Profile;
         var path = GetDeviceIdentityPath(home, profile);
         var durable = DshDeviceSessionIdentity.Read(path, home, profile);
         if (durable.Length > 0) return durable;

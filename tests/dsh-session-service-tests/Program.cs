@@ -1,4 +1,5 @@
 using System.Reflection;
+using HaloPixelToolBox.Models;
 using HaloPixelToolBox.Services;
 
 var tests = new (string Name, Func<Task> Run)[]
@@ -8,13 +9,17 @@ var tests = new (string Name, Func<Task> Run)[]
     ("Transient list failure retains the original endpoint for an in-flight command", SameEndpointCommandAsync),
     ("Replacement endpoint rejects the old command reply without replaying", ReplacedEndpointCommandAsync),
     ("Disconnected discovery rejects a foreign Profile", ForeignProfileAsync),
-    ("Refresh with no live descriptor remains disconnected without starting DSH", MissingHostAsync)
+    ("Refresh with no live descriptor remains disconnected without starting DSH", MissingHostAsync),
+    ("Device reply is sent unchanged to the verified conversation", DeviceReplySameTargetAsync),
+    ("Device reply refuses a changed home or Profile before any new host request", DeviceReplyScopeChangedAsync),
+    ("Device reply refuses a changed saved conversation", DeviceReplySessionChangedAsync),
+    ("Device reply rechecks Profile after its readiness probe", DeviceReplyProbeScopeChangedAsync)
 };
 var failures = 0;
 foreach (var test in tests)
 {
     try { await test.Run().WaitAsync(TimeSpan.FromSeconds(10)); Console.WriteLine("PASS " + test.Name); }
-    catch (Exception exception) { failures++; Console.WriteLine("FAIL " + test.Name + ": " + exception.Message); }
+    catch (Exception exception) { failures++; Console.WriteLine("FAIL " + test.Name + ": " + exception); }
 }
 Console.WriteLine($"{tests.Length - failures}/{tests.Length} session service tests passed");
 return failures == 0 ? 0 : 1;
@@ -132,4 +137,70 @@ static async Task MissingHostAsync()
     Check(!fixture.Client.Current.IsConnected, "Unready host was recovered.");
     Check(!fixture.Client.Current.Message.Contains("启动程序", StringComparison.Ordinal), "Refresh tried the host-start path.");
     OnlyReads(fixture.Original);
+}
+
+static async Task DeviceReplySameTargetAsync()
+{
+    await using var fixture = new Fixture();
+    await fixture.Client.RefreshAsync();
+    var first = await fixture.Client.ExecuteDeviceCommandAsync("fixture choice only");
+    Check(first.ReplyTarget == new DshDeviceReplyTarget(first.SessionId, fixture.Home, fixture.Profile),
+        "Confirmed result did not expose its real conversation scope.");
+    var reply = await fixture.Client.ExecuteDeviceCommandAsync("音箱控制，第三项。", expectedReplyTarget: first.ReplyTarget);
+    Check(reply.Success && reply.SessionId == first.SessionId && fixture.Original.Commands.Count == 2,
+        "A bound ordinal created another conversation or was not sent.");
+    Check(fixture.Original.Commands.Last() == ("音箱控制，第三项。", first.SessionId),
+        "The reply was mapped into a guessed option instead of being forwarded unchanged.");
+}
+
+static async Task DeviceReplyScopeChangedAsync()
+{
+    foreach (var changeHome in new[] { false, true })
+    {
+        await using var fixture = new Fixture();
+        await fixture.Client.RefreshAsync();
+        var first = await fixture.Client.ExecuteDeviceCommandAsync("fixture choice only");
+        if (changeHome) fixture.Home = Path.Combine(fixture.Root, "other-home");
+        else fixture.Profile = "other-profile";
+        var reply = await fixture.Client.ExecuteDeviceCommandAsync("音箱控制，第一项", expectedReplyTarget: first.ReplyTarget);
+        Check(!reply.Success && !reply.Accepted && reply.ErrorCode == "reply_target_changed"
+            && fixture.Original.Commands.Count == 1, "Changed scope admitted a stale ordinal or started a replacement host.");
+    }
+}
+
+static async Task DeviceReplySessionChangedAsync()
+{
+    await using var fixture = new Fixture();
+    await fixture.Client.RefreshAsync();
+    var first = await fixture.Client.ExecuteDeviceCommandAsync("fixture choice only");
+    var refreshRunning = typeof(DshSessionsService).GetField("commandRefreshRunning", BindingFlags.Instance | BindingFlags.NonPublic)!;
+    var stateGate = typeof(DshSessionsService).GetField("stateGate", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(fixture.Client)!;
+    for (var attempt = 0; ; attempt++)
+    {
+        bool running;
+        lock (stateGate) running = (bool)refreshRunning.GetValue(fixture.Client)!;
+        if (!running) break;
+        if (attempt == 200) throw new TimeoutException("Fixture list refresh did not settle before replacing its identity.");
+        await Task.Delay(5);
+    }
+    var identityPath = (string)typeof(DshSessionsService).GetMethod("GetDeviceIdentityPath", BindingFlags.Instance | BindingFlags.NonPublic)!
+        .Invoke(fixture.Client, [fixture.Home, fixture.Profile])!;
+    var replacement = Guid.NewGuid().ToString("D");
+    DshDeviceSessionIdentity.Save(identityPath, fixture.Home, fixture.Profile, replacement);
+    var reply = await fixture.Client.ExecuteDeviceCommandAsync("音箱控制，第一项", expectedReplyTarget: first.ReplyTarget);
+    Check(!reply.Success && reply.ErrorCode == "reply_target_changed" && fixture.Original.Commands.Count == 1,
+        "Changed conversation received an ordinal belonging to its predecessor.");
+    Check(DshDeviceSessionIdentity.Read(identityPath, fixture.Home, fixture.Profile) == replacement,
+        "Rejecting a stale reply rewrote the user's newly selected conversation.");
+}
+
+static async Task DeviceReplyProbeScopeChangedAsync()
+{
+    await using var fixture = new Fixture();
+    await fixture.Client.RefreshAsync();
+    var first = await fixture.Client.ExecuteDeviceCommandAsync("fixture choice only");
+    fixture.Original.BeforeStatusReply = () => fixture.Profile = "changed-during-probe";
+    var reply = await fixture.Client.ExecuteDeviceCommandAsync("音箱控制，第三项", expectedReplyTarget: first.ReplyTarget);
+    Check(!reply.Success && !reply.Accepted && fixture.Original.Commands.Count == 1,
+        "Changing Profile during readiness admitted an old-scope answer.");
 }

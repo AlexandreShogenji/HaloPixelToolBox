@@ -10,6 +10,13 @@ internal static class SubtitleFeedbackProbe
     public static async Task RunAsync(Action<bool, string> check)
     {
         void Assert(bool value, string name) => check(value, "subtitle feedback transport: " + name);
+        var verboseResult = "已切换为时钟类 02。" + string.Concat(Enumerable.Repeat("下面说明技术实现、工具返回与可选样式。", 25));
+        var shortResult = DshTaskFeedback.SpeechSummary(verboseResult);
+        Assert(shortResult.StartsWith("已切换为时钟类 02。") && shortResult.Length <= 110
+            && shortResult.EndsWith("详情在会话中。"), "verbose speech preserves the outcome with a short bounded summary");
+        var markdownResult = DshTaskFeedback.SpeechSummary("**已完成**。\n[查看页面](https://example.com/page)\n```js\nsecretImplementation();\n```");
+        Assert(!markdownResult.Contains("https://") && !markdownResult.Contains("secretImplementation")
+            && markdownResult.Contains("已完成"), "voice result omits code and link syntax");
         void ClearLogs()
         {
             HaloPixelDisplayService.Sent.Clear();

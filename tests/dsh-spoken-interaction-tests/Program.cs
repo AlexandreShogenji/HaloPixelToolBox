@@ -13,6 +13,8 @@ foreach (var input in new[] { "浅色纸张", "淺色紙張", "浅色", "纸张"
     Accepted(single, input, "浅色纸张 (Recommended)");
 foreach (var input in new[] { "第二项", "两", "第兩項", "二号", "2", "深色夜间", "深色" })
     Accepted(single, input, "深色夜间");
+foreach (var input in new[] { "嗯，第一项。", "呃，我选第一项。", "额，第一项吧。", "嗯嗯，那就选第一项。", "就选第一项", "第一项就行", "嗯，第一项好了。" })
+    Accepted(single, input, "浅色纸张 (Recommended)");
 foreach (var input in new[] { "一和三", "第一项与第三项", "选择搜索和颜色标签", "搜尋和顏色標籤", "1,3", "１、３", "选第一项，加上第三项", "1 | 3", "1 & 3", "1 and 3", "第三项和第一项", "一和三和一" })
     Accepted(multiple, input, "搜索 | 颜色标签");
 foreach (var input in new[] { "全部", "全选", "全部选择", "都选", "全都选" })
@@ -79,11 +81,31 @@ Rejected(hundred, "一百二十一");
 Rejected(hundred, "十一十");
 Rejected(hundred, "1一");
 
+var colorscheme = new DshTaskQuestion("colorscheme", "确认目标", "你说的「换个颜色方案」是指哪一种？", [
+    new("已保存的配色方案（推荐）", "列出了所有人物和配色的较长描述。" + new string('中', 161)),
+    new("换一个氛围灯效", "更换动态效果"), new("随机挑一个配色", "随机选择")], false);
+Accepted(colorscheme, "第一项", "已保存的配色方案（推荐）");
+Accepted(colorscheme, "第三项", "随机挑一个配色");
+Accepted(colorscheme, "第一項。", "已保存的配色方案（推荐）");
+Accepted(colorscheme, "嗯，第三项吧。", "随机挑一个配色");
+Accepted(colorscheme, "已保存的配色方案", "已保存的配色方案（推荐）");
+foreach (var input in new[] { "嗯，不选第一项。", "第一项还是第三项", "第三项吧，不要执行", "第三项就行吗", "嗯，第三项吗", "额，第一项然后关闭音箱" })
+    Rejected(colorscheme, input);
+
 var prompt = DshSpokenInteraction.BuildQuestionPrompt(single, 0, 2);
-Check(prompt.Contains("第 1/2 题") && prompt.Contains("选择界面风格") && prompt.Contains("1：浅色纸张 (Recommended)") && prompt.Contains("2：深色夜间") && prompt.Contains("单选"), "single prompt announces question index and numbered choices");
-Check(prompt.Contains("我的答案是"), "prompt explains pronounceable custom answers");
+Check(prompt.Contains("第 1/2 题") && prompt.Contains("选择界面风格") && prompt.Contains("1：浅色纸张") && prompt.Contains("2：深色夜间") && prompt.Contains("第几项"), "single prompt announces question index and numbered choices");
+Check(!prompt.Contains("Recommended") && !prompt.Contains("我的答案是"), "ordinary prompt omits recommendation metadata and repeated custom-answer tutorial");
 Check(DshSpokenInteraction.BuildQuestionPrompt(multiple, 1, 2).Contains("可多选") && DshSpokenInteraction.BuildQuestionPrompt(multiple, 1, 2).Contains("一和三"), "multi prompt states multiple choices");
-Check(DshSpokenInteraction.BuildQuestionPrompt(Question(false), 0, 1).Contains("直接说出答案"), "free-text prompt");
+Check(DshSpokenInteraction.BuildQuestionPrompt(Question(false), 0, 1).Contains("直接说答案"), "free-text prompt");
+var colorPrompt = DshSpokenInteraction.BuildQuestionPrompt(colorscheme, 0, 1);
+Check(colorPrompt == "你说的「换个颜色方案」是指哪一种？1：已保存的配色方案；2：换一个氛围灯效；3：随机挑一个配色。请说第几项。", "live colorscheme prompt speaks only the question, numbered labels and one instruction");
+Check(!colorPrompt.Contains("第 1/1") && !colorPrompt.Contains("描述") && !colorPrompt.Contains("推荐") && colorPrompt.Length < 80, "single question omits unnecessary index and option descriptions");
+var longQuestion = colorscheme with { Header = "选择配色", Question = new string('中', 500), Options = [new(new string('色', 100) + "😀", "private metadata"), new("深色", "")] };
+var shortPrompt = DshSpokenInteraction.BuildQuestionPrompt(longQuestion, 0, 1);
+Check(shortPrompt.StartsWith("选择配色。1：") && shortPrompt.Contains("…") && shortPrompt.Contains("详情见会话") && shortPrompt.Length < 80, "long question and labels are bounded without reading metadata");
+Check(DshSpokenInteraction.SummarizeLabel("已保存的配色方案（推荐）") == "已保存的配色方案", "shared label summary removes recommendation decoration");
+var emojiLabel = DshSpokenInteraction.SummarizeLabel(new string('a', 30) + "😀😀😀", 32);
+Check(emojiLabel == new string('a', 30) + "😀…" && !emojiLabel.Contains('\uFFFD'), "spoken label limit preserves Unicode scalars");
 Check(DshSpokenInteraction.NormalizeCommand(" 請，重新選擇！ ") == "请重新选择", "interaction commands normalize Chinese variants and punctuation");
 Check(DshSpokenInteraction.NormalizeCommand("不要提交") == "不要提交", "command normalization never removes negation");
 Check(DshSpokenInteraction.NormalizeCommand("ＳＵＢＭＩＴ") == "submit", "command normalization handles full-width Latin input");

@@ -43,6 +43,9 @@ public sealed record DshDeviceHistoryPage(
     bool HasMore,
     bool Truncated = false);
 
+/// <summary>The verified device conversation that owns a short spoken follow-up.</summary>
+public sealed record DshDeviceReplyTarget(string SessionId, string Home, string Profile);
+
 public sealed record DshDeviceCommandResult(
     bool Success,
     string Message,
@@ -55,6 +58,7 @@ public sealed record DshDeviceCommandResult(
     public bool Completed { get; init; }
     public string ErrorCode { get; init; } = string.Empty;
     public string RequestId { get; init; } = string.Empty;
+    public DshDeviceReplyTarget? ReplyTarget { get; init; }
 }
 
 public sealed record DshSessionCapabilities(

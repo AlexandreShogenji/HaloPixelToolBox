@@ -198,10 +198,22 @@ internal static class DshTaskFeedback
         }, token);
     }
 
-    private static string SpeechSummary(string text)
+    internal static string SpeechSummary(string text)
     {
-        text = Regex.Replace(text, @"[`*#\r\n\t]+", " ").Trim();
-        return text.Length <= 160 ? text : text[..160] + "。完整结果已保存在会话，可说朗读任务结果。";
+        // Keep the spoken result to its leading outcome, rather than reading
+        // tables, code, URLs and a long implementation report aloud.
+        text = Regex.Replace(text ?? string.Empty, @"```[\s\S]*?```", " ");
+        text = Regex.Replace(text, @"\[([^\]]+)\]\([^)]*\)", "$1");
+        text = Regex.Replace(text, @"https?://\S+|file:///\S+", "");
+        text = Regex.Replace(text, @"[`*#|\r\n\t]+", " ");
+        text = Regex.Replace(text, @"\s+", " ").Trim();
+        const int limit = 96;
+        if (text.Length <= limit) return text;
+        var prefix = string.Concat(text.EnumerateRunes().Take(limit).Select(rune => rune.ToString()));
+        var boundary = prefix.LastIndexOfAny(['。', '！', '？', ';', '；', '.', '!', '?']);
+        if (boundary >= 12) prefix = prefix[..(boundary + 1)];
+        else prefix = prefix.TrimEnd('，', ',', '：', ':', ' ') + "…";
+        return prefix + "详情在会话中。";
     }
 
     internal static string FitSubtitle(string text) => DshTaskSubtitleFormatter.Fit(text);

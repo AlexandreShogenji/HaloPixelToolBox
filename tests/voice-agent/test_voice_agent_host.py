@@ -455,7 +455,8 @@ class NotificationTests(unittest.TestCase):
             sounds.close()
         self.assertFalse(root.exists())
 
-    def run_fake_live(self, actions, detector, recognizer, sounds, speech=None, on_command=None):
+    def run_fake_live(self, actions, detector, recognizer, sounds, speech=None, on_command=None,
+                      after_prompt=None):
         args = worker.build_parser().parse_args([])
         capture = mock.Mock()
         capture.process = None
@@ -470,12 +471,21 @@ class NotificationTests(unittest.TestCase):
                 on_command(payload)
         def record_state(state, message, **payload):
             capture.state_events.append({"state": state, "message": message, **payload})
+        def play_prompt(speech_player, text, recognizer, capture, args, should_stop):
+            try:
+                speech_player.play(text, should_stop)
+            finally:
+                capture.clear_buffer()
+            if after_prompt is not None:
+                after_prompt(capture)
+            return False
         with mock.patch.object(worker, "ActionChannel", return_value=actions), \
                 mock.patch.object(worker, "AudioCapture", return_value=capture), \
                 mock.patch.object(worker, "Recognizer", return_value=recognizer), \
                 mock.patch.object(worker, "UtteranceDetector", return_value=detector), \
                 mock.patch.object(worker, "NotificationSounds", return_value=sounds), \
                 mock.patch.object(worker, "NotificationSpeech", return_value=capture.speech), \
+                mock.patch.object(worker, "play_with_wake_interrupt", side_effect=play_prompt), \
                 mock.patch.object(worker, "check_ffmpeg"), mock.patch.object(worker, "validate_reply"), \
                 mock.patch.object(worker, "emit", side_effect=record), mock.patch.object(worker, "emit_state", side_effect=record_state), \
                 mock.patch.object(worker, "play_reply") as reply:
@@ -528,9 +538,9 @@ class NotificationTests(unittest.TestCase):
         self.assertEqual([(event["id"], event["stage"]) for event in events], [("waiting", "started"), ("waiting", "played"), ("complete", "started"), ("complete", "played")])
         self.assertEqual(capture.start.call_count, 1)
         self.assertEqual(capture.stop.call_count, 1)
-        self.assertEqual([call.args[0] for call in capture.drain.call_args_list], [.3, .4, 0, .4, 0])
-        # Three boundary flushes per cue, plus two for each fresh detector.
-        self.assertEqual(capture.clear_buffer.call_count, 12)
+        self.assertEqual([call.args[0] for call in capture.drain.call_args_list], [.3])
+        # The playback boundary clears echo; listening no longer drains new speech.
+        self.assertEqual(capture.clear_buffer.call_count, 6)
         recognizer.recognize_pcm.assert_not_called()
         reply.assert_not_called()
 
@@ -734,8 +744,45 @@ class NotificationTests(unittest.TestCase):
         self.assertEqual([state["message"] for state in capture.state_events if state["state"] == "listening_command"],
                          ["请直接回答，可说选项名称或编号"] * 2)
         self.assertEqual([call.args[0] for call in recognizer.recognize_pcm.call_args_list], [b"answer-one", b"answer-two"])
-        self.assertGreaterEqual(capture.clear_buffer.call_count, 15)
+        self.assertEqual(capture.clear_buffer.call_count, 10)
         capture.speech.close.assert_called_once()
+
+    def test_immediate_short_option_is_preserved_after_prompt_boundary(self):
+        for answer in ("第一项", "第三项"):
+            with self.subTest(answer=answer):
+                actions, detector, recognizer, sounds = worker.ActionChannel(), mock.Mock(), mock.Mock(), mock.Mock()
+                actions._accept(self.spoken("一红色，二蓝色，三绿色。"))
+                capture_after_prompt = []
+                def answer_arrives(capture):
+                    # New audio arrives immediately after playback's echo flush.
+                    capture_after_prompt.append(capture)
+                    capture.clear_buffer.reset_mock()
+                    capture.drain.reset_mock()
+                def audio(*args, **kwargs):
+                    capture = capture_after_prompt[0]
+                    capture.clear_buffer.assert_not_called()
+                    capture.drain.assert_not_called()
+                    return b"short-option"
+                detector.next_utterance.side_effect = audio
+                recognizer.recognize_pcm.return_value = (answer, answer)
+                def command(payload):
+                    actions._accept({"action": "stop"})
+                result, _, events, _ = self.run_fake_live(actions, detector, recognizer, sounds,
+                                                         on_command=command, after_prompt=answer_arrives)
+                self.assertEqual(result, 0)
+                commands = [event for event in events if event["type"] == "command"]
+                self.assertEqual([(event["text"], event["prompt_version"], event["from_prompt"])
+                                  for event in commands], [(answer, 1, True)])
+
+    def test_wake_call_at_prompt_end_keeps_question_open_for_option(self):
+        actions, detector, recognizer, sounds = worker.ActionChannel(), mock.Mock(), mock.Mock(), mock.Mock()
+        actions._accept(self.spoken("一红色，二蓝色，三绿色。"))
+        detector.next_utterance.side_effect = [b"wake", b"choice"]
+        recognizer.recognize_pcm.side_effect = [("花再花再", "wake"), ("第三项", "choice")]
+        _, _, events, reply = self.run_fake_live(actions, detector, recognizer, sounds,
+                                               on_command=lambda _: actions._accept({"action": "stop"}))
+        self.assertEqual([event["text"] for event in events if event["type"] == "command"], ["第三项"])
+        self.assertEqual(reply.call_count, 1)
 
     def test_notification_text_failure_keeps_tone_and_direct_answer_available(self):
         actions, detector, recognizer, sounds, speech = worker.ActionChannel(), mock.Mock(), mock.Mock(), mock.Mock(), mock.Mock()
@@ -967,6 +1014,76 @@ class NotificationSpeechTests(unittest.TestCase):
             play.assert_not_called()
         finally:
             speech.close()
+
+
+class WakeInterruptTests(unittest.TestCase):
+    def play_fake(self, recognized, text="一红色，二蓝色，三绿色。", cancel_after_recognition=False,
+                  synthesis_cancel=False):
+        args = worker.build_parser().parse_args([])
+        speech, capture, recognizer, detector = mock.Mock(), mock.Mock(), mock.Mock(), mock.Mock()
+        playback_started, finish_playback, parent_cancelled = threading.Event(), threading.Event(), threading.Event()
+        heard = iter(recognized)
+        def playback(value, should_stop):
+            playback_started.set()
+            deadline = time.monotonic() + 3
+            while not should_stop() and not finish_playback.wait(.005):
+                if time.monotonic() >= deadline:
+                    raise AssertionError("Playback monitor failed to stop")
+            if synthesis_cancel and should_stop():
+                raise InterruptedError("语音提示已停止")
+        speech.play.side_effect = playback
+        def audio(*args, **kwargs):
+            self.assertTrue(playback_started.wait(1))
+            try:
+                return next(heard).encode("utf-8")
+            except StopIteration:
+                finish_playback.set()
+                time.sleep(.01)
+                return None
+        detector.next_utterance.side_effect = audio
+        def recognize(pcm):
+            if cancel_after_recognition:
+                parent_cancelled.set()
+            return pcm.decode("utf-8"), "raw"
+        recognizer.recognize_pcm.side_effect = recognize
+        with mock.patch.object(worker, "UtteranceDetector", return_value=detector), mock.patch.object(worker, "emit") as emit:
+            result = worker.play_with_wake_interrupt(speech, text, recognizer, capture, args, parent_cancelled.is_set)
+        # Playback listening has no path that emits an answer or approval command.
+        emit.assert_not_called()
+        capture.clear_buffer.assert_called_once()
+        return result, recognizer, speech
+
+    def test_options_and_confirmation_in_speaker_echo_never_answer_or_interrupt(self):
+        result, recognizer, _ = self.play_fake(["第一项", "第三项", "确认提交", "允许一次"])
+        self.assertFalse(result)
+        self.assertEqual(recognizer.recognize_pcm.call_count, 4)
+
+    def test_explicit_wake_call_interrupts_mixed_prompt_but_never_submits_it(self):
+        result, recognizer, _ = self.play_fake(["一红色，二蓝色", "花再花再，第三项"])
+        self.assertTrue(result)
+        self.assertEqual(recognizer.recognize_pcm.call_count, 2)
+
+    def test_wake_phrase_crossing_capture_windows_still_interrupts(self):
+        result, recognizer, _ = self.play_fake(["一红色，花再", "花再，第三项"])
+        self.assertTrue(result)
+        self.assertEqual(recognizer.recognize_pcm.call_count, 2)
+
+    def test_parent_prompt_cancellation_wins_over_simultaneous_wake_call(self):
+        result, _, _ = self.play_fake(["花再花再"], cancel_after_recognition=True)
+        self.assertFalse(result)
+
+    def test_wake_during_synthesis_opens_answer_window_without_playback_failure(self):
+        result, _, _ = self.play_fake(["花再花再"], synthesis_cancel=True)
+        self.assertTrue(result)
+
+    def test_prompt_saying_wake_phrase_cannot_interrupt_itself(self):
+        args = worker.build_parser().parse_args([])
+        speech, capture, recognizer = mock.Mock(), mock.Mock(), mock.Mock()
+        result = worker.play_with_wake_interrupt(speech, "需要时喊花再花再。", recognizer, capture, args, lambda: False)
+        self.assertFalse(result)
+        recognizer.recognize_pcm.assert_not_called()
+        speech.play.assert_called_once()
+        capture.clear_buffer.assert_called_once()
 
 
 if __name__ == "__main__":

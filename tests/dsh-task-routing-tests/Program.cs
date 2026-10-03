@@ -1466,6 +1466,9 @@ await Test("explicit answer containing creation or device commands stays questio
 
 await PollingProbe.RunAsync(Test);
 await DisplayRevisionProbe.RunAsync(Test);
+await ColorRoutingProbe.RunAsync(Test);
+await DeviceReplyRoutingProbe.RunAsync(Test);
+await ChoiceRevisionProbe.RunAsync(Test);
 
 Console.WriteLine($"RESULT {passed}/{passed+failed} passed"); return failed==0?0:1;
 

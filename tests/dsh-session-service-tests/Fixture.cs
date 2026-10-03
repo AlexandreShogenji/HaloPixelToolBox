@@ -75,18 +75,32 @@ internal sealed class MockHost : IAsyncDisposable
     public TaskCompletionSource CommandReceived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource CommandReply { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public bool HoldCommand { get; set; }
+    public Action? BeforeStatusReply { get; set; }
+    public ConcurrentQueue<(string Text, string SessionId)> Commands { get; } = new();
     public int UnauthorizedCount;
 
     public MockHost(string home)
     {
         Home = home;
-        var reservation = new TcpListener(IPAddress.Loopback, 0);
-        reservation.Start();
-        var port = ((IPEndPoint)reservation.LocalEndpoint).Port;
-        reservation.Stop();
-        BaseUri = new($"http://127.0.0.1:{port}/");
-        listener.Prefixes.Add(BaseUri.ToString());
-        listener.Start();
+        var attempt = 0;
+        while (true)
+        {
+            var reservation = new TcpListener(IPAddress.Loopback, 0);
+            reservation.Start();
+            var port = ((IPEndPoint)reservation.LocalEndpoint).Port;
+            reservation.Stop();
+            BaseUri = new($"http://127.0.0.1:{port}/");
+            listener.Prefixes.Add(BaseUri.ToString());
+            try { listener.Start(); break; }
+            catch (HttpListenerException exception) when (attempt++ < 10 && exception.NativeErrorCode is 5 or 32 or 183)
+            {
+                // An available TCP port can still have an HTTP.sys reservation,
+                // or be claimed between the TCP probe and HTTP binding. Choose
+                // another ephemeral port; never change machine URL permissions.
+                listener.Close();
+                listener = new HttpListener();
+            }
+        }
         pump = PumpAsync();
     }
 
@@ -114,12 +128,15 @@ internal sealed class MockHost : IAsyncDisposable
                 return;
             }
             if (path == "/v1/status")
+            {
+                BeforeStatusReply?.Invoke();
                 await ReplyAsync(context, new
                 {
                     protocolVersion = 1, ready = Ready, home = Home, pid = Environment.ProcessId,
                     capabilities = new { prompt = true, deviceHistoryGrouping = true },
                     deviceAgentPreset = "halo-device", deviceSessionId = string.Empty
                 });
+            }
             else if (path == "/v1/sessions")
                 await ReplyAsync(context, new
                 {
@@ -136,6 +153,7 @@ internal sealed class MockHost : IAsyncDisposable
                 CommandReceived.TrySetResult();
                 if (HoldCommand) await CommandReply.Task.WaitAsync(stopped.Token);
                 var command = document.RootElement;
+                Commands.Enqueue((command.GetProperty("command").GetString()!, command.GetProperty("sessionId").GetString()!));
                 await ReplyAsync(context, new
                 {
                     success = true, accepted = true, completed = true,

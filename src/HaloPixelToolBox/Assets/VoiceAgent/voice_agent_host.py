@@ -857,6 +857,77 @@ def play_speech(path: Path, should_stop: Callable[[], bool]) -> None:
         winmm.PlaySoundW(None, None, 0)
 
 
+_BARGE_IN_WAKE = re.compile(r"(?:[花华][再在仔彩]){2}")
+
+
+def play_with_wake_interrupt(
+    speech: NotificationSpeech, text: str, recognizer: Recognizer, capture: AudioCapture,
+    args: argparse.Namespace, should_stop: Callable[[], bool],
+) -> bool:
+    """Listen only for a wake call during TTS; overlapping options are never answers.
+
+    Playback runs off the ASR thread. A bounded window permits a wake call to
+    interrupt even when the speaker's own speech prevents a silent sentence end.
+    No playback audio is carried into the subsequent, fresh answer window.
+    """
+    # A prompt that itself says the wake phrase must not interrupt itself. It is
+    # still cancellable by the parent, and accepts an answer once playback ends.
+    if _BARGE_IN_WAKE.search(normalize_wake_text(text)):
+        try:
+            speech.play(text, should_stop)
+        finally:
+            capture.clear_buffer()
+        return False
+
+    finished = threading.Event()
+    interrupted = threading.Event()
+    errors: list[Exception] = []
+
+    def stopped() -> bool:
+        return should_stop() or interrupted.is_set()
+
+    def playback() -> None:
+        try:
+            speech.play(text, stopped)
+        except Exception as exc:
+            if not (isinstance(exc, InterruptedError) and stopped()):
+                errors.append(exc)
+        finally:
+            # Flush once, exactly at the playback boundary. New microphone
+            # samples after this point belong to the user's immediate answer.
+            capture.clear_buffer()
+            finished.set()
+
+    thread = threading.Thread(target=playback, name="voice-agent-prompt", daemon=True)
+    thread.start()
+    detector = UtteranceDetector(
+        recognizer.np, capture, args.threshold_dbfs, args.wake_silence_ms,
+        args.pre_roll_ms, args.minimum_speech_ms,
+    )
+    previous_tail = b""
+    try:
+        while not finished.is_set() and not should_stop():
+            pcm = detector.next_utterance(1.6, 0, lambda: finished.is_set() or should_stop())
+            if not pcm or finished.is_set() or should_stop():
+                continue
+            heard, _ = recognizer.recognize_pcm(previous_tail + pcm)
+            previous_tail = pcm[-round(args.sample_rate * 2 * .8):]
+            if finished.is_set() or should_stop():
+                break
+            if _BARGE_IN_WAKE.search(normalize_wake_text(heard)):
+                interrupted.set()
+                break
+    finally:
+        # Synthesis and playback both poll this token. Join before reusing the
+        # microphone/model or playing another response; no background ASR leaks.
+        if not finished.is_set():
+            interrupted.set()
+        thread.join()
+    if errors:
+        raise errors[0]
+    return interrupted.is_set() and not should_stop()
+
+
 def decode_audio_file(ffmpeg: str, path: Path, sample_rate: int) -> bytes:
     if not path.is_file():
         raise FileNotFoundError(f"音频文件不存在：{path}")
@@ -992,13 +1063,14 @@ def run_live(args: argparse.Namespace) -> int:
             args.input_gain_db,
         )
 
-        def start_fresh_capture(cooldown_ms: int, silence_ms: int) -> UtteranceDetector:
+        def start_fresh_capture(cooldown_ms: int, silence_ms: int, preserve_buffer: bool = False) -> UtteranceDetector:
             assert capture is not None
             if capture.process is None:
                 capture.start()
-            capture.clear_buffer()
-            capture.drain(cooldown_ms / 1000.0, actions.stopped)
-            capture.clear_buffer()
+            if not preserve_buffer:
+                capture.clear_buffer()
+                capture.drain(cooldown_ms / 1000.0, actions.stopped)
+                capture.clear_buffer()
             return UtteranceDetector(
                 recognizer.np,
                 capture,
@@ -1026,21 +1098,24 @@ def run_live(args: argparse.Namespace) -> int:
             capture.clear_buffer()
             emit("notification", **notification, stage="started")
             error = None
+            spoken = False
             try:
                 notification_sounds.play(notification["cue"])
                 if notification.get("text") and not actions.stopped():
+                    spoken = True
                     emit_state("speaking_task", "正在播报任务提示")
-                    notification_speech.play(notification["text"], lambda: actions.stopped() or not actions.is_current(notification))
+                    if play_with_wake_interrupt(notification_speech, notification["text"], recognizer, capture, args,
+                                                lambda: actions.stopped() or not actions.is_current(notification)):
+                        notification["listen_after"] = "command"
             except Exception as exc:
                 error = str(exc)
                 log(f"notification playback failed: {exc!r}")
             finally:
-                # The FFmpeg reader stays warm during playback, but none of that
-                # audio or its trailing room echo is eligible for wake/command ASR.
-                capture.clear_buffer()
-                if not actions.stopped():
-                    capture.drain(args.resume_cooldown_ms / 1000.0, actions.stopped)
-                capture.clear_buffer()
+                # Spoken playback already flushed at its exact end. Draining
+                # another 400 ms here swallowed short answers such as “第一项”.
+                # Tone-only notifications have no speech to confuse with answers.
+                if not spoken:
+                    capture.clear_buffer()
             if not actions.stopped():
                 emit("notification", **notification, stage="cancelled" if not actions.is_current(notification) else "failed" if error else "played",
                      **({"error": error} if error else {}))
@@ -1067,7 +1142,7 @@ def run_live(args: argparse.Namespace) -> int:
                     if actions.has_notifications():
                         continue
                 else:
-                    detector = start_fresh_capture(0, wake_silence_ms)
+                    detector = start_fresh_capture(0, wake_silence_ms, preserve_buffer=True)
                     emit_state("ready", "正在等待“花再花再”")
                     continue
             if not listen_directly:
@@ -1098,7 +1173,8 @@ def run_live(args: argparse.Namespace) -> int:
 
             command_version = actions.prompt_version
             command_from_prompt = listen_directly
-            detector = start_fresh_capture(0 if listen_directly else args.reply_cooldown_ms, command_silence_ms)
+            detector = start_fresh_capture(0 if listen_directly else args.reply_cooldown_ms, command_silence_ms,
+                                           preserve_buffer=listen_directly)
             emit_state("listening_command", "请直接回答，可说选项名称或编号" if listen_directly else "请说出指令")
             answer_version = command_version
             listen_directly = False
@@ -1146,6 +1222,11 @@ def run_live(args: argparse.Namespace) -> int:
                     break
                 if not command_text:
                     emit_state("listening_command", "没有听清，请再说一次")
+                    continue
+                if command_from_prompt and matches_wake_word(command_text):
+                    # Users may repeat the wake call just as TTS finishes. It
+                    # means “listen”, never an answer to the pending question.
+                    emit_state("listening_command", "请直接回答，可说选项名称或编号")
                     continue
 
                 cancelled_before_command = actions.cancelled_prompt_version

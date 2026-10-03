@@ -652,6 +652,8 @@ public sealed partial class DshTaskService : IDisposable
             return new(true, DshVoiceIntentRouter.SceneClarification(text)) { ListenForReply = true };
         if (IsInteractionCommand(normalized))
             return new(true, "当前没有等待回答的问题。可以说任务状态，或继续说任务指令。");
+        if (DshDeviceReplyRouting.IsOrdinalReply(text))
+            return new(true, "当前没有对应的选项。请重新说完整的音箱指令；继续任务请先说任务内容。");
         // Approval words outside a live request must never become an implicit authorization.
         if (DshTaskVoiceParser.IsApprovalReply(text))
             return new(true, "当前没有等待中的授权请求，未发送授权。");
