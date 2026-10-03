@@ -7,6 +7,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../src/HaloPixelToolBox/Services/Dsh/DshSpokenInteraction.cs" Link="DshSpokenInteraction.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/Services/Dsh/DshTaskSubtitleFormatter.cs" Link="DshTaskSubtitleFormatter.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/Services/Dsh/DshTaskFeedback.cs" Link="DshTaskFeedback.cs" />
     <Compile Include="../../src/HaloPixelToolBox/Models/Dsh/DshTasks.cs" Link="DshTasks.cs" />
   </ItemGroup>
 </Project>

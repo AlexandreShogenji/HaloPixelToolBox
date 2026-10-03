@@ -610,7 +610,7 @@ public sealed class VoiceAgentService : IDisposable
                                 UpdateSnapshot(VoiceAgentPhase.CoolingDown, "旧问题的语音回答未提交", warning,
                                     lastTranscript: text, lastResponse: warning, isRunning: true,
                                     expectedWorker: process, workerToken: cancellationToken);
-                                await DshTaskFeedback.PublishVoiceReplyAsync(warning, cancellationToken);
+                                await DshTaskFeedback.PublishVoiceReplyAsync(warning, cancellationToken, isTaskReply: true);
                                 await SendTaskNotificationAsync("input_required", warning, task.NeedsAttention, true, cancellationToken);
                             }
                             else await ExecuteCommandAsync(process, text,
@@ -696,7 +696,7 @@ public sealed class VoiceAgentService : IDisposable
                 var needsNextAnswer = task.NeedsAttention && !routed.ListenForReply;
                 var reply = needsNextAnswer ? task.Detail : routed.Message;
                 var listenForReply = routed.ListenForReply || needsNextAnswer;
-                await DshTaskFeedback.PublishVoiceReplyAsync(reply, cancellationToken);
+                await DshTaskFeedback.PublishVoiceReplyAsync(reply, cancellationToken, isTaskReply: true);
                 await SendTaskNotificationAsync(listenForReply ? "input_required" : "task_progress",
                     reply, listenForReply, true, cancellationToken);
                 notificationOwnsResume = true;
@@ -710,7 +710,7 @@ public sealed class VoiceAgentService : IDisposable
                     lastTranscript: command, lastResponse: "未确认目标会话，未发送指令。", isRunning: true,
                     expectedWorker: process, workerToken: cancellationToken);
                 const string clarification = "未发送指令。请说明是控制音箱，还是新建或继续 DSH 任务。";
-                await DshTaskFeedback.PublishVoiceReplyAsync(clarification, cancellationToken);
+                await DshTaskFeedback.PublishVoiceReplyAsync(clarification, cancellationToken, isTaskReply: true);
                 await SendTaskNotificationAsync("input_required", clarification, true, true, cancellationToken);
                 notificationOwnsResume = true;
                 return;
@@ -761,7 +761,7 @@ public sealed class VoiceAgentService : IDisposable
             try
             {
                 var failure = "这次指令未能确认完成，请查看会话状态后重试。";
-                await DshTaskFeedback.PublishVoiceReplyAsync(failure, cancellationToken);
+                await DshTaskFeedback.PublishVoiceReplyAsync(failure, cancellationToken, isTaskReply: true);
                 await SendTaskNotificationAsync("task_failed", failure, false, true, cancellationToken);
                 notificationOwnsResume = true;
             }

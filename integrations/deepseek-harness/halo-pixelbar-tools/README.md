@@ -32,6 +32,15 @@ HaloPixelToolBox owns the USB HID connection. The plugin only connects to the
 current Windows user's `HaloPixelToolBox.DeviceControl.v1` named pipe, so DSH
 never receives raw HID access.
 
+### Subtitle length contract (0.7.1)
+
+Generated status text should fit one 55-byte UTF-8 send and preserve the current
+phase, verified result or next action. The subtitle tool now rejects oversized
+text before transport and reports its encoded size and remaining byte budget
+in `subtitleLimit`. User-provided custom text is never silently shortened.
+Install or update the plugin from Toolbox settings, then restart DSH to load
+the new tool descriptions and validation.
+
 ### Independent audio control (0.7.0)
 
 Audio effects use the Toolbox's separate Equalizer APO configuration, without
@@ -149,8 +158,27 @@ start. The original Spotify-specific tools remain available for compatibility.
 
 `show_pixelbar_subtitle` accepts text, `left`/`center`/`right` alignment and
 `none`/`left`/`right` scrolling. Subtitle text is limited by the device protocol
-to 55 UTF-8 bytes; Chinese characters consume multiple bytes, so the practical
-character limit is lower than 55. The tool also accepts a color request;
+to **55 UTF-8 bytes per send**, including punctuation, spaces and labels. This
+fits about 18 common Chinese characters, not 55 Chinese characters; emoji may
+use more bytes. Scrolling does not increase the limit. For generated status,
+write one concise phase, verified result or required next action, for example
+`正在运行测试`, `测试失败，请查看会话`, or `等待授权，请先听详情`. Preserve failure,
+uncertainty and approval requirements; keep logs, paths and detailed explanations
+in the conversation or spoken prompt. Do not silently summarize or truncate
+user-provided custom text.
+
+The plugin checks encoded length before opening the device pipe. An oversized
+request returns `success: false`, `status: "invalidArgument"`,
+`code: "subtitle_too_long"` and sends nothing. Correct the generated summary or
+ask the user to choose shorter custom text; do not retry the same oversized text.
+Both accepted-length and rejected requests include `subtitleLimit`:
+
+```json
+{ "encoding": "UTF-8", "unit": "bytes", "actual": 57, "max": 55, "remaining": 0, "fits": false }
+```
+
+These fields describe the input budget, not whether the device displayed it;
+check the returned `success` and status separately. The tool also accepts a color request;
 unsupported colors are reported by the device service without sending partial
 content.
 

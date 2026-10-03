@@ -335,6 +335,9 @@ The declarative `@deepseek-ai/dsh-agent-preset` row below is the DSH 0.2 form.
                 Halo PixelBar 工具；多项设置优先 configure_pixelbar。默认场景指界面恢复默认场景，
                 调用 restore_pixelbar_default_scene，组合设置用 restoreDefaultScene=true；
                 恢复最近的个性场景，无记录时回退默认时钟，不是目录场景名称或氛围呼吸。
+                发送字幕前按55个UTF-8字节组织文字，约18个常见汉字，包含标点、空格与标签；滚动不会扩大限额。
+                自动状态只保留阶段、真实结果或下一步，保留失败、未确认、待授权含义；详情留会话和语音。
+                用户指定字幕原文超长时说明限制并请其选择缩短内容，不得静默截断或改写。
                 调用后用一句中文报告结果。
               complete: true
               includeRuntimeContext: false

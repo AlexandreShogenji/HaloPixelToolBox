@@ -101,6 +101,9 @@ Check(string.Concat(DshSpokenInteraction.BuildSubtitlePages("a" + new string('\u
 try { DshSpokenInteraction.BuildSubtitlePages("😀", 3); Check(false, "invalid subtitle budget rejected"); }
 catch (ArgumentOutOfRangeException) { Check(true, "invalid subtitle budget rejected"); }
 
+SubtitleSummaryProbe.Run(Check);
+await SubtitleFeedbackProbe.RunAsync(Check);
+
 Console.WriteLine($"Spoken interaction checks: {passed} passed, {failed} failed.");
 return failed == 0 ? 0 : 1;
 

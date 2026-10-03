@@ -3,7 +3,6 @@ using HaloPixelToolBox.Core.Models.Display;
 using HaloPixelToolBox.Core.Services;
 using HaloPixelToolBox.Models;
 using HaloPixelToolBox.Profiles.CrossVersionProfiles;
-using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -13,8 +12,10 @@ internal static class DshTaskFeedback
 {
     private static readonly SemaphoreSlim Gate = new(1, 1);
     private static readonly HaloPixelDisplayService Display = new();
-    private static CancellationTokenSource? pageCancellation;
+    private sealed record PageDelivery(string SnapshotIdentity, CancellationTokenSource Cancellation);
+    private static PageDelivery? pageDelivery;
     private static string lastIdentity = string.Empty;
+    private static string lastSentIdentity = string.Empty;
     private static bool observing;
     private static string attentionIdentity = string.Empty;
 
@@ -25,13 +26,12 @@ internal static class DshTaskFeedback
         {
             ObserveTaskChanges();
             token.ThrowIfCancellationRequested();
-            if (App.DshTasks.Current.SessionId != snapshot.SessionId || !App.DshTasks.Current.IsMonitoring) return;
+            if (!snapshot.IsMonitoring || SnapshotIdentity(App.DshTasks.Current) != SnapshotIdentity(snapshot)) return;
             if (cue == "task_started" && App.LyricsSubtitleControl.CurrentStatus.IsRunning)
                 await App.LyricsSubtitleControl.StopAsync(restoreScene: false, cancellationToken: token);
             var detail = snapshot.NeedsAttention ? snapshot.Detail
                 : snapshot.State == "completed" ? snapshot.FinalText : snapshot.Detail;
-            var text = snapshot.NeedsAttention ? detail : snapshot.StatusText + (string.IsNullOrWhiteSpace(detail) ? "" : "：" + detail);
-            await BeginPagesAsync(snapshot, text, token);
+            await BeginPagesAsync(snapshot, DshTaskSubtitleFormatter.ForTask(snapshot), token);
             if (SnapshotIdentity(App.DshTasks.Current) != SnapshotIdentity(snapshot)
                 || App.DshTasks.Current.VoiceAnswerRevision != snapshot.VoiceAnswerRevision) return;
             if (cue.Length > 0)
@@ -47,10 +47,15 @@ internal static class DshTaskFeedback
     }
 
     // Replies also appear on the device when no task has been created yet.
-    public static async Task PublishVoiceReplyAsync(string text, CancellationToken token)
+    public static async Task PublishVoiceReplyAsync(string text, CancellationToken token, bool isTaskReply = false)
     {
         await Gate.WaitAsync(token);
-        try { ObserveTaskChanges(); await BeginPagesAsync(App.DshTasks.Current, text, token); }
+        try
+        {
+            ObserveTaskChanges();
+            var snapshot = App.DshTasks.Current;
+            await BeginPagesAsync(snapshot, DshTaskSubtitleFormatter.ForReply(snapshot, text, isTaskReply), token);
+        }
         finally { Gate.Release(); }
     }
 
@@ -64,9 +69,11 @@ internal static class DshTaskFeedback
             var next = AttentionIdentity(snapshot);
             var previous = Interlocked.Exchange(ref attentionIdentity, next);
             if (previous.Length > 0 && previous != next) _ = InvalidatePromptAsync();
-            if (!snapshot.IsMonitoring)
+            if (!snapshot.IsMonitoring) Interlocked.Exchange(ref lastSentIdentity, string.Empty);
+            var delivery = Volatile.Read(ref pageDelivery);
+            if (delivery is not null && delivery.SnapshotIdentity != SnapshotIdentity(snapshot))
             {
-                try { pageCancellation?.Cancel(); } catch (ObjectDisposedException) { }
+                try { delivery.Cancellation.Cancel(); } catch (ObjectDisposedException) { }
             }
         };
     }
@@ -82,21 +89,37 @@ internal static class DshTaskFeedback
     }
 
     private static string SnapshotIdentity(DshTaskSnapshot snapshot)
-        => snapshot.SessionId + "\n" + snapshot.State + "\n" + snapshot.Detail + "\n" + JsonSerializer.Serialize(snapshot.PendingInteractions);
+        => snapshot.SessionId + "\n" + snapshot.IsMonitoring + "\n" + snapshot.State + "\n" + snapshot.Detail
+            + "\n" + snapshot.FinalText + "\n" + snapshot.VoiceAnswerRevision + "\n" + JsonSerializer.Serialize(snapshot.PendingInteractions);
 
-    private static async Task BeginPagesAsync(DshTaskSnapshot snapshot, string text, CancellationToken token)
+    private static async Task BeginPagesAsync(DshTaskSnapshot snapshot, IReadOnlyList<string> pages, CancellationToken token)
     {
         var snapshotIdentity = SnapshotIdentity(snapshot);
-        var identity = snapshotIdentity + "\n" + text;
-        if (lastIdentity == identity && pageCancellation is { IsCancellationRequested: false }) return;
-        pageCancellation?.Cancel();
-        pageCancellation?.Dispose();
-        pageCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
-        var pageToken = pageCancellation.Token;
+        // Deduplicate what the screen actually shows, including its interaction schema.
+        // Changes to verbose progress alone must not flash the same short status again.
+        var identity = snapshot.SessionId + "\n" + snapshot.State + "\n"
+            + JsonSerializer.Serialize(snapshot.PendingInteractions) + "\n" + string.Join("\n", pages);
+        if (pages.Count > 1) identity += "\n" + snapshotIdentity;
+        if (pages.Count == 1 && lastSentIdentity == identity) return;
+        if (lastIdentity == identity && pageDelivery?.Cancellation is { IsCancellationRequested: false }) return;
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
+        var previous = Interlocked.Exchange(ref pageDelivery, new PageDelivery(snapshotIdentity, cancellation));
+        previous?.Cancellation.Cancel();
+        previous?.Cancellation.Dispose();
+        var pageToken = cancellation.Token;
         lastIdentity = identity;
-        var pages = DshSpokenInteraction.BuildSubtitlePages(text, 45);
         if (pages.Count == 0) return;
-        if (!await SendPageAsync(pages[0], 0, pages.Count, pageToken)) lastIdentity = string.Empty;
+        if (SnapshotIdentity(App.DshTasks.Current) != snapshotIdentity) { cancellation.Cancel(); return; }
+        try
+        {
+            if (await SendPageAsync(pages[0], pageToken)) lastSentIdentity = identity;
+            else { lastIdentity = string.Empty; lastSentIdentity = string.Empty; }
+        }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested && pageToken.IsCancellationRequested)
+        {
+            // A newer task state superseded a page waiting in the device queue.
+            return;
+        }
         _ = ContinuePagesAsync(snapshotIdentity, pages, pageToken);
     }
 
@@ -108,21 +131,21 @@ internal static class DshTaskFeedback
             {
                 await Task.Delay(TimeSpan.FromSeconds(4), token);
                 if (SnapshotIdentity(App.DshTasks.Current) != identity) return;
-                await SendPageAsync(pages[index], index, pages.Count, token);
+                await SendPageAsync(pages[index], token);
             }
         }
         catch (OperationCanceledException) { }
         catch (Exception exception) { System.Diagnostics.Debug.WriteLine("任务字幕分页失败：" + exception.Message); }
     }
 
-    private static Task<bool> SendPageAsync(string text, int index, int total, CancellationToken token)
+    private static Task<bool> SendPageAsync(string text, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
         if (!DisplayFeatureProfile.PixelScreenEnabled || DisplayFeatureProfile.LightsTurnedOffByAutomation)
             return Task.FromResult(false);
         return Display.SendTextAsync(new DisplayTextOptions
         {
-            Text = FitSubtitle(total > 1 ? $"{index + 1}/{total} {text}" : text), Source = DisplayContentKind.TaskStatus,
+            Text = FitSubtitle(text), Source = DisplayContentKind.TaskStatus,
             Layout = HaloPixelTextLayout.Center, ScrollDirection = TextScrollDirection.RightToLeft, Speed = 5
         }, token);
     }
@@ -133,16 +156,5 @@ internal static class DshTaskFeedback
         return text.Length <= 160 ? text : text[..160] + "。完整结果已保存在会话，可说朗读任务结果。";
     }
 
-    internal static string FitSubtitle(string text)
-    {
-        text = Regex.Replace(text, @"[`*#\r\n\t]+", " ").Trim();
-        var result = new StringBuilder();
-        var bytes = 0;
-        foreach (var rune in text.EnumerateRunes())
-        {
-            if (bytes + rune.Utf8SequenceLength > 55) break;
-            result.Append(rune.ToString()); bytes += rune.Utf8SequenceLength;
-        }
-        return result.ToString();
-    }
+    internal static string FitSubtitle(string text) => DshTaskSubtitleFormatter.Fit(text);
 }

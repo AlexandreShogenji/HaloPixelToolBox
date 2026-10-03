@@ -60,6 +60,7 @@ assertSchema('configure_pixelbar', 'sceneReference', { type: 'string' })
 assertSchema('configure_pixelbar', 'volume', { type: 'integer', minimum: 0, maximum: 16 })
 assertSchema('configure_pixelbar', 'continueOnError', { type: 'boolean' })
 assertRequired('show_pixelbar_subtitle', ['text'])
+assertDescriptionIncludes('show_pixelbar_subtitle', ['55 UTF-8 bytes', '18 common Chinese characters', 'scrolling does not increase', 'Preserve failure, uncertainty and approval', 'Do not silently shorten user-provided'])
 assertRequired('restore_pixelbar_default_scene', [])
 assertDeepEqual(tools.restore_pixelbar_default_scene.parameters.properties, {}, 'default restoration must not ask for a fabricated category or scene')
 assertRequired('activate_pixelbar_scene_by_reference', ['category', 'scene'])
@@ -96,6 +97,17 @@ assert(transportResult?.status === 'cancelled', 'cancelled calls must return can
 assert(transportResult?.code === 'cancelled', 'cancelled calls must return cancelled code')
 assert(transportResult?.retryable === false, 'cancelled calls must not be marked retryable')
 assert(typeof transportResult?.message === 'string' && transportResult.message.length > 0, 'cancelled calls need a message')
+
+for (const text of ['字'.repeat(19), 'x'.repeat(56), '🙂'.repeat(14), '字'.repeat(18) + 'ab']) {
+  // An already-aborted transport proves oversized input is rejected before any pipe call.
+  const result = await tools.show_pixelbar_subtitle.execute({ text }, { signal: aborted.signal })
+  assert(result?.success === false && result.status === 'invalidArgument' && result.code === 'subtitle_too_long', 'UTF-8 overflow must be rejected before transport, without truncating input')
+  assert(result?.retryable === false && result.message.includes('未发送'), 'overflow must explain that nothing was sent and require a corrected request')
+  assertDeepEqual(result.subtitleLimit, { encoding: 'UTF-8', unit: 'bytes', actual: Buffer.byteLength(text, 'utf8'), max: 55, remaining: 0, fits: false }, 'overflow must report actual and maximum encoded byte counts')
+}
+const cancelledSubtitle = await tools.show_pixelbar_subtitle.execute({ text: '测试' }, { signal: aborted.signal })
+assert(cancelledSubtitle.success === false && cancelledSubtitle.status === 'cancelled', 'valid length must never convert a failed send into success')
+assertDeepEqual(cancelledSubtitle.subtitleLimit, { encoding: 'UTF-8', unit: 'bytes', actual: 6, max: 55, remaining: 49, fits: true }, 'transport failures must still expose the available byte budget')
 
 if (process.platform === 'win32') {
   const protocolPipeName = `HaloPixelToolBox.PackageCheck.${randomUUID()}`
@@ -181,13 +193,19 @@ if (process.platform === 'win32') {
   }, {})
   const restoredDefaultResult = await effectTools.restore_pixelbar_default_scene.execute({}, {})
   const combinedRestoreResult = await effectTools.configure_pixelbar.execute({ restoreDefaultScene: true, volume: 13 }, {})
+  const boundarySubtitles = ['x'.repeat(55), '字'.repeat(18) + '!', '🙂'.repeat(13) + 'abc']
+  for (const text of boundarySubtitles) {
+    const subtitleResult = await effectTools.show_pixelbar_subtitle.execute({ text, scroll: 'left' }, {})
+    assert(subtitleResult.success === true, 'a 55-byte subtitle must reach the fake device')
+    assertDeepEqual(subtitleResult.subtitleLimit, { encoding: 'UTF-8', unit: 'bytes', actual: 55, max: 55, remaining: 0, fits: true }, 'successful requests must expose input byte counts without claiming device success from length alone')
+  }
   await new Promise((resolve, reject) => effectServer.close((error) => error ? reject(error) : resolve()))
 
   assert(directEffectResult?.success === true, 'direct effect tool must return the fake pipe result')
   assert(combinedEffectResult?.success === true, 'combined effect fields must return the fake pipe result')
   assert(restoredDefaultResult?.success === true, 'default restoration must return the fake pipe result')
   assert(combinedRestoreResult?.success === true, 'combined restoration must return the fake pipe result')
-  assert(effectRequests.length === 4, 'effect/default package check must capture four pipe requests')
+  assert(effectRequests.length === 7, 'effect/default and subtitle checks must capture seven pipe requests')
   assert(effectRequests[0]?.method === 'set_ambient_light_effect', 'direct effect tool must use set_ambient_light_effect')
   assertDeepEqual(effectRequests[0]?.parameters, { mode: 'next' }, 'direct effect tool must preserve mode only')
   assert(effectRequests[1]?.method === 'configure_device', 'combined effect fields must use configure_device')
@@ -200,6 +218,10 @@ if (process.platform === 'win32') {
   assertDeepEqual(effectRequests[2]?.parameters, {}, 'default restoration must forward empty parameters')
   assert(effectRequests[3]?.method === 'configure_device', 'combined restoration must use configure_device')
   assertDeepEqual(effectRequests[3]?.parameters, { restoreDefaultScene: true, volume: 13 }, 'combined default restoration must preserve its flag and requested volume')
+  for (let index = 0; index < boundarySubtitles.length; index++) {
+    assert(effectRequests[index + 4]?.method === 'show_subtitle', 'boundary subtitles must use the subtitle method')
+    assertDeepEqual(effectRequests[index + 4]?.parameters, { text: boundarySubtitles[index], scroll: 'left' }, 'valid custom text including emoji must reach the device unchanged')
+  }
 }
 
 const extendedRegistrations = []

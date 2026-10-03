@@ -4,6 +4,7 @@ import Schema from '@deepseek-ai/schemastery'
 
 export const name = 'halo-pixelbar-tools'
 export const inject = ['tools']
+const MAX_SUBTITLE_UTF8_BYTES = 55
 
 export const Config = Schema.object({
   pipeName: Schema.string().default('HaloPixelToolBox.DeviceControl.v1'),
@@ -146,9 +147,9 @@ export function apply(ctx, config) {
   })
   registerTool(ctx, config, {
     name: 'show_pixelbar_subtitle',
-    description: 'Show custom text on the Halo PixelBar subtitle display with alignment, scrolling and an optional color request.',
+    description: 'Show text on the Halo PixelBar subtitle display. Each send is limited to 55 UTF-8 bytes, about 18 common Chinese characters, including punctuation and spaces; scrolling does not increase this limit. For generated status text, summarize the current phase, verified result or required next action before calling, for example “正在运行测试”, “测试失败，请查看会话”, or “等待授权，请先听详情”. Preserve failure, uncertainty and approval requirements; never present an unverified outcome as success. Keep logs, paths, detailed choices and explanations in the conversation or spoken prompt. Do not silently shorten user-provided custom subtitle text; oversized text is rejected with subtitleLimit metadata so the user can choose a shorter version.',
     parameters: {
-      text: { type: 'string', minLength: 1, maxLength: 55, required: true, description: 'Subtitle text to display. The device protocol allows at most 55 UTF-8 bytes, so Chinese text uses more than one byte per character and has a lower practical character limit.' },
+      text: { type: 'string', minLength: 1, maxLength: MAX_SUBTITLE_UTF8_BYTES, required: true, description: 'Exact text to send, at most 55 UTF-8 bytes (not 55 characters; about 18 common Chinese characters). Count the complete encoded text including punctuation, spaces and any label. Generated status should be one concise phase/result/next-action message; retain errors and authorization requirements. User-provided custom text must not be silently truncated or summarized.' },
       layout: { type: 'string', enum: ['left', 'center', 'right'], description: 'Text alignment. Defaults to center.' },
       scroll: { type: 'string', enum: ['none', 'left', 'right'], description: 'Scrolling direction. Defaults to none; left moves text from right to left.' },
       color: { type: 'string', description: 'Requested text color, such as #FFFFFF, white or 白色. The device service returns notSupported when the current protocol cannot represent the requested color.' },
@@ -289,20 +290,47 @@ function registerTool(ctx, config, definition) {
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
     },
     async execute(args, exec) {
+      const subtitleLimit = definition.method === 'show_subtitle' && typeof args?.text === 'string'
+        ? subtitleTextLimit(args.text)
+        : null
+      if (subtitleLimit && !subtitleLimit.fits) {
+        return {
+          success: false,
+          status: 'invalidArgument',
+          code: 'subtitle_too_long',
+          message: `字幕为 ${subtitleLimit.actual} UTF-8 字节，单次最多 ${subtitleLimit.max} 字节（约 18 个常见汉字）；未发送。状态提示请提炼阶段、真实结果或下一步，保留失败/待授权语义；用户指定原文请先确认缩短内容，不能静默截断。`,
+          retryable: false,
+          subtitleLimit,
+        }
+      }
       try {
-        return await callDevice(
+        const result = await callDevice(
           config,
           definition.method,
           args,
           exec?.signal,
           effectiveTimeoutMs,
         )
+        return subtitleLimit ? { ...result, subtitleLimit } : result
       } catch (error) {
-        return toFailureResult(error)
+        const result = toFailureResult(error)
+        return subtitleLimit ? { ...result, subtitleLimit } : result
       }
     },
     timeoutMs: effectiveTimeoutMs,
   })
+}
+
+function subtitleTextLimit(text) {
+  const actual = Buffer.byteLength(text, 'utf8')
+  return {
+    encoding: 'UTF-8',
+    unit: 'bytes',
+    actual,
+    max: MAX_SUBTITLE_UTF8_BYTES,
+    remaining: Math.max(0, MAX_SUBTITLE_UTF8_BYTES - actual),
+    fits: actual <= MAX_SUBTITLE_UTF8_BYTES,
+  }
 }
 
 function callDevice(config, method, parameters, signal, effectiveTimeoutMs) {
