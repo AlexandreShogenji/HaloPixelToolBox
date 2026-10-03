@@ -100,6 +100,144 @@ await Test("draw or change ASR ambiguity is clarified locally without a target o
     }
 });
 
+await Test("short clock switches and clipped scene endings cannot enter a completed development task", async()=>
+{
+    using var f=new TaskCase();await f.Start();var target=f.Service.Current.SessionId;
+    f.Client.SetRemote("completed","short-clock-completed",[]);await Until(()=>f.Service.Current.State=="completed");
+    foreach(var command in new[]{"换一个时钟长。","换一个时钟场","直接换个时钟","切到时钟","换个钟表",
+        "嗯，还是换一个时钟场。","其实换个时钟吧","再换一个数字时钟","切换到下一个模拟时钟",
+        "請直接換個時鐘場","換一個時鐘長","换一个自定义场","请换个动画场"})
+    {
+        Check(DshVoiceIntentRouter.Classify(command)==DshVoiceIntent.DeviceControl,"short device object failed routing: "+command);
+        Check(!(await f.Service.RouteVoiceAsync(command)).Handled&&f.Client.Prompts.Count==1&&f.Client.Creates.Count==1
+            &&f.Service.Current.SessionId==target&&f.Client.Responses.Count==0,"clipped device speech polluted the selected task: "+command);
+    }
+});
+
+await Test("short clock switches leave an empty task awaiting its requested content", async()=>
+{
+    using var f=new TaskCase();await f.Service.RouteVoiceAsync("新建任务");var target=f.Service.Current.SessionId;
+    foreach(var command in new[]{"换一个时钟长","换一个时钟场","直接换个时钟","再换个钟表"})
+        Check(!(await f.Service.RouteVoiceAsync(command)).Handled&&f.Service.Current.State=="awaitingPrompt"
+            &&f.Service.Current.SessionId==target&&f.Client.Prompts.Count==0,"short switch consumed the empty task content: "+command);
+});
+
+await Test("short scene corrections ask locally instead of executing or appending to a development task", async()=>
+{
+    foreach(var selected in new[]{false,true})
+    {
+        using var f=new TaskCase();
+        if(selected)
+        {
+            await f.Start();f.Client.SetRemote("completed","scene-statement-completed",[]);
+            await Until(()=>f.Service.Current.State=="completed");
+        }
+        var prompts=f.Client.Prompts.Count;
+        foreach(var command in new[]{"其实换了一个时钟场景。","嗯，其实换了一个时钟场。","还是换了个时钟长",
+            "刚才换了一个钟表","我已经切到了一个时钟场景","其實換了一個時鐘場景"})
+        {
+            Check(DshVoiceIntentRouter.Classify(command)==DshVoiceIntent.ClarifySceneIntent,"device statement became an action or task prompt: "+command);
+            var result=await f.Service.RouteVoiceAsync(command);
+            Check(result.Handled&&result.ListenForReply&&result.Message.Contains("切换")&&!result.Message.Contains("听到的是“画场景”")
+                &&f.Client.Prompts.Count==prompts&&f.Client.Responses.Count==0,"statement clarification invented drawing or sent a prompt: "+command);
+        }
+    }
+});
+
+await Test("scene statement clarification cannot fill an empty task or an unsubmitted creation draft", async()=>
+{
+    foreach(var creation in new[]{"新建任务","新建一个绘画进行DSH的任务"})
+    {
+        using var f=new TaskCase();await f.Service.RouteVoiceAsync(creation);
+        var target=f.Service.Current.SessionId;var created=f.Client.Creates.Count;
+        foreach(var statement in new[]{"其实换了一个时钟场景","嗯，还是换了个时钟场"})
+        {
+            Check(DshVoiceIntentRouter.Classify(statement,awaitingTaskContent:true)==DshVoiceIntent.ClarifySceneIntent,
+                "ambiguous device statement became implicit task content");
+            var result=await f.Service.RouteVoiceAsync(statement);
+            Check(result.Handled&&result.ListenForReply&&f.Client.Prompts.Count==0&&f.Client.Creates.Count==created
+                &&f.Service.Current.SessionId==target,"scene statement consumed pending task content or created work");
+        }
+        await f.Service.RouteVoiceAsync("任务内容，换一个时钟长");
+        Check(f.Client.Prompts.Single().Prompt=="换一个时钟长"&&f.Client.Creates.Count==1,
+            "clarification erased the creation draft or prevented explicitly supplied task content");
+    }
+});
+
+await Test("clipped draw/change ambiguity asks locally while explicit task content stays data", async()=>
+{
+    using var f=new TaskCase();await f.Start();
+    foreach(var command in new[]{"画一个时钟长","划一个时钟场","画个时钟","请直接画个数字时钟"})
+    {
+        Check(DshVoiceIntentRouter.Classify(command)==DshVoiceIntent.ClarifySceneIntent,"clipped draw/change ambiguity silently chose a route: "+command);
+        var result=await f.Service.RouteVoiceAsync(command);
+        Check(result.Handled&&result.ListenForReply&&f.Client.Prompts.Count==1,"clipped ambiguous speech reached a task: "+command);
+    }
+    foreach(var command in new[]{"任务内容，换一个时钟长","任务内容，其实换了一个时钟场景","任务指令，在页面换一个时钟"})
+    {
+        Check(DshVoiceIntentRouter.Classify(command)==DshVoiceIntent.Task,"explicit task body lost priority: "+command);
+        var count=f.Client.Prompts.Count;await f.Service.RouteVoiceAsync(command);
+        Check(f.Client.Prompts.Count==count+1&&f.Client.Prompts.Last().Prompt==command,"explicit task body was intercepted or rewritten: "+command);
+    }
+});
+
+await Test("short clock task clauses negations and contextless followups remain ordinary task text", async()=>
+{
+    using var f=new TaskCase();await f.Start();
+    foreach(var command in new[]{"换一个时钟长度算法","直接换一个时钟长度算法","在页面改时钟","请在页面换一个时钟",
+        "换一个时钟组件","换一个时钟场景到页面里进行开发","不要换一个时钟场","其实不要换一个时钟",
+        "怎么换一个时钟","如果要换一个时钟场怎么办","说明其实换了一个时钟场景这句话","再换一个"})
+    {
+        Check(DshVoiceIntentRouter.Classify(command)==DshVoiceIntent.Task,"partial substring swallowed task content: "+command);
+        var count=f.Client.Prompts.Count;await f.Service.RouteVoiceAsync(command);
+        Check(f.Client.Prompts.Count==count+1&&f.Client.Prompts.Last().Prompt==command,"task text was changed or intercepted: "+command);
+    }
+});
+
+await Test("pending questions retain clipped scene utterances and statements as exact answer data", async()=>
+{
+    foreach(var answer in new[]{"换一个时钟长","直接换个时钟","其实换了一个时钟场景","画个时钟场"})
+    {
+        using var f=new TaskCase();await f.Start();
+        var question=new DshTaskInteraction("short-scene-answer","question","ask","",[new("content","内容","请说出文字内容",[])]);
+        f.Client.SetRemote("waitingInput","short-scene-question",[question]);await Until(()=>f.Service.Current.NeedsAttention);
+        Check(DshVoiceIntentRouter.Classify(answer,true)==DshVoiceIntent.InteractionReply,"pending answer lost priority: "+answer);
+        await f.Service.RouteVoiceAsync(answer);
+        Check(f.Service.Current.VoiceAnswers["content"]==answer&&f.Client.Prompts.Count==1&&f.Client.Responses.Count==0,"pending answer was reclassified or prematurely submitted: "+answer);
+        await f.Service.RouteVoiceAsync("确认提交");
+        Check(f.Client.Responses.Single().Answers!["content"]==answer,"confirmed short answer was rewritten: "+answer);
+    }
+});
+
+await Test("device scene followups inherit only a recent explicit scene category",()=>
+{
+    foreach(var (previous,followUp,expected) in new[]{
+        ("换一个时钟场景","再换一个","换一个时钟场景"),
+        ("换一个时钟长","换个别的","换一个时钟场景"),
+        ("直接换个数字时钟","下一个","切换到下一个数字时钟场景"),
+        ("切换到自定义第二个场景","再换一个","换一个自定义场景"),
+        ("音箱控制，请换一个动画场景","换一个其他的吧","换一个动画场景"),
+        ("請直接換個時鐘場","再換一個","换一个时钟场景")})
+        Check(DshVoiceIntentRouter.TryResolveDeviceFollowUp(followUp,previous,TimeSpan.FromSeconds(45),out var resolved)
+            &&resolved==expected,"followup did not preserve the scene category: "+previous+" / "+followUp);
+    Check(DshVoiceIntentRouter.TryResolveDeviceFollowUp("再换一个","换个时钟",TimeSpan.FromSeconds(90),out _),"context expired before its 90-second limit");
+    return Task.CompletedTask;
+});
+
+await Test("device followups reject stale unrelated declarative and task contexts",()=>
+{
+    foreach(var previous in new[]{"","关闭氛围灯","把音量调到六","开发一个时钟场景","其实换了一个时钟场景",
+        "任务内容，换一个时钟场景","恢复默认场景","切换场景"})
+        Check(!DshVoiceIntentRouter.TryResolveDeviceFollowUp("再换一个",previous,TimeSpan.FromSeconds(1),out var resolved)
+            &&resolved.Length==0,"followup guessed an unspecified or unrelated scene category: "+previous);
+    foreach(var followUp in new[]{"不要再换一个","任务内容，再换一个","我的答案是再换一个","再换一个算法","换个别的页面","下一个任务"})
+        Check(!DshVoiceIntentRouter.TryResolveDeviceFollowUp(followUp,"换个时钟",TimeSpan.FromSeconds(1),out _),"followup consumed explicit task/answer text: "+followUp);
+    foreach(var elapsed in new[]{TimeSpan.FromSeconds(-1),TimeSpan.FromSeconds(90.01),TimeSpan.FromMinutes(5)})
+        Check(!DshVoiceIntentRouter.TryResolveDeviceFollowUp("再换一个","换个时钟",elapsed,out _),"followup accepted stale or invalid context age");
+    Check(DshVoiceIntentRouter.Classify("再换一个")==DshVoiceIntent.Task,"contextless followup became a device command globally");
+    return Task.CompletedTask;
+});
+
 await Test("draw or change ASR ambiguity cannot append to a selected ordinary conversation", async()=>
 {
     using var f=new TaskCase();var target=new DshSessionSummary("memo-task","备忘录前端链路验收","C:/tasks/memo",DateTimeOffset.Now,"idle");
@@ -1327,6 +1465,7 @@ await Test("explicit answer containing creation or device commands stays questio
 });
 
 await PollingProbe.RunAsync(Test);
+await DisplayRevisionProbe.RunAsync(Test);
 
 Console.WriteLine($"RESULT {passed}/{passed+failed} passed"); return failed==0?0:1;
 

@@ -17,6 +17,8 @@ public sealed partial class DshTaskService : IDisposable
     private readonly string stateRoot;
     private readonly TimeSpan pollInterval;
     private readonly TimeProvider timeProvider;
+    private readonly Func<long>? displayRevisionProvider;
+    private readonly AsyncLocal<long?> voiceDisplayRevision = new();
     private readonly SemaphoreSlim actions = new(1, 1);
     private readonly object stateGate = new();
     private readonly CancellationTokenSource shutdown = new();
@@ -39,7 +41,8 @@ public sealed partial class DshTaskService : IDisposable
 
     public DshTaskService(IDshTaskSessionClient client, Func<string>? defaultRoot = null,
         Func<string>? scopeKey = null, Func<DshTaskSnapshot, string, CancellationToken, Task>? feedback = null,
-        string? stateRoot = null, TimeSpan? pollInterval = null, TimeProvider? timeProvider = null)
+        string? stateRoot = null, TimeSpan? pollInterval = null, TimeProvider? timeProvider = null,
+        Func<long>? displayRevisionProvider = null)
     {
         this.client = client;
         this.defaultRoot = defaultRoot ?? (() => DisplayFeatureProfile.DshTaskRootDirectory);
@@ -49,6 +52,7 @@ public sealed partial class DshTaskService : IDisposable
         this.stateRoot = stateRoot ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HaloPixelToolBox", "DshTasks");
         this.pollInterval = pollInterval ?? TimeSpan.FromSeconds(1);
         this.timeProvider = timeProvider ?? TimeProvider.System;
+        this.displayRevisionProvider = displayRevisionProvider;
         client.Changed += ClientChanged;
     }
 
@@ -58,6 +62,7 @@ public sealed partial class DshTaskService : IDisposable
     public async Task<DshTaskSnapshot> StartAsync(DshTaskStartRequest request, CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
+        var displayRequestRevision = CaptureDisplayRevision();
         await actions.WaitAsync(cancellationToken);
         try
         {
@@ -73,6 +78,7 @@ public sealed partial class DshTaskService : IDisposable
             var session = await client.CreateTaskSessionAsync(request, cancellationToken);
             EnsureScope();
             BeginMonitoring(session, awaitingPrompt: string.IsNullOrWhiteSpace(request.Prompt));
+            await FeedbackAsync("task_display_requested", monitoring!.Token, displayRequestRevision);
             if (awaitingVoicePrompt)
                 await FeedbackAsync(string.Empty, monitoring!.Token);
             else try
@@ -108,8 +114,9 @@ public sealed partial class DshTaskService : IDisposable
         => MonitorCoreAsync(session, restoreAwaitingPrompt: false, cancellationToken);
 
     private async Task MonitorCoreAsync(DshSessionSummary session, bool restoreAwaitingPrompt, CancellationToken cancellationToken,
-        string? expectedRestoreScope = null, long expectedRestoreGeneration = -1)
+        string? expectedRestoreScope = null, long expectedRestoreGeneration = -1, bool requestDisplay = true)
     {
+        var displayRequestRevision = requestDisplay && expectedRestoreScope is null ? CaptureDisplayRevision() : null;
         await actions.WaitAsync(cancellationToken);
         try
         {
@@ -134,6 +141,8 @@ public sealed partial class DshTaskService : IDisposable
             var awaitingPrompt = restoreAwaitingPrompt && !remote.HasSubmittedPrompt
                 && remote.TaskStatus == "idle" && remote.PendingInteractions.Count == 0;
             BeginMonitoring(session, awaitingPrompt);
+            if (requestDisplay && expectedRestoreScope is null)
+                await FeedbackAsync("task_display_requested", monitoring!.Token, displayRequestRevision);
             await ApplyRemoteStateAsync(remote, monitoring!.Token, force: true);
             SaveIdentity();
             _ = MonitorLoopAsync(session.Id, generation, monitoring!.Token);
@@ -168,6 +177,7 @@ public sealed partial class DshTaskService : IDisposable
 
     public async Task<DshTaskSubmission> SendMessageAsync(string message, CancellationToken cancellationToken = default)
     {
+        var displayRequestRevision = CaptureDisplayRevision();
         await actions.WaitAsync(cancellationToken);
         var firstMessage = false;
         var id = string.Empty;
@@ -177,6 +187,7 @@ public sealed partial class DshTaskService : IDisposable
             if (Current.NeedsAttention) throw new InvalidOperationException("当前有等待回答的请求，请先回答或明确拒绝。");
             id = Current.SessionId;
             firstMessage = awaitingVoicePrompt;
+            await FeedbackAsync("task_display_requested", monitoring!.Token, displayRequestRevision);
             var result = await client.SubmitTaskPromptAsync(id, message, cancellationToken);
             EnsureActive(id);
             if (!result.Accepted || result.SessionId != id)
@@ -232,6 +243,7 @@ public sealed partial class DshTaskService : IDisposable
         IReadOnlyDictionary<string, string>? answers, string expectedSessionId, string expectedScope,
         CancellationToken cancellationToken)
     {
+        var displayRequestRevision = CaptureDisplayRevision();
         expected = expected is null ? null : CaptureInteraction(expected);
         await actions.WaitAsync(cancellationToken);
         var actionScope = string.Empty;
@@ -251,6 +263,7 @@ public sealed partial class DshTaskService : IDisposable
                 || pending.Questions.Any(q => !answers.ContainsKey(q.Id))))
                 throw new ArgumentException("请逐项回答本次请求中的所有问题。");
             var id = Current.SessionId;
+            await FeedbackAsync("task_display_requested", monitoring!.Token, displayRequestRevision);
             Publish(Current with { IsBusy = true });
             await client.RespondTaskInteractionAsync(id, pending.Id, type, outcome, answers, cancellationToken);
             EnsureActive(id);
@@ -489,14 +502,20 @@ public sealed partial class DshTaskService : IDisposable
 
     private async Task<DshTaskVoiceResult> RouteVoiceCheckedAsync(string text, DshTaskSnapshot? expectedContext, CancellationToken cancellationToken)
     {
-        await voiceRouteGate.WaitAsync(cancellationToken);
+        var previousDisplayRevision = voiceDisplayRevision.Value;
+        voiceDisplayRevision.Value = CaptureDisplayRevision();
         try
         {
-            if (expectedContext is not null && !VoiceContextMatches(expectedContext, Current))
-                return new(true, "任务或问题已变化，刚才的指令未提交。" + Current.Detail) { ListenForReply = Current.NeedsAttention };
-            return await RouteVoiceCoreAsync(text, expectedContext, cancellationToken);
+            await voiceRouteGate.WaitAsync(cancellationToken);
+            try
+            {
+                if (expectedContext is not null && !VoiceContextMatches(expectedContext, Current))
+                    return new(true, "任务或问题已变化，刚才的指令未提交。" + Current.Detail) { ListenForReply = Current.NeedsAttention };
+                return await RouteVoiceCoreAsync(text, expectedContext, cancellationToken);
+            }
+            finally { voiceRouteGate.Release(); }
         }
-        finally { voiceRouteGate.Release(); }
+        finally { voiceDisplayRevision.Value = previousDisplayRevision; }
     }
 
     private async Task<DshTaskVoiceResult> RouteVoiceCoreAsync(string text, DshTaskSnapshot? expectedContext, CancellationToken cancellationToken)
@@ -577,6 +596,10 @@ public sealed partial class DshTaskService : IDisposable
                 return new(true, "任务会话已新建。请继续说要执行的内容。") { ListenForReply = true };
             return new(true, started.State == "unknown" ? started.StatusText + "，请核对会话。" : "任务已提交，接下来会持续监控状态。");
         }
+        // Device-domain ASR ambiguity is resolved locally before any draft can
+        // consume the utterance as a new task body. Real answers remain above.
+        if (intent == DshVoiceIntent.ClarifySceneIntent && (voiceDraft is not null || awaitingVoicePrompt))
+            return new(true, DshVoiceIntentRouter.SceneClarification(text)) { ListenForReply = true };
         if (voiceDraft is { } draft)
         {
             if (draft.Scope != scopeFactory())
@@ -616,7 +639,9 @@ public sealed partial class DshTaskService : IDisposable
                     ? "当前没有选定的 DSH 任务。请先说新建一个 DSH 任务，或在会话页选择普通任务作为音箱目标。"
                     : "请说明是控制音箱，还是新建或继续 DSH 任务。");
             }
-            await MonitorAsync(target, cancellationToken);
+            // Merely loading context to disambiguate a voice reply is not an
+            // explicit request to replace the user's current screen.
+            await MonitorCoreAsync(target, restoreAwaitingPrompt: false, cancellationToken, requestDisplay: false);
         }
         EnsureActive();
         if (Current.State is "unknown" or "disconnected")
@@ -651,10 +676,14 @@ public sealed partial class DshTaskService : IDisposable
         foreach (EventHandler<DshTaskSnapshot> handler in Changed?.GetInvocationList() ?? [])
             try { handler(this, snapshot); } catch (Exception ex) { Debug.WriteLine(ex); }
     }
-    private async Task FeedbackAsync(string cue, CancellationToken token)
+    private long? CaptureDisplayRevision() => voiceDisplayRevision.Value ?? displayRevisionProvider?.Invoke();
+
+    private async Task FeedbackAsync(string cue, CancellationToken token, long? displayRequestRevision = null)
     {
         var snapshot = Current;
         if (feedback is null || token.IsCancellationRequested || !snapshot.IsMonitoring || activeScope != scopeFactory()) return;
+        if (cue == "task_display_requested")
+            snapshot = snapshot with { DisplayRequestRevision = displayRequestRevision };
         try { await feedback(snapshot, cue, token); }
         catch (OperationCanceledException) { }
         catch (Exception ex) { Debug.WriteLine("任务反馈失败：" + ex.Message); }

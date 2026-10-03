@@ -10,6 +10,7 @@ namespace HaloPixelToolBox.Services;
 
 internal static class DshTaskFeedback
 {
+    internal const string RequestDisplayCue = "task_display_requested";
     private static readonly SemaphoreSlim Gate = new(1, 1);
     private static readonly HaloPixelDisplayService Display = new();
     private sealed record PageDelivery(string SnapshotIdentity, CancellationTokenSource Cancellation);
@@ -18,6 +19,8 @@ internal static class DshTaskFeedback
     private static string lastSentIdentity = string.Empty;
     private static bool observing;
     private static string attentionIdentity = string.Empty;
+    private static string displaySession = string.Empty;
+    private static long? taskDisplayRevision;
 
     public static async Task PublishAsync(DshTaskSnapshot snapshot, string cue, CancellationToken token)
     {
@@ -27,11 +30,29 @@ internal static class DshTaskFeedback
             ObserveTaskChanges();
             token.ThrowIfCancellationRequested();
             if (!snapshot.IsMonitoring || SnapshotIdentity(App.DshTasks.Current) != SnapshotIdentity(snapshot)) return;
-            if (cue == "task_started" && App.LyricsSubtitleControl.CurrentStatus.IsRunning)
-                await App.LyricsSubtitleControl.StopAsync(restoreScene: false, cancellationToken: token);
+            // Only an explicit task action may acquire the screen. Restoring a
+            // monitor, progress, completion and approvals never reacquire it.
+            if (cue == RequestDisplayCue)
+            {
+                if (snapshot.DisplayRequestRevision is not { } requestedRevision
+                    || requestedRevision != HaloPixelDisplayService.ForegroundRevision)
+                    return;
+                if (App.LyricsSubtitleControl.CurrentStatus.IsRunning)
+                    await App.LyricsSubtitleControl.StopAsync(restoreScene: false, cancellationToken: token);
+                token.ThrowIfCancellationRequested();
+                if (requestedRevision != HaloPixelDisplayService.ForegroundRevision
+                    || SnapshotIdentity(App.DshTasks.Current) != SnapshotIdentity(snapshot))
+                    return;
+                CancelPages();
+                displaySession = snapshot.SessionId;
+                taskDisplayRevision = requestedRevision;
+                lastSentIdentity = string.Empty;
+                return;
+            }
             var detail = snapshot.NeedsAttention ? snapshot.Detail
                 : snapshot.State == "completed" ? snapshot.FinalText : snapshot.Detail;
-            await BeginPagesAsync(snapshot, DshTaskSubtitleFormatter.ForTask(snapshot), token);
+            if (displaySession == snapshot.SessionId && taskDisplayRevision is { } revision)
+                await BeginPagesAsync(snapshot, DshTaskSubtitleFormatter.ForTask(snapshot), revision, token);
             if (SnapshotIdentity(App.DshTasks.Current) != SnapshotIdentity(snapshot)
                 || App.DshTasks.Current.VoiceAnswerRevision != snapshot.VoiceAnswerRevision) return;
             if (cue.Length > 0)
@@ -47,14 +68,19 @@ internal static class DshTaskFeedback
     }
 
     // Replies also appear on the device when no task has been created yet.
-    public static async Task PublishVoiceReplyAsync(string text, CancellationToken token, bool isTaskReply = false)
+    public static async Task PublishVoiceReplyAsync(string text, CancellationToken token, bool isTaskReply = false,
+        long? expectedForegroundRevision = null)
     {
+        // A device result is spoken and retained in chat. Sending it as text
+        // would immediately replace the clock/scene/lyrics just requested.
+        if (!isTaskReply || expectedForegroundRevision is null) return;
         await Gate.WaitAsync(token);
         try
         {
             ObserveTaskChanges();
             var snapshot = App.DshTasks.Current;
-            await BeginPagesAsync(snapshot, DshTaskSubtitleFormatter.ForReply(snapshot, text, isTaskReply), token);
+            await BeginPagesAsync(snapshot, DshTaskSubtitleFormatter.ForReply(snapshot, text, isTaskReply),
+                expectedForegroundRevision.Value, token);
         }
         finally { Gate.Release(); }
     }
@@ -63,19 +89,37 @@ internal static class DshTaskFeedback
     {
         if (observing) return;
         observing = true;
+        HaloPixelDisplayService.ContentSent += (_, content) =>
+        {
+            if (content.ContentKind != DisplayContentKind.TaskStatus)
+            {
+                CancelPages();
+                Interlocked.Exchange(ref lastSentIdentity, string.Empty);
+            }
+        };
         attentionIdentity = AttentionIdentity(App.DshTasks.Current);
         App.DshTasks.Changed += (_, snapshot) =>
         {
             var next = AttentionIdentity(snapshot);
             var previous = Interlocked.Exchange(ref attentionIdentity, next);
             if (previous.Length > 0 && previous != next) _ = InvalidatePromptAsync();
-            if (!snapshot.IsMonitoring) Interlocked.Exchange(ref lastSentIdentity, string.Empty);
+            if (!snapshot.IsMonitoring)
+            {
+                Interlocked.Exchange(ref lastSentIdentity, string.Empty);
+                Interlocked.Exchange(ref displaySession, string.Empty);
+            }
             var delivery = Volatile.Read(ref pageDelivery);
             if (delivery is not null && delivery.SnapshotIdentity != SnapshotIdentity(snapshot))
             {
                 try { delivery.Cancellation.Cancel(); } catch (ObjectDisposedException) { }
             }
         };
+    }
+
+    private static void CancelPages()
+    {
+        var delivery = Volatile.Read(ref pageDelivery);
+        try { delivery?.Cancellation.Cancel(); } catch (ObjectDisposedException) { }
     }
 
     private static string AttentionIdentity(DshTaskSnapshot snapshot)
@@ -92,8 +136,10 @@ internal static class DshTaskFeedback
         => snapshot.SessionId + "\n" + snapshot.IsMonitoring + "\n" + snapshot.State + "\n" + snapshot.Detail
             + "\n" + snapshot.FinalText + "\n" + snapshot.VoiceAnswerRevision + "\n" + JsonSerializer.Serialize(snapshot.PendingInteractions);
 
-    private static async Task BeginPagesAsync(DshTaskSnapshot snapshot, IReadOnlyList<string> pages, CancellationToken token)
+    private static async Task BeginPagesAsync(DshTaskSnapshot snapshot, IReadOnlyList<string> pages,
+        long expectedForegroundRevision, CancellationToken token)
     {
+        if (HaloPixelDisplayService.ForegroundRevision != expectedForegroundRevision) return;
         var snapshotIdentity = SnapshotIdentity(snapshot);
         // Deduplicate what the screen actually shows, including its interaction schema.
         // Changes to verbose progress alone must not flash the same short status again.
@@ -112,7 +158,7 @@ internal static class DshTaskFeedback
         if (SnapshotIdentity(App.DshTasks.Current) != snapshotIdentity) { cancellation.Cancel(); return; }
         try
         {
-            if (await SendPageAsync(pages[0], pageToken)) lastSentIdentity = identity;
+            if (await SendPageAsync(pages[0], expectedForegroundRevision, pageToken)) lastSentIdentity = identity;
             else { lastIdentity = string.Empty; lastSentIdentity = string.Empty; }
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested && pageToken.IsCancellationRequested)
@@ -120,10 +166,11 @@ internal static class DshTaskFeedback
             // A newer task state superseded a page waiting in the device queue.
             return;
         }
-        _ = ContinuePagesAsync(snapshotIdentity, pages, pageToken);
+        _ = ContinuePagesAsync(snapshotIdentity, pages, expectedForegroundRevision, pageToken);
     }
 
-    private static async Task ContinuePagesAsync(string identity, IReadOnlyList<string> pages, CancellationToken token)
+    private static async Task ContinuePagesAsync(string identity, IReadOnlyList<string> pages,
+        long expectedForegroundRevision, CancellationToken token)
     {
         try
         {
@@ -131,14 +178,14 @@ internal static class DshTaskFeedback
             {
                 await Task.Delay(TimeSpan.FromSeconds(4), token);
                 if (SnapshotIdentity(App.DshTasks.Current) != identity) return;
-                await SendPageAsync(pages[index], token);
+                if (!await SendPageAsync(pages[index], expectedForegroundRevision, token)) return;
             }
         }
         catch (OperationCanceledException) { }
         catch (Exception exception) { System.Diagnostics.Debug.WriteLine("任务字幕分页失败：" + exception.Message); }
     }
 
-    private static Task<bool> SendPageAsync(string text, CancellationToken token)
+    private static Task<bool> SendPageAsync(string text, long expectedForegroundRevision, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
         if (!DisplayFeatureProfile.PixelScreenEnabled || DisplayFeatureProfile.LightsTurnedOffByAutomation)
@@ -146,6 +193,7 @@ internal static class DshTaskFeedback
         return Display.SendTextAsync(new DisplayTextOptions
         {
             Text = FitSubtitle(text), Source = DisplayContentKind.TaskStatus,
+            ExpectedForegroundRevision = expectedForegroundRevision,
             Layout = HaloPixelTextLayout.Center, ScrollDirection = TextScrollDirection.RightToLeft, Speed = 5
         }, token);
     }

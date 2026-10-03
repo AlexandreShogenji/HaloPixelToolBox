@@ -73,6 +73,7 @@ try {
         Invoke-DotNetRegression "tests/dsh-session-service-tests/SessionServiceTests.csproj"
         Invoke-DotNetRegression "tests/dsh-task-routing-tests/TaskRoutingTests.csproj"
         Invoke-DotNetRegression "tests/dsh-spoken-interaction-tests/SpokenInteractionTests.csproj"
+        Invoke-DotNetRegression "tests/display-ownership-tests/DisplayOwnershipTests.csproj"
         $DshUiProject = "tests/dsh-ui-tests/DshUiTests.csproj"
         Invoke-DotNetRegression $DshUiProject
         foreach ($Probe in @("--page", "--tasks", "--voice", "--resources")) {

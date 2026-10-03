@@ -35,7 +35,8 @@ public partial class App : Application
         AudioControl);
     public static VoiceAgentService VoiceAgent { get; } = new();
     public static DshSessionsService DshSessions { get; } = new();
-    public static DshTaskService DshTasks { get; } = new(DshSessions, feedback: DshTaskFeedback.PublishAsync);
+    public static DshTaskService DshTasks { get; } = new(DshSessions, feedback: DshTaskFeedback.PublishAsync,
+        displayRevisionProvider: () => HaloPixelDisplayService.ForegroundRevision);
     /// <summary>
     /// 主页窗口
     /// </summary>

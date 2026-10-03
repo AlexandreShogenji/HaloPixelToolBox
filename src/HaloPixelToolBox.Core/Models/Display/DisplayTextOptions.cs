@@ -16,4 +16,10 @@ public class DisplayTextOptions
     public HaloPixelColor Color { get; set; } = HaloPixelColor.White;
     public bool MultiLine { get; set; }
     public DateTimeOffset? SendAt { get; set; }
+
+    /// <summary>
+    /// Optional foreground lease. A queued background subtitle is skipped if a
+    /// newer foreground display has reached the device before this write runs.
+    /// </summary>
+    public long? ExpectedForegroundRevision { get; set; }
 }

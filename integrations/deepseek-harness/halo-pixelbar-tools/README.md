@@ -63,6 +63,22 @@ a uniquely matching device name. It does not reroute applications pinned to
 another device. Both operations share state with the page. ASIO and exclusive
 playback can bypass system effects.
 
+### Display status is application history (0.7.2)
+
+`get_pixelbar_status` reads volume and power from the device, but the device does
+not provide a scene readback. `displayState.source` is
+`application_last_successful_send` and `displayState.sceneReadbackSupported` is
+`false`. `lastSentContentKind` identifies the last successful display send by
+this Toolbox process. `lastSentPersonalSceneName` retains the last successfully
+sent personal scene even after a temporary task-status message or subtitle.
+It is initially `null`; the restore fallback alone does not prove any send.
+
+The compatibility field `activeSceneName` is `null` when the last app send was
+not a scene. This does **not** mean an earlier scene activation failed and must
+not trigger another activation attempt by itself. Report the activation tool's
+result separately from subsequent display content. Neither field confirms what
+is currently visible after another app writes to the device or it disconnects.
+
 ### Default scene restoration
 
 “切换为默认场景”、“恢复默认场景” and “返回默认场景” use

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <Compile Include="../../src/HaloPixelToolBox.Core/Services/HaloPixelDisplayService.cs" Link="HaloPixelDisplayService.cs" />
+    <Compile Include="../../src/HaloPixelToolBox.Core/Services/Scenes/PersonalSceneRestoreService.cs" Link="PersonalSceneRestoreService.cs" />
+    <Compile Include="../../src/HaloPixelToolBox.Core/Models/DeviceControl/HaloPixelDeviceStatus.cs" Link="HaloPixelDeviceStatus.cs" />
+    <Compile Include="../../src/HaloPixelToolBox.Core/Services/DeviceControl/HaloPixelDeviceOperationQueue.cs" Link="HaloPixelDeviceOperationQueue.cs" />
+    <Compile Include="../../src/HaloPixelToolBox.Core/Models/Display/*.cs" Link="Models/Display/%(Filename)%(Extension)" />
+    <Compile Include="../../src/HaloPixelToolBox.Core/Models/HaloPixelUIModel.cs" Link="Models/HaloPixelUIModel.cs" />
+    <Compile Include="../../src/HaloPixelToolBox.Core/Models/HaloPixelTextLayout.cs" Link="Models/HaloPixelTextLayout.cs" />
+    <Compile Include="../../src/HaloPixelToolBox.Core/Models/Scenes/PersonalSceneDefinition.cs" Link="Models/PersonalSceneDefinition.cs" />
+    <Compile Include="../../src/HaloPixelToolBox.Core/Models/Scenes/PersonalSceneCategory.cs" Link="Models/PersonalSceneCategory.cs" />
+    <Compile Include="../../src/HaloPixelToolBox.Core/Models/Scenes/PixelSceneUploadProgress.cs" Link="Models/PixelSceneUploadProgress.cs" />
+    <Compile Include="../../src/HaloPixelToolBox.Core/Models/Subtitles/SubtitleCue.cs" Link="Models/SubtitleCue.cs" />
+  </ItemGroup>
+</Project>

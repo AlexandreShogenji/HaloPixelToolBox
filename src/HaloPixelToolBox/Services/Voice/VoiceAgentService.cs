@@ -90,6 +90,8 @@ public sealed class VoiceAgentService : IDisposable
     private long attentionPromptSequence;
     private sealed record SpokenTaskContext(long Version, DshTaskSnapshot Snapshot);
     private SpokenTaskContext? spokenTaskContext;
+    private sealed record DeviceVoiceContext(Process Worker, string Command, long Timestamp);
+    private DeviceVoiceContext? previousDeviceContext;
     private readonly object snapshotGate = new();
     private readonly object snapshotNotificationGate = new();
     private Process? workerProcess;
@@ -674,10 +676,22 @@ public sealed class VoiceAgentService : IDisposable
             expectedWorker: process,
             workerToken: cancellationToken);
         var attentionAtStart = Interlocked.Read(ref attentionPromptSequence);
+        // Capture before routing/execution: a user scene change made while the
+        // request is in flight must win over its delayed textual acknowledgement.
+        var replyForegroundRevision = HaloPixelToolBox.Core.Services.HaloPixelDisplayService.ForegroundRevision;
         var notificationOwnsResume = false;
         try
         {
-            var routed = await App.DshTasks.RouteVoiceAsync(command, expectedTask, cancellationToken);
+            var routingCommand = command;
+            // Consume context once. A task, clarification, failure or worker
+            // restart cannot leave a stale "another one" shortcut behind.
+            var previousDevice = Interlocked.Exchange(ref previousDeviceContext, null);
+            if (!expectedTask.NeedsAttention && !App.DshTasks.Current.NeedsAttention
+                && previousDevice?.Worker == process
+                && DshVoiceIntentRouter.TryResolveDeviceFollowUp(command, previousDevice.Command,
+                    Stopwatch.GetElapsedTime(previousDevice.Timestamp), out var resolved))
+                routingCommand = resolved;
+            var routed = await App.DshTasks.RouteVoiceAsync(routingCommand, expectedTask, cancellationToken);
             if (routed.Handled)
             {
                 UpdateSnapshot(VoiceAgentPhase.CoolingDown, "任务交互已处理", routed.Message,
@@ -696,29 +710,33 @@ public sealed class VoiceAgentService : IDisposable
                 var needsNextAnswer = task.NeedsAttention && !routed.ListenForReply;
                 var reply = needsNextAnswer ? task.Detail : routed.Message;
                 var listenForReply = routed.ListenForReply || needsNextAnswer;
-                await DshTaskFeedback.PublishVoiceReplyAsync(reply, cancellationToken, isTaskReply: true);
+                await DshTaskFeedback.PublishVoiceReplyAsync(reply, cancellationToken, isTaskReply: true,
+                    expectedForegroundRevision: replyForegroundRevision);
                 await SendTaskNotificationAsync(listenForReply ? "input_required" : "task_progress",
                     reply, listenForReply, true, cancellationToken);
                 notificationOwnsResume = true;
                 return;
             }
             // Only positively identified device commands may enter its fixed persona.
-            if (DshVoiceIntentRouter.Classify(command) != DshVoiceIntent.DeviceControl)
+            if (DshVoiceIntentRouter.Classify(routingCommand) != DshVoiceIntent.DeviceControl)
             {
                 UpdateSnapshot(VoiceAgentPhase.CoolingDown, "请确认会话去向",
                     "请说明是控制音箱，还是新建或继续 DSH 任务。",
                     lastTranscript: command, lastResponse: "未确认目标会话，未发送指令。", isRunning: true,
                     expectedWorker: process, workerToken: cancellationToken);
                 const string clarification = "未发送指令。请说明是控制音箱，还是新建或继续 DSH 任务。";
-                await DshTaskFeedback.PublishVoiceReplyAsync(clarification, cancellationToken, isTaskReply: true);
+                await DshTaskFeedback.PublishVoiceReplyAsync(clarification, cancellationToken, isTaskReply: true,
+                    expectedForegroundRevision: replyForegroundRevision);
                 await SendTaskNotificationAsync("input_required", clarification, true, true, cancellationToken);
                 notificationOwnsResume = true;
                 return;
             }
             var result = await App.DshSessions.ExecuteDeviceCommandAsync(
-                command,
+                routingCommand,
                 Math.Clamp(options.CommandTimeoutSeconds, 30, 300),
                 cancellationToken);
+            if (result.Success && result.CalledTools.Count > 0 && IsActiveWorker(process, cancellationToken))
+                Volatile.Write(ref previousDeviceContext, new(process, routingCommand, Stopwatch.GetTimestamp()));
             var response = result.Success
                 ? result.FinalText
                 : result.Message;

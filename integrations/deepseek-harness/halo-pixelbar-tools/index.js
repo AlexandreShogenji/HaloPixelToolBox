@@ -16,7 +16,7 @@ export const Config = Schema.object({
 export function apply(ctx, config) {
   registerTool(ctx, config, {
     name: 'get_pixelbar_status',
-    description: 'Read the connected Halo PixelBar volume, ambient light and pixel screen status.',
+    description: 'Read Halo PixelBar volume, ambient-light power and pixel-screen status. Scene information is app send history, not hardware readback: displayState.sceneReadbackSupported is false; displayState.lastSentContentKind describes the last successful app display send, and displayState.lastSentPersonalSceneName keeps the last successfully sent personal scene even after a taskStatus or subtitle. activeSceneName is null when the last send was not a scene; null does not mean a prior scene activation failed. Never retry scene activation solely because this field is null, or claim the remembered scene is currently visible. Use the activation tool result to report its success; another app or a disconnected device may differ from this process history.',
     parameters: {},
     method: 'get_status',
   })

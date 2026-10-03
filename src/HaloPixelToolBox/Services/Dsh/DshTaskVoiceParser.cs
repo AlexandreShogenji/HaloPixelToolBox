@@ -6,6 +6,15 @@ namespace HaloPixelToolBox.Services;
 internal static class DshTaskVoiceParser
 {
     private const string CreatePhrase = @"(?:新建|创建|建立|开启|启动|开始)\s*(?:[一1１]\s*(?:个|项)|个|项)?\s*(?:(?:DSH\s*(?:的\s*)?)?(?:会话\s*)?任务(?:会话)?|DSH\s*(?:的\s*)?会话)";
+    // These are complete short device objects, not substrings. 场/长 are common
+    // clipped or near-sounding 场景 transcripts; a trailing task clause must not match.
+    internal const string ClockKindPattern = @"(?:(?:数字|數字|模拟|模擬|电子|電子|像素)?时钟|钟表)";
+    internal const string SceneKindPattern = @"(?:" + ClockKindPattern + @"|时间|自定义|默认|推荐|动画|音乐|像素)";
+    internal const string ShortSceneTargetPattern = @"(?:" + ClockKindPattern + @"(?:的)?(?:场景|场|长|長|模式|显示)?|(?:时间|自定义|默认|推荐|动画|音乐|像素)(?:的)?(?:场景|场|长|長))";
+    internal const string SceneChoicePattern = @"(?:(?:另外|另|下)?[一1]个|个)?(?:新的?)?";
+    internal const string SceneSwitchVerbPattern = @"(?:切换(?:为|到|成)?|切到|切回|换成|换到|更换(?:为|成)?|换|恢复|还原|设为|设置为)";
+    private const string ShortSceneSwitchPattern = @"^" + SceneSwitchVerbPattern + @"(?:一下)?"
+        + SceneChoicePattern + ShortSceneTargetPattern + @"(?:一下)?(?:吧|好吗|可以吗)?$";
     public static string Normalize(string text) => Regex.Replace(text.Normalize(NormalizationForm.FormKC), @"[\s，,。.!！?？：:；;“”\""']", "").ToLowerInvariant();
     public static bool IsCreate(string text) => !IsNonCreationRequest(text)
         && Regex.IsMatch(Normalize(Header(text)), CreatePhrase, RegexOptions.IgnoreCase);
@@ -31,7 +40,8 @@ internal static class DshTaskVoiceParser
         var normalized = DshVoiceIntentRouter.StripCourtesy(DshSpokenInteraction.NormalizeCommand(text));
         if (Regex.IsMatch(normalized, @"^(?:设备|音箱控制|控制音箱)")) return true;
         if (Regex.IsMatch(normalized, @"编写|开发|实现|代码|项目|文件|函数|分析|方案|设计|绘制|绘画|画图|修复|文档|bug")) return false;
-        return Regex.IsMatch(normalized, @"氛围灯|灯光|灯效|灯速|关灯|开灯|音量|歌词|字幕屏|像素屏|自定义场景|配色预设|均衡器|音效|低音|高音|前级增益|输出设备|左右平衡|eq曲线|人声预设")
+        return Regex.IsMatch(normalized, ShortSceneSwitchPattern)
+            || Regex.IsMatch(normalized, @"氛围灯|灯光|灯效|灯速|关灯|开灯|音量|歌词|字幕屏|像素屏|自定义场景|配色预设|均衡器|音效|低音|高音|前级增益|输出设备|左右平衡|eq曲线|人声预设")
             || Regex.IsMatch(normalized, @"^(?:呃|额|嗯|请|請|帮我|幫我|麻烦|麻煩|现在|現在|先)*(?:(?:恢复|恢復|还原|還原|回到|切回|切换(?:为|到)?|切換(?:為|到)?)(?:一下)?)?(?:默认|默認)(?:的)?(?:场景|場景)(?:吧|一下)?$")
             || Regex.IsMatch(normalized, @"^(?:查询|查看|读取|获取|看看)(?:当前)?(?:设备|音箱)(?:当前)?状态$")
             || Regex.IsMatch(normalized, @"^(?:显示(?:现在|当前)?(?:的)?时间|校准(?:设备)?时间|(?:切换|切到|切回|换|更换|恢复|还原|设为|设置为).{0,24}场景)");

@@ -10,5 +10,7 @@
     <Compile Include="../../src/HaloPixelToolBox/Services/Dsh/DshTaskSubtitleFormatter.cs" Link="DshTaskSubtitleFormatter.cs" />
     <Compile Include="../../src/HaloPixelToolBox/Services/Dsh/DshTaskFeedback.cs" Link="DshTaskFeedback.cs" />
     <Compile Include="../../src/HaloPixelToolBox/Models/Dsh/DshTasks.cs" Link="DshTasks.cs" />
+    <Compile Include="../../src/HaloPixelToolBox.Core/Models/Display/DisplayContentKind.cs" Link="DisplayContentKind.cs" />
+    <Compile Include="../../src/HaloPixelToolBox.Core/Models/Display/DisplayContentChangedEventArgs.cs" Link="DisplayContentChangedEventArgs.cs" />
   </ItemGroup>
 </Project>

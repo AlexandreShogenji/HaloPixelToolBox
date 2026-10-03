@@ -516,6 +516,11 @@ public sealed class HaloPixelDeviceControlService : IHaloPixelDeviceControlServi
             pixelScreenEnabled,
             pixelScreenColor,
             lastContent?.ContentKind == DisplayContentKind.Scene ? lastContent.SceneName : null,
-            DateTimeOffset.Now);
+            DateTimeOffset.Now)
+        {
+            DisplayState = new HaloPixelDisplayState(
+                lastContent?.ContentKind,
+                new PersonalSceneRestoreService().GetLastRememberedScene()?.Name)
+        };
     }
 }

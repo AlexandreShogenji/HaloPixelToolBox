@@ -11,11 +11,15 @@ public sealed class PersonalSceneRestoreService
 {
     private static readonly object SyncRoot = new();
     private static PersonalSceneDefinition currentScene = CreateFallbackClockScene();
+    private static bool hasRememberedScene;
 
     public void Remember(PersonalSceneDefinition scene)
     {
         lock (SyncRoot)
+        {
             currentScene = CloneScene(scene);
+            hasRememberedScene = true;
+        }
     }
 
     /// <summary>
@@ -25,6 +29,17 @@ public sealed class PersonalSceneRestoreService
     {
         lock (SyncRoot)
             return CloneScene(currentScene);
+    }
+
+    /// <summary>
+    /// Last personal scene successfully sent by this process. The initial
+    /// fallback is not a send, and temporary subtitles do not erase this record.
+    /// This is application history, never a hardware readback of current pixels.
+    /// </summary>
+    public PersonalSceneDefinition? GetLastRememberedScene()
+    {
+        lock (SyncRoot)
+            return hasRememberedScene ? CloneScene(currentScene) : null;
     }
 
     public async Task<bool> RestoreAsync(HaloPixelDisplayService displayService, CancellationToken cancellationToken = default)

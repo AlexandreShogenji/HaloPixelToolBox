@@ -24,6 +24,7 @@ assert(registrations.length === 25, `expected 25 registered tools, received ${re
 assert(new Set(registrations.map(({ name }) => name)).size === registrations.length, 'tool names must be unique')
 
 const tools = Object.fromEntries(registrations.map((definition) => [definition.name, definition]))
+assertDescriptionIncludes('get_pixelbar_status', ['not hardware readback', 'lastSentContentKind', 'lastSentPersonalSceneName', 'null does not mean a prior scene activation failed', 'Never retry scene activation solely'])
 assertSchema('configure_pixelbar_audio', 'preampDb', { type: 'number', minimum: -30, maximum: 12 })
 assertSchema('configure_pixelbar_audio', 'balance', { type: 'number', minimum: -100, maximum: 100 })
 assertSchema('configure_pixelbar_audio', 'bandGainsDb', { type: 'array', minItems: 10, maxItems: 10 })

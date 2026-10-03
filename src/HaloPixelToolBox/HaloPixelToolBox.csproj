@@ -55,7 +55,7 @@
     <Content Include="Assets\PersonalScenes\**\*.*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="Assets\Integrations\DeepSeekHarness\dsh-halo-pixelbar-tools-0.7.1.tgz">
+    <Content Include="Assets\Integrations\DeepSeekHarness\dsh-halo-pixelbar-tools-0.7.2.tgz">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Assets\VoiceAgent\voice_agent_host.py">

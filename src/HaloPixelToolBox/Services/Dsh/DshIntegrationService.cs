@@ -9,8 +9,8 @@ namespace HaloPixelToolBox.Services;
 public sealed partial class DshIntegrationService : IDisposable
 {
     private const string PluginPackageName = "dsh-halo-pixelbar-tools";
-    private const string PluginVersion = "0.7.1";
-    private const string PluginBundleFileName = "dsh-halo-pixelbar-tools-0.7.1.tgz";
+    private const string PluginVersion = "0.7.2";
+    private const string PluginBundleFileName = "dsh-halo-pixelbar-tools-0.7.2.tgz";
     private static readonly TimeSpan InstallTimeout = TimeSpan.FromMinutes(5);
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
     private readonly object preparedHeadlessProcessGate = new();

@@ -50,11 +50,16 @@ namespace HaloPixelToolBox
     internal sealed class FeedbackLyrics
     {
         public (bool IsRunning, bool Unused) CurrentStatus { get; set; }
-        public Task StopAsync(bool restoreScene, CancellationToken cancellationToken)
+        public int StopCalls { get; private set; }
+        public Func<CancellationToken, Task>? BeforeStop { get; set; }
+        public async Task StopAsync(bool restoreScene, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            StopCalls++;
+            if (BeforeStop is { } beforeStop)
+                await beforeStop(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             CurrentStatus = (false, false);
-            return Task.CompletedTask;
         }
     }
 }
@@ -75,7 +80,6 @@ namespace HaloPixelToolBox.Core.Models
 
 namespace HaloPixelToolBox.Core.Models.Display
 {
-    internal enum DisplayContentKind { TaskStatus }
     internal enum TextScrollDirection { RightToLeft }
     internal sealed class DisplayTextOptions
     {
@@ -84,6 +88,7 @@ namespace HaloPixelToolBox.Core.Models.Display
         public HaloPixelTextLayout Layout { get; init; }
         public TextScrollDirection ScrollDirection { get; init; }
         public int Speed { get; init; }
+        public long? ExpectedForegroundRevision { get; init; }
     }
 }
 
@@ -109,6 +114,13 @@ namespace HaloPixelToolBox.Core.Services
 
     internal sealed class HaloPixelDisplayService
     {
+        public static long ForegroundRevision { get; private set; }
+        public static event EventHandler<DisplayContentChangedEventArgs>? ContentSent;
+        public static void Foreground(DisplayContentKind kind = DisplayContentKind.Scene)
+        {
+            ForegroundRevision++;
+            ContentSent?.Invoke(null, new(kind, null));
+        }
         public static ConcurrentQueue<DisplayTextOptions> Sent { get; } = new();
         public static ConcurrentQueue<string> Attempted { get; } = new();
         public static FeedbackBlockedSend? BlockNext;
@@ -119,6 +131,7 @@ namespace HaloPixelToolBox.Core.Services
             if (Interlocked.Exchange(ref BlockNext, null) is { } blocked)
                 await blocked.WaitAsync(token);
             token.ThrowIfCancellationRequested();
+            if (options.ExpectedForegroundRevision is { } expected && expected != ForegroundRevision) return false;
             Sent.Enqueue(options);
             return true;
         }

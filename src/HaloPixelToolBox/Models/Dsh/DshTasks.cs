@@ -25,6 +25,8 @@ public sealed record DshTaskSnapshot(string SessionId, string Title, string Work
     public string VoiceInteractionId { get; init; } = string.Empty;
     public IReadOnlyDictionary<string, string> VoiceAnswers { get; init; } = new Dictionary<string, string>();
     public long VoiceAnswerRevision { get; init; }
+    // Used only on a transient feedback request, never persisted as task state.
+    public long? DisplayRequestRevision { get; init; }
     public static DshTaskSnapshot Initial { get; } = new("", "", "", "idle", "未监控任务", "", "", [], false, false);
     public bool NeedsAttention => PendingInteractions.Count > 0;
     public bool CanRespond => IsMonitoring && !IsBusy && NeedsAttention;

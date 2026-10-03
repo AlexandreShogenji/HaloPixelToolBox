@@ -21,10 +21,16 @@ public class HaloPixelDisplayService
     private static readonly TimeSpan MaximumSegmentDelay = TimeSpan.FromMilliseconds(1400);
     private static readonly HttpClient HttpClient = new();
     private static readonly PersonalSceneRestoreService SceneRestoreService = new();
+    private static long foregroundRevision;
 
     public static event EventHandler<DisplayContentChangedEventArgs>? ContentSent;
 
     public static DisplayContentChangedEventArgs? LastContentSent { get; private set; }
+
+    /// <summary>
+    /// Successful foreground display writes; task-status pages share a revision.
+    /// </summary>
+    public static long ForegroundRevision => Volatile.Read(ref foregroundRevision);
 
     public HaloPixelDevice Device { get; }
 
@@ -55,6 +61,14 @@ public class HaloPixelDisplayService
     {
         return HaloPixelDeviceOperationQueue.RunAsync(() =>
         {
+            // Check inside the serialized device transaction, not when enqueuing:
+            // a newer scene or subtitle may have completed while we were waiting.
+            if (options.ExpectedForegroundRevision is { } expectedRevision
+                && expectedRevision != ForegroundRevision)
+            {
+                return false;
+            }
+
             if (!EnsureDeviceReady())
                 return false;
 
@@ -281,7 +295,8 @@ public class HaloPixelDisplayService
             Blink = source.Blink,
             Color = source.Color,
             MultiLine = source.MultiLine,
-            SendAt = source.SendAt
+            SendAt = source.SendAt,
+            ExpectedForegroundRevision = source.ExpectedForegroundRevision
         };
     }
 
@@ -446,6 +461,9 @@ public class HaloPixelDisplayService
         string? scenePreviewSource = null,
         string? sceneName = null)
     {
+        if (source != DisplayContentKind.TaskStatus)
+            Interlocked.Increment(ref foregroundRevision);
+
         var args = new DisplayContentChangedEventArgs(source, text, scenePreviewSource, sceneName);
         LastContentSent = args;
         ContentSent?.Invoke(null, args);
