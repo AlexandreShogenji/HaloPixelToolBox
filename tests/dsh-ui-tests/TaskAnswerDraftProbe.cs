@@ -181,5 +181,114 @@ public static class TaskAnswerDraftProbe
         drafts.Clear();
         check(!ReferenceEquals(cleared, drafts.GetOrCreate("scope2", "session1", request)),
             "clearing the page's memory resets all task answers");
+
+        var imported = new DshTaskQuestionAnswer(question with { MultiSelect = true });
+        var importChanges = 0;
+        imported.Changed += (_, _) => importChanges++;
+        imported.ImportAnswer("文档 | 临时");
+        check(imported.Answer == "文档 | 临时" && imported.IsOptionSelected(0) && imported.IsOptionSelected(2)
+            && imported.FreeText.Length == 0 && importChanges == 1,
+            "voice option protocol restores multiple checkboxes with one atomic notification");
+        imported.ImportAnswer("文档 | 临时");
+        check(importChanges == 1, "unchanged imported answer does not notify again");
+        imported.ImportAnswer("文档 | 未知目录");
+        check(imported.FreeText == "文档 | 未知目录" && Enumerable.Range(0, 3).All(index => !imported.IsOptionSelected(index)),
+            "a partially matching custom answer is never reduced to partial checkbox selections");
+        imported.ImportAnswer("语音自由答案，含标点 🐈‍⬛");
+        check(imported.FreeText == "语音自由答案，含标点 🐈‍⬛", "custom voice answers retain punctuation and Unicode");
+        imported.ImportAnswer(string.Empty);
+        check(!imported.HasAnswer && imported.FreeText.Length == 0 && Enumerable.Range(0, 3).All(index => !imported.IsOptionSelected(index)),
+            "importing an empty voice answer clears text and checkboxes");
+        var importedSingle = new DshTaskQuestionAnswer(question);
+        importedSingle.ImportAnswer("项目");
+        check(importedSingle.IsOptionSelected(1) && importedSingle.FreeText.Length == 0, "single voice label restores its radio button");
+        importedSingle.ImportAnswer("文档 | 项目");
+        check(importedSingle.FreeText == "文档 | 项目" && Enumerable.Range(0, 3).All(index => !importedSingle.IsOptionSelected(index)),
+            "single-choice imports do not invent a selection for multiple labels");
+        var labelledSeparator = new DshTaskQuestionAnswer(question with { MultiSelect = true, Options = [new("文档 | 项目", ""), new("临时", "")] });
+        labelledSeparator.ImportAnswer("文档 | 项目");
+        check(labelledSeparator.IsOptionSelected(0) && !labelledSeparator.IsOptionSelected(1),
+            "an exact label containing the protocol separator takes precedence over splitting");
+        var recommended = new DshTaskQuestionAnswer(question with { Options = [new("浅色 (Recommended)", ""), new("深色", "")] });
+        recommended.ImportAnswer("浅色 (Recommended)");
+        check(recommended.IsOptionSelected(0), "voice imports preserve the exact recommended option label");
+
+        var voiceRequest = request with { Questions = [question, question with { Id = "q2", MultiSelect = true }] };
+        DshTaskSnapshot Voice(long revision, IReadOnlyDictionary<string, string> values, string id = "request1")
+            => Snapshot(pending: [voiceRequest]) with { VoiceInteractionId = id, VoiceAnswers = values, VoiceAnswerRevision = revision };
+        var voiceDrafts = new DshTaskAnswerDrafts();
+        var voiceValues = new Dictionary<string, string> { ["q1"] = "项目", ["q2"] = "文档 | 临时" };
+        var firstVoice = Voice(1, voiceValues);
+        voiceDrafts.Synchronize("voice-scope", firstVoice);
+        voiceValues["q1"] = "不应被读取的外部修改";
+        var voiceUi = voiceDrafts.GetOrCreate("voice-scope", "session1", voiceRequest);
+        check(voiceUi[0].IsOptionSelected(1) && voiceUi[1].IsOptionSelected(0) && voiceUi[1].IsOptionSelected(2),
+            "opening a dialog after voice answers imports the captured current answers");
+        voiceUi[0].FreeText = "用户随后键入";
+        voiceDrafts.Synchronize("voice-scope", firstVoice);
+        check(voiceUi[0].Answer == "用户随后键入", "same voice revision cannot overwrite later manual input");
+        voiceDrafts.Synchronize("voice-scope", Voice(0, new Dictionary<string, string> { ["q1"] = "临时" }));
+        check(voiceUi[0].Answer == "用户随后键入", "older voice revision cannot roll back current UI choices");
+        voiceDrafts.Synchronize("voice-scope", Voice(2, new Dictionary<string, string> { ["q1"] = "临时" }));
+        check(voiceUi[0].IsOptionSelected(2) && !voiceUi[1].HasAnswer,
+            "new voice revision updates existing UI objects and clears missing question answers");
+        voiceUi[1].FreeText = "手动补充";
+        voiceDrafts.Synchronize("voice-scope", Voice(3, new Dictionary<string, string>(), ""));
+        check(!voiceUi[0].HasAnswer && !voiceUi[1].HasAnswer,
+            "explicit voice cancellation clears the former interaction's visible draft");
+        voiceUi[0].FreeText = "取消后手动编辑";
+        voiceDrafts.Synchronize("voice-scope", Voice(3, new Dictionary<string, string>(), ""));
+        check(voiceUi[0].Answer == "取消后手动编辑", "repeated cancellation snapshot does not clear later manual edits");
+        voiceDrafts.Synchronize("voice-scope", Voice(4, new Dictionary<string, string> { ["q1"] = "文档" }));
+        voiceDrafts.Synchronize("voice-scope", Voice(5, new Dictionary<string, string>()));
+        check(!voiceUi[0].HasAnswer && !voiceUi[1].HasAnswer, "empty answers for the same voice request also clear its draft");
+
+        voiceDrafts.Synchronize("voice-scope", Voice(6, new Dictionary<string, string> { ["q1"] = "文档" }));
+        voiceUi[0].FreeText = "离线保留";
+        voiceDrafts.Synchronize("voice-scope", Voice(7, new Dictionary<string, string>(), "") with { State = "disconnected", PendingInteractions = [] });
+        check(voiceUi[0].Answer == "离线保留" && ReferenceEquals(voiceUi, voiceDrafts.GetOrCreate("voice-scope", "session1", voiceRequest)),
+            "disconnection cannot erase or overwrite the last authoritative draft");
+        voiceDrafts.Synchronize("voice-scope", Voice(7, new Dictionary<string, string>(), ""));
+        check(!voiceUi[0].HasAnswer, "voice clear received while disconnected applies after authoritative reconnect");
+
+        voiceDrafts.Synchronize("voice-scope", Voice(8, new Dictionary<string, string> { ["q1"] = "文档" }));
+        var changedVoiceRequest = voiceRequest with { Questions = [question with { Question = "新的选择问题" }] };
+        voiceDrafts.Synchronize("voice-scope", Voice(8, new Dictionary<string, string> { ["q1"] = "文档" }) with { PendingInteractions = [changedVoiceRequest] });
+        var newSchemaUi = voiceDrafts.GetOrCreate("voice-scope", "session1", changedVoiceRequest);
+        check(!newSchemaUi[0].HasAnswer && !ReferenceEquals(voiceUi, newSchemaUi),
+            "same voice revision cannot carry answers across a changed request schema");
+        voiceDrafts.Synchronize("voice-scope", Voice(9, new Dictionary<string, string> { ["q1"] = "项目" }) with { PendingInteractions = [changedVoiceRequest] });
+        check(newSchemaUi[0].IsOptionSelected(1), "a new voice revision for the changed schema is imported");
+        voiceDrafts.GetOrCreate("voice-scope", "session1", voiceRequest);
+        check(!voiceDrafts.GetOrCreate("voice-scope", "session1", changedVoiceRequest)[0].HasAnswer,
+            "direct schema changes invalidate cached voice answers before another synchronize call");
+
+        voiceDrafts.Synchronize("voice-scope", Voice(10, new Dictionary<string, string> { ["q1"] = "文档" }));
+        voiceDrafts.Synchronize("voice-scope", Voice(10, new Dictionary<string, string> { ["q1"] = "文档" }) with { PendingInteractions = [] });
+        check(!voiceDrafts.GetOrCreate("voice-scope", "session1", voiceRequest)[0].HasAnswer,
+            "resolved requests cannot revive cached voice answers when reopened");
+        voiceDrafts.Synchronize("voice-scope", Voice(11, new Dictionary<string, string> { ["q1"] = "项目" }));
+        voiceDrafts.Remove("voice-scope", "session1", voiceRequest.Id);
+        check(!voiceDrafts.GetOrCreate("voice-scope", "session1", voiceRequest)[0].HasAnswer,
+            "explicitly removing a voice draft removes its cached values as well");
+        voiceDrafts.Synchronize("voice-scope", Voice(12, new Dictionary<string, string> { ["q1"] = "文档" }));
+        check(!voiceDrafts.GetOrCreate("other-scope", "session1", voiceRequest)[0].HasAnswer,
+            "voice answers cannot leak into another DSH scope");
+        voiceDrafts.Synchronize("voice-scope", Voice(13, new Dictionary<string, string> { ["q1"] = "文档" }));
+        check(!voiceDrafts.GetOrCreate("voice-scope", "other-session", voiceRequest)[0].HasAnswer,
+            "voice answers cannot leak into another task session");
+        voiceDrafts.Synchronize("voice-scope", Voice(14, new Dictionary<string, string> { ["q1"] = "文档" }));
+        voiceDrafts.Synchronize("voice-scope", Voice(14, new Dictionary<string, string> { ["q1"] = "文档" }) with { IsMonitoring = false });
+        check(!voiceDrafts.GetOrCreate("voice-scope", "session1", voiceRequest)[0].HasAnswer,
+            "stopping monitoring also clears the cached voice answer source");
+
+        var otherVoiceRequest = voiceRequest with { Id = "other-request" };
+        var beforeOtherVoice = voiceDrafts.GetOrCreate("voice-scope", "session1", voiceRequest);
+        beforeOtherVoice[0].FreeText = "其他问题的手动草稿";
+        voiceDrafts.Synchronize("voice-scope", Voice(15, new Dictionary<string, string> { ["q1"] = "项目" }, "other-request")
+            with { PendingInteractions = [voiceRequest, otherVoiceRequest] });
+        check(beforeOtherVoice[0].Answer == "其他问题的手动草稿"
+            && voiceDrafts.GetOrCreate("voice-scope", "session1", otherVoiceRequest)[0].IsOptionSelected(1),
+            "voice updates only their identified pending interaction");
     }
 }

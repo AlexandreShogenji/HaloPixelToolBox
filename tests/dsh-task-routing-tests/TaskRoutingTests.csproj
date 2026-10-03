@@ -7,6 +7,9 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../src/HaloPixelToolBox/Services/Dsh/DshTaskService.cs" Link="Services/DshTaskService.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/Services/Dsh/DshTaskService.VoiceInteractions.cs" Link="Services/DshTaskService.VoiceInteractions.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/Services/Dsh/DshTaskService.VoiceSessions.cs" Link="Services/DshTaskService.VoiceSessions.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/Services/Dsh/DshSpokenInteraction.cs" Link="Services/DshSpokenInteraction.cs" />
     <Compile Include="../../src/HaloPixelToolBox/Services/Dsh/DshTaskVoiceParser.cs" Link="Services/DshTaskVoiceParser.cs" />
     <Compile Include="../../src/HaloPixelToolBox/Models/Dsh/DshTasks.cs" Link="Models/DshTasks.cs" />
     <Compile Include="../../src/HaloPixelToolBox/Models/Dsh/DshTaskInteractionIdentity.cs" Link="Models/DshTaskInteractionIdentity.cs" />

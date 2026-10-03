@@ -8,7 +8,7 @@ using System.Text.Json;
 namespace HaloPixelToolBox.Services;
 
 /// <summary>One monitored ordinary DSH task, with exact request-bound human responses.</summary>
-public sealed class DshTaskService : IDisposable
+public sealed partial class DshTaskService : IDisposable
 {
     private readonly IDshTaskSessionClient client;
     private readonly Func<string> defaultRoot;
@@ -245,8 +245,8 @@ public sealed class DshTaskService : IDisposable
             questionInteractionId = string.Empty;
             questionInteractionSchema = null;
             revision = string.Empty;
-            Publish(Current with { IsBusy = false, State = "running", StatusText = "回答已提交",
-                PendingInteractions = Current.PendingInteractions.Where(p => p.Id != pending.Id).ToArray() });
+            Publish(WithVoiceDraft(Current with { IsBusy = false, State = "running", StatusText = "回答已提交",
+                PendingInteractions = Current.PendingInteractions.Where(p => p.Id != pending.Id).ToArray() }));
         }
         catch
         {
@@ -280,8 +280,8 @@ public sealed class DshTaskService : IDisposable
         try
         {
             var failure = await StopCoreAsync(release: true, cancellationToken);
-            Publish(Current with { IsMonitoring = false, IsBusy = false, PendingInteractions = [], StatusText = "已停止监控",
-                Detail = failure is null ? "真实任务未被取消。" : failure + " 真实任务未被取消。" });
+            Publish(WithVoiceDraft(Current with { IsMonitoring = false, IsBusy = false, PendingInteractions = [], StatusText = "已停止监控",
+                Detail = failure is null ? "真实任务未被取消。" : failure + " 真实任务未被取消。" }));
         }
         finally { actions.Release(); }
     }
@@ -298,8 +298,8 @@ public sealed class DshTaskService : IDisposable
         voiceDraft = null;
         awaitingVoicePrompt = false;
         if (previous.IsMonitoring)
-            Publish(previous with { IsMonitoring = false, IsBusy = false, PendingInteractions = [],
-                StatusText = "已停止监控", Detail = "真实任务未被取消。" });
+            Publish(WithVoiceDraft(previous with { IsMonitoring = false, IsBusy = false, PendingInteractions = [],
+                StatusText = "已停止监控", Detail = "真实任务未被取消。" }));
         if (client.Current.VoiceTarget?.Id == previous.SessionId) client.ClearVoiceTarget();
         var failures = new List<string>();
         if (previous.IsMonitoring && previousScope.Length > 0)
@@ -400,15 +400,15 @@ public sealed class DshTaskService : IDisposable
         var pending = remote.PendingInteractions.FirstOrDefault(p => p.Type == (state == "waitingApproval" ? "approval" : "question"));
         var nextQuestion = pending?.Type == "question" && questionInteractionId == pending.Id
             && DshTaskInteractionIdentity.Matches(questionInteractionSchema, pending)
-            ? pending.Questions.FirstOrDefault(q => !voiceAnswers.ContainsKey(q.Id))
+            ? NextVoiceQuestion(pending)
             : pending?.Questions.FirstOrDefault();
-        var detail = pending?.Type == "approval" ? pending.ToolName + "：" + pending.Reason
-            : nextQuestion?.Question
-                ?? (state == "awaitingPrompt" ? "请继续说要执行的指令，或在会话输入框发送；将使用当前会话。" : remote.ProgressText);
+        var detail = pending?.Type == "approval" ? ApprovalPrompt(remote.PendingInteractions)
+            : pending?.Type == "question" ? QuestionPrompt(pending, nextQuestion)
+                : (state == "awaitingPrompt" ? "请继续说要执行的指令；将使用当前会话。" : remote.ProgressText);
         var previousState = Current.State;
         var previousDetail = Current.Detail;
-        Publish(Current with { State = state, StatusText = StatusLabel(state), Detail = detail,
-            FinalText = remote.FinalText, PendingInteractions = remote.PendingInteractions });
+        Publish(WithVoiceDraft(Current with { State = state, StatusText = StatusLabel(state), Detail = detail,
+            FinalText = remote.FinalText, PendingInteractions = remote.PendingInteractions }));
         var cue = state switch
         {
             "waitingApproval" => "approval_required", "waitingInput" => "input_required",
@@ -416,7 +416,7 @@ public sealed class DshTaskService : IDisposable
             "awaitingPrompt" => string.Empty,
             _ => "task_progress"
         };
-        var cueIdentity = state + ":" + pending?.Id;
+        var cueIdentity = state + ":" + (pending is null ? "" : JsonSerializer.Serialize(pending));
         var sameStateRecovered = previousState is "unknown" or "disconnected"
             && remote.Revision == previousRevision && lastCueIdentity == cueIdentity;
         var shouldCue = pending is not null ? lastCueIdentity != cueIdentity
@@ -431,9 +431,31 @@ public sealed class DshTaskService : IDisposable
         SaveIdentity();
     }
 
-    public async Task<DshTaskVoiceResult> RouteVoiceAsync(string text, CancellationToken cancellationToken = default)
+    public Task<DshTaskVoiceResult> RouteVoiceAsync(string text, CancellationToken cancellationToken = default)
+        => RouteVoiceCheckedAsync(text, null, cancellationToken);
+
+    public Task<DshTaskVoiceResult> RouteVoiceAsync(string text, DshTaskSnapshot expectedContext, CancellationToken cancellationToken = default)
+        => RouteVoiceCheckedAsync(text, expectedContext, cancellationToken);
+
+    private async Task<DshTaskVoiceResult> RouteVoiceCheckedAsync(string text, DshTaskSnapshot? expectedContext, CancellationToken cancellationToken)
     {
-        var normalized = DshTaskVoiceParser.Normalize(text);
+        await voiceRouteGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (expectedContext is not null && !VoiceContextMatches(expectedContext, Current))
+                return new(true, "任务或问题已变化，刚才的指令未提交。" + Current.Detail) { ListenForReply = Current.NeedsAttention };
+            return await RouteVoiceCoreAsync(text, expectedContext, cancellationToken);
+        }
+        finally { voiceRouteGate.Release(); }
+    }
+
+    private async Task<DshTaskVoiceResult> RouteVoiceCoreAsync(string text, DshTaskSnapshot? expectedContext, CancellationToken cancellationToken)
+    {
+        var normalized = DshSpokenInteraction.NormalizeCommand(text);
+        // An explicit answer is data, even when its body contains a task/device command.
+        if (Current.IsMonitoring && Current.NeedsAttention && System.Text.RegularExpressions.Regex.IsMatch(text.Trim(),
+            @"^(?:(?:我的)?(?:回答|答案|自由回答|自定义回答|自定義回答|自訂回答)\s*[:：]|我的答案是|回答是|答案是|自定义回答|自定義回答|自訂回答)"))
+            return await RouteInteractionVoiceAsync(text, expectedContext, cancellationToken);
         if (awaitingVoicePrompt && activeScope != scopeFactory())
         {
             var previousSessionId = Current.SessionId;
@@ -454,7 +476,11 @@ public sealed class DshTaskService : IDisposable
             return new(true, "尚未创建任务，已取消创建草稿。");
         }
         if (normalized is "任务状态" or "查询任务状态" or "当前任务状态" or "查询当前任务状态")
-            return new(true, Current.StatusText + (Current.Detail.Length > 0 ? "：" + Current.Detail : ""));
+            return new(true, Current.StatusText + (Current.Detail.Length > 0 ? "：" + Current.Detail : "")) { ListenForReply = Current.NeedsAttention || awaitingVoicePrompt };
+        if (normalized is "朗读任务结果" or "读出任务结果")
+            return new(true, Current.FinalText.Length > 0 ? Current.FinalText : "当前还没有任务结果。" + Current.StatusText);
+        var selectionResult = await RouteTaskSelectionAsync(text, cancellationToken);
+        if (selectionResult is not null) return selectionResult;
         if (normalized is "停止监控" or "停止任务监控")
         { await StopMonitoringAsync(cancellationToken); return new(true, Current.StatusText + "。" + Current.Detail); }
         if (normalized is "取消任务" or "取消当前任务" or "停止当前任务" or "取消当前轮")
@@ -481,23 +507,23 @@ public sealed class DshTaskService : IDisposable
                     await SendMessageAsync(existingPrompt, cancellationToken);
                     return new(true, "任务内容已发送到刚才新建的会话，未重复创建。");
                 }
-                return new(true, "任务会话已经新建，请继续说要执行的内容；不会重复创建。");
+                return new(true, "任务会话已经新建，请继续说要执行的内容；不会重复创建。") { ListenForReply = true };
             }
             if (Current.IsMonitoring && Current.State is not ("completed" or "failed" or "cancelled" or "idle"))
                 return new(true, "已有任务正在执行或等待回答，请先完成当前任务，或明确说停止任务监控，再新建任务。");
             var explicitDirectory = DshTaskVoiceParser.ReadDirectory(text);
             if (explicitDirectory is null && !DshTaskVoiceParser.Normalize(DshTaskVoiceParser.Header(text)).Contains("默认目录")
                 && System.Text.RegularExpressions.Regex.IsMatch(DshTaskVoiceParser.Header(text), @"在.*?(?:指定目录|路径|[A-Za-z]盘|[A-Za-z]:|目录下)"))
-                return new(true, "未识别到完整任务目录，请在会话页填写；也可以明确说使用默认目录新建任务。");
+                return new(true, "未识别到完整任务目录，请重新说出完整路径；也可以说使用默认目录新建任务。") { ListenForReply = true };
             var directory = explicitDirectory ?? defaultRoot();
             var title = DshTaskVoiceParser.ReadTitle(text);
             // A loose ASR phrase chooses the task route but never invents its content.
             var prompt = isCreate ? DshTaskVoiceParser.ReadPrompt(text) : null;
             if (!isCreate)
-            { voiceDraft = (directory, title, scopeFactory()); return new(true, "尚未创建任务，已保留创建草稿。请说明任务内容，加上要执行的指令。"); }
+            { voiceDraft = (directory, title, scopeFactory()); return new(true, "尚未创建任务，已保留创建草稿。请说明任务内容，加上要执行的指令。") { ListenForReply = true }; }
             var started = await StartAsync(new(directory, title, prompt ?? string.Empty), cancellationToken);
             if (started.State == "awaitingPrompt")
-                return new(true, "任务会话已新建。请继续说要执行的内容，或在会话输入框发送。");
+                return new(true, "任务会话已新建。请继续说要执行的内容。") { ListenForReply = true };
             return new(true, started.State == "unknown" ? started.StatusText + "，请核对会话。" : "任务已提交，接下来会持续监控状态。");
         }
         if (voiceDraft is { } draft)
@@ -509,7 +535,7 @@ public sealed class DshTaskService : IDisposable
             if (prompt is null && (normalized.Length == 0 || normalized is "好的" or "好" or "嗯" or "继续"
                 || DshTaskVoiceParser.IsApprovalReply(text)
                 || DshTaskVoiceParser.IsCreationCandidate(text)))
-                return new(true, "请告诉我新任务要做什么；或说取消创建。");
+                return new(true, "请告诉我新任务要做什么；或说取消创建。") { ListenForReply = true };
             prompt ??= text.Trim();
             voiceDraft = null;
             var started = await StartAsync(new(draft.Directory, draft.Title, prompt), cancellationToken);
@@ -523,7 +549,7 @@ public sealed class DshTaskService : IDisposable
             var prompt = DshTaskVoiceParser.ReadPrompt(text);
             if (prompt is null && (normalized.Length == 0 || normalized is "好的" or "好" or "嗯" or "继续"
                 || DshTaskVoiceParser.IsApprovalReply(text)))
-                return new(true, "会话已新建，尚未提交任务内容。请告诉我要执行什么；或说取消创建。");
+                return new(true, "会话已新建，尚未提交任务内容。请告诉我要执行什么；或说取消创建。") { ListenForReply = true };
             await SendMessageAsync(prompt ?? text.Trim(), cancellationToken);
             return new(true, "任务内容已发送到刚才新建的会话，已开始监控。");
         }
@@ -541,37 +567,10 @@ public sealed class DshTaskService : IDisposable
         EnsureActive();
         if (Current.State is "unknown" or "disconnected")
             return new(true, "当前任务状态尚未确认，请等待状态恢复后再说；未发送本次消息。");
-        var pendingApproval = Current.PendingInteractions.Where(p => p.Type == "approval").ToArray();
-        if (pendingApproval.Length > 0)
-        {
-            if (pendingApproval.Length != 1) return new(true, "有多个授权请求，请在会话页逐项确认。");
-            if (normalized is "同意" or "批准" or "允许本次" or "批准本次" or "同意本次")
-            { await RespondApprovalAsync(pendingApproval[0], true, cancellationToken); return new(true, "已批准本次请求。"); }
-            if (normalized is "拒绝" or "不同意" or "拒绝本次" or "不允许")
-            { await RespondApprovalAsync(pendingApproval[0], false, cancellationToken); return new(true, "已拒绝本次请求。"); }
-            return new(true, "当前正在等待授权。请先查看请求内容，再明确说批准本次或拒绝本次。");
-        }
-        var question = Current.PendingInteractions.FirstOrDefault(p => p.Type == "question");
-        if (question is not null)
-        {
-            if (questionInteractionId != question.Id || !DshTaskInteractionIdentity.Matches(questionInteractionSchema, question))
-            {
-                voiceAnswers.Clear(); questionInteractionId = question.Id;
-                questionInteractionSchema = CaptureInteraction(question);
-            }
-            var next = question.Questions.FirstOrDefault(q => !voiceAnswers.ContainsKey(q.Id));
-            if (next is null) return new(true, "本次回答已收集，请查看会话中的提交状态。");
-            voiceAnswers[next.Id] = normalized is "跳过此题" or "跳过这个问题" ? "" : text.Trim();
-            var following = question.Questions.FirstOrDefault(q => !voiceAnswers.ContainsKey(q.Id));
-            if (following is not null)
-            {
-                Publish(Current with { Detail = following.Question });
-                await FeedbackAsync("input_required", cancellationToken);
-                return new(true, "已记录。下一个问题：" + following.Question);
-            }
-            await RespondQuestionAsync(question, new Dictionary<string, string>(voiceAnswers), cancellationToken);
-            return new(true, "本次问题的回答已提交，任务将继续。");
-        }
+        if (Current.NeedsAttention)
+            return await RouteInteractionVoiceAsync(text, expectedContext, cancellationToken);
+        if (IsInteractionCommand(normalized))
+            return new(true, "当前没有等待回答的问题。可以说任务状态，或继续说任务指令。");
         // Approval words outside a live request must never become an implicit authorization.
         if (DshTaskVoiceParser.IsApprovalReply(text))
             return new(true, "当前没有等待中的授权请求，未发送授权。");

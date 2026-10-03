@@ -13,12 +13,18 @@ public sealed record DshTaskRemoteState(string SessionId, string TaskStatus, str
 }
 public sealed record DshTaskSubmission(string SessionId, string RequestId, bool Accepted);
 public sealed record DshTaskStartRequest(string BaseDirectory, string Title, string Prompt);
-public sealed record DshTaskVoiceResult(bool Handled, string Message);
+public sealed record DshTaskVoiceResult(bool Handled, string Message)
+{
+    public bool ListenForReply { get; init; }
+}
 
 public sealed record DshTaskSnapshot(string SessionId, string Title, string WorkingDirectory,
     string State, string StatusText, string Detail, string FinalText,
     IReadOnlyList<DshTaskInteraction> PendingInteractions, bool IsMonitoring, bool IsBusy)
 {
+    public string VoiceInteractionId { get; init; } = string.Empty;
+    public IReadOnlyDictionary<string, string> VoiceAnswers { get; init; } = new Dictionary<string, string>();
+    public long VoiceAnswerRevision { get; init; }
     public static DshTaskSnapshot Initial { get; } = new("", "", "", "idle", "未监控任务", "", "", [], false, false);
     public bool NeedsAttention => PendingInteractions.Count > 0;
     public bool CanRespond => IsMonitoring && !IsBusy && NeedsAttention;

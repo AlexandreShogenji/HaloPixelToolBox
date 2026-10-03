@@ -20,6 +20,9 @@ async Task Until(Func<bool> value)
 DshTaskInteraction Approval(string id="approve-1") => new(id,"approval","exec","write file",[]);
 DshTaskInteraction Question(string id="question-1") => new(id,"question","ask","",[
     new("q1","位置","放在哪里？",[new("工作区","")]), new("q2","名称","文件名？",[])]);
+DshTaskInteraction ChoiceQuestion(string id="choice-1") => new(id,"question","ask","",[
+    new("style","样式","请选择样式",[new("浅色纸张 (Recommended)",""),new("深色夜间","")]),
+    new("features","功能","请选择需要的功能",[new("搜索",""),new("置顶",""),new("颜色标签","")],true)]);
 SemaphoreSlim ActionGate(DshTaskService service) => (SemaphoreSlim)typeof(DshTaskService)
     .GetField("actions",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.GetValue(service)!;
 void PublishTask(DshTaskService service,DshTaskSnapshot snapshot) => typeof(DshTaskService)
@@ -43,8 +46,10 @@ await Test("voice direct create extracts only explicit raw prompt", async()=>
 
 await Test("awaiting empty session scope change refuses old content", async()=>
 {
-    using var f=new TaskCase(); await f.Service.RouteVoiceAsync("新建任务"); f.Scope="profile-B";
-    var result=await f.Service.RouteVoiceAsync("任务内容：旧目录执行");
+    using var f=new TaskCase(); await f.Service.RouteVoiceAsync("新建任务");
+    // Exercise the voice-route guard itself before the polling loop clears the old task.
+    var gate=ActionGate(f.Service);await gate.WaitAsync();f.Scope="profile-B";
+    DshTaskVoiceResult result;try{result=await f.Service.RouteVoiceAsync("任务内容：旧目录执行");}finally{gate.Release();}
     Check(result.Handled&&result.Message.Contains("配置已改变")&&f.Client.Creates.Count==1&&f.Client.Prompts.Count==0&&!f.Service.Current.IsMonitoring,"old session content submitted");
 });
 
@@ -130,20 +135,24 @@ await Test("question submission needs complete precise answer keys", async()=>
     Check(f.Client.Responses.Count==0,"partial response sent");
 });
 
-await Test("voice two-question flow sends once only after all answers", async()=>
+await Test("voice two-question flow sends once only after all answers and explicit confirmation", async()=>
 {
     using var f=new TaskCase(); await f.Start(); f.Client.SetRemote("waitingInput","q1",[Question()]); await Until(()=>f.Service.Current.NeedsAttention);
     var first=await f.Service.RouteVoiceAsync("工作区"); Check(first.Message.Contains("文件名")&&f.Client.Responses.Count==0,"first answered all");
-    await f.Service.RouteVoiceAsync("notes.txt"); var answer=f.Client.Responses.Single();
+    var review=await f.Service.RouteVoiceAsync("notes.txt");
+    Check(review.ListenForReply&&review.Message.Contains("确认提交")&&f.Client.Responses.Count==0,"all answers submitted without confirmation");
+    var submitted=await f.Service.RouteVoiceAsync("确认提交");var answer=f.Client.Responses.Single();
+    Check(!submitted.ListenForReply,"submitted answer opened an unrelated capture");
     Check(answer.Answers is { Count:2 }&&answer.Answers["q1"]=="工作区"&&answer.Answers["q2"]=="notes.txt","answers misbound");
 });
 
 await Test("new question interaction clears answers collected for old request", async()=>
 {
     using var f=new TaskCase(); await f.Start(); f.Client.SetRemote("waitingInput","q1",[Question("old")]); await Until(()=>f.Service.Current.NeedsAttention);
-    await f.Service.RouteVoiceAsync("old answer"); f.Client.SetRemote("waitingInput","q2",[Question("new")]);
-    await Until(()=>f.Service.Current.PendingInteractions[0].Id=="new"); await f.Service.RouteVoiceAsync("new first");
+    await f.Service.RouteVoiceAsync("回答：old answer"); f.Client.SetRemote("waitingInput","q2",[Question("new")]);
+    await Until(()=>f.Service.Current.PendingInteractions[0].Id=="new"); await f.Service.RouteVoiceAsync("回答：new first");
     Check(f.Client.Responses.Count==0,"stale first answer reused"); await f.Service.RouteVoiceAsync("new second");
+    Check(f.Client.Responses.Count==0,"new question submitted without explicit confirmation");await f.Service.RouteVoiceAsync("确认提交");
     Check(f.Client.Responses.Single().Answers!["q1"]=="new first","old answer retained");
 });
 
@@ -206,16 +215,16 @@ await Test("service old pending approval is cleared after disconnect",async()=>
 await Test("question answers containing device domain words are still collected",async()=>
 {
     using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","q1",[Question()]);await Until(()=>f.Service.Current.NeedsAttention);
-    await f.Service.RouteVoiceAsync("歌词放在这里");await f.Service.RouteVoiceAsync("氛围灯配置.txt");
+    await f.Service.RouteVoiceAsync("回答：歌词放在这里");await f.Service.RouteVoiceAsync("氛围灯配置.txt");await f.Service.RouteVoiceAsync("确认提交");
     var response=f.Client.Responses.Single();Check(response.Answers!["q1"]=="歌词放在这里"&&response.Answers["q2"]=="氛围灯配置.txt","domain word stole question answer");
 });
 
 await Test("explicit device bypass preserves pending question and collected answers",async()=>
 {
     using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","q1",[Question()]);await Until(()=>f.Service.Current.NeedsAttention);
-    await f.Service.RouteVoiceAsync("first answer");Check(!(await f.Service.RouteVoiceAsync("设备关灯")).Handled,"explicit device command swallowed");
+    await f.Service.RouteVoiceAsync("回答：first answer");Check(!(await f.Service.RouteVoiceAsync("设备关灯")).Handled,"explicit device command swallowed");
     Check(f.Client.Responses.Count==0&&f.Service.Current.NeedsAttention,"device bypass completed pending");
-    await f.Service.RouteVoiceAsync("second answer");Check(f.Client.Responses.Single().Answers!["q1"]=="first answer","bypass lost answers");
+    await f.Service.RouteVoiceAsync("second answer");await f.Service.RouteVoiceAsync("确认提交");Check(f.Client.Responses.Single().Answers!["q1"]=="first answer","bypass lost answers");
 });
 
 await Test("pending approval does not misroute device words without explicit prefix",async()=>
@@ -596,11 +605,11 @@ await Test("partial question answers keep the next unanswered question after rec
 {
     using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","same-questions",[Question()]);
     await Until(()=>f.Service.Current.State=="waitingInput");await f.Service.RouteVoiceAsync("工作区");
-    Check(f.Service.Current.Detail=="文件名？","partial answer did not show next question");
+    Check(f.Service.Current.Detail.Contains("文件名？"),"partial answer did not show next question");
     f.Client.ReadFailure=new IOException("temporary disconnect");await Until(()=>f.Service.Current.State=="disconnected");
     f.Client.ReadFailure=null;await Until(()=>f.Service.Current.State=="waitingInput");
-    Check(f.Service.Current.Detail=="文件名？","reconnect displayed already answered question while binding next answer elsewhere");
-    await f.Service.RouteVoiceAsync("notes.txt");Check(f.Client.Responses.Single().Answers!["q1"]=="工作区","reconnect discarded collected answer");
+    Check(f.Service.Current.Detail.Contains("文件名？"),"reconnect displayed already answered question while binding next answer elsewhere");
+    await f.Service.RouteVoiceAsync("notes.txt");await f.Service.RouteVoiceAsync("确认提交");Check(f.Client.Responses.Single().Answers!["q1"]=="工作区","reconnect discarded collected answer");
 });
 
 await Test("saved monitoring restores when session list arrives after first connection event",async()=>
@@ -731,8 +740,8 @@ await Test("adopting selected task waits for actual questions before routing fir
     f.Client.ReadOverride=(_,ct)=>opening.Task.WaitAsync(ct);var routed=f.Service.RouteVoiceAsync("工作区");await Until(()=>f.Client.ReadCount==1);
     Check(!routed.IsCompleted&&f.Client.Prompts.Count==0&&f.Client.Responses.Count==0,"first utterance was submitted before task state arrived");
     opening.SetResult(f.Client.Remote);await routed;f.Client.ReadOverride=null;
-    Check(f.Client.Prompts.Count==0&&f.Client.Responses.Count==0&&f.Service.Current.Detail=="文件名？","first answer was queued as ordinary task content");
-    await f.Service.RouteVoiceAsync("notes.txt");var answer=f.Client.Responses.Single();
+    Check(f.Client.Prompts.Count==0&&f.Client.Responses.Count==0&&f.Service.Current.Detail.Contains("文件名？"),"first answer was queued as ordinary task content");
+    await f.Service.RouteVoiceAsync("notes.txt");await f.Service.RouteVoiceAsync("确认提交");var answer=f.Client.Responses.Single();
     Check(answer.Id==selected.Id&&answer.Answers!["q1"]=="工作区"&&answer.Answers["q2"]=="notes.txt"&&f.Client.Creates.Count==0,"first adopted question answer lost its identity or created another session");
 });
 
@@ -790,10 +799,10 @@ await Test("queued expected response cannot cross to another task with identical
 await Test("same-id revised question discards previously collected voice answers",async()=>
 {
     using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","old-question",[Question()]);await Until(()=>f.Service.Current.NeedsAttention);
-    await f.Service.RouteVoiceAsync("old location");var changed=Question() with{Questions=[new("q1","目录","新的输出目录？",[]),new("q2","名称","新文件名？",[])]};
-    f.Client.SetRemote("waitingInput","changed-question",[changed]);await Until(()=>f.Service.Current.Detail=="新的输出目录？");
-    await f.Service.RouteVoiceAsync("new location");Check(f.Client.Responses.Count==0&&f.Service.Current.Detail=="新文件名？","revised same-id question reused the old first answer");
-    await f.Service.RouteVoiceAsync("new-name.txt");Check(f.Client.Responses.Single().Answers!["q1"]=="new location","revised question retained stale answer content");
+    await f.Service.RouteVoiceAsync("回答：old location");var changed=Question() with{Questions=[new("q1","目录","新的输出目录？",[]),new("q2","名称","新文件名？",[])]};
+    f.Client.SetRemote("waitingInput","changed-question",[changed]);await Until(()=>f.Service.Current.Detail.Contains("新的输出目录？"));
+    await f.Service.RouteVoiceAsync("new location");Check(f.Client.Responses.Count==0&&f.Service.Current.Detail.Contains("新文件名？"),"revised same-id question reused the old first answer");
+    await f.Service.RouteVoiceAsync("new-name.txt");await f.Service.RouteVoiceAsync("确认提交");Check(f.Client.Responses.Single().Answers!["q1"]=="new location","revised question retained stale answer content");
 });
 
 await Test("queued question copies original option schema before mutable lists change",async()=>
@@ -814,6 +823,376 @@ await Test("queued question preserves answer values captured when submission was
     var reply=f.Service.RespondQuestionAsync(f.Service.Current.PendingInteractions.Single(),answers);
     answers["q2"]="changed-later.txt";gate.Release();await reply;
     Check(f.Client.Responses.Single().Answers!["q2"]=="notes.txt","queued question sent subsequently edited draft content");
+});
+
+await Test("numbered single and multiple choices are announced and submitted as exact labels",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","choices",[ChoiceQuestion()]);await Until(()=>f.Service.Current.NeedsAttention);
+    var prompt=f.Service.Current.Detail;
+    Check(prompt.Contains("1：浅色纸张")&&prompt.Contains("2：深色夜间"),"initial prompt omitted numbered option labels");
+    var next=await f.Service.RouteVoiceAsync("第一项");
+    Check(next.ListenForReply&&next.Message.Contains("可多选")&&next.Message.Contains("3：颜色标签"),"next question omitted multiple-choice guidance");
+    var review=await f.Service.RouteVoiceAsync("第一项和第三项");
+    Check(review.ListenForReply&&review.Message.Contains("搜索 | 颜色标签")&&f.Client.Responses.Count==0,"choice review did not preserve a pending explicit confirmation");
+    await f.Service.RouteVoiceAsync("确认提交");var answer=f.Client.Responses.Single().Answers!;
+    Check(answer["style"]=="浅色纸张 (Recommended)"&&answer["features"]=="搜索 | 颜色标签","spoken indexes were sent instead of real option labels");
+});
+
+await Test("ambiguous out-of-range and negated choices never become implicit free text",async()=>
+{
+    using var f=new TaskCase();await f.Start();
+    var question=ChoiceQuestion() with{Questions=[new("theme","样式","请选择样式",[new("浅色纸张",""),new("浅色天空",""),new("深色夜间","")])]};
+    f.Client.SetRemote("waitingInput","ambiguous",[question]);await Until(()=>f.Service.Current.NeedsAttention);
+    foreach(var text in new[]{"浅色","第四项","第一和第二项","不要第一项","随便","未知样式"})
+    {
+        var result=await f.Service.RouteVoiceAsync(text);
+        Check(result.ListenForReply&&f.Client.Responses.Count==0&&f.Client.Prompts.Count==1,"uncertain choice mutated the real task: "+text);
+        var confirm=await f.Service.RouteVoiceAsync("确认提交");
+        Check(confirm.ListenForReply&&confirm.Message.Contains("没有回答")&&f.Client.Responses.Count==0,"uncertain choice became an accepted answer: "+text);
+    }
+    await f.Service.RouteVoiceAsync("回答：薄荷绿");await f.Service.RouteVoiceAsync("确认提交");
+    Check(f.Client.Responses.Single().Answers!["theme"]=="薄荷绿","explicit custom choice lost its body or sent the prefix");
+});
+
+await Test("repeating options does not advance or overwrite collected answers",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","repeat",[ChoiceQuestion()]);await Until(()=>f.Service.Current.NeedsAttention);
+    await f.Service.RouteVoiceAsync("第二项");
+    foreach(var text in new[]{"重听","重复问题","读出选项","检查答案"})
+    {
+        var repeated=await f.Service.RouteVoiceAsync(text);
+        Check(repeated.ListenForReply&&f.Client.Responses.Count==0&&f.Client.Prompts.Count==1,"repeat or review sent content: "+text);
+    }
+    await f.Service.RouteVoiceAsync("全选");await f.Service.RouteVoiceAsync("确认提交");
+    var answers=f.Client.Responses.Single().Answers!;
+    Check(answers["style"]=="深色夜间"&&answers["features"]=="搜索 | 置顶 | 颜色标签","repeating changed selected style or consumed the next answer");
+});
+
+await Test("previous question can be revised without discarding earlier answers",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","revise",[ChoiceQuestion()]);await Until(()=>f.Service.Current.NeedsAttention);
+    await f.Service.RouteVoiceAsync("第一项");await f.Service.RouteVoiceAsync("第一和第三项");
+    var revise=await f.Service.RouteVoiceAsync("修改上一题");
+    Check(revise.ListenForReply&&revise.Message.Contains("请选择需要的功能")&&f.Client.Responses.Count==0,"review could not reopen last answered question");
+    await f.Service.RouteVoiceAsync("第二项");await f.Service.RouteVoiceAsync("确认提交");
+    var answers=f.Client.Responses.Single().Answers!;
+    Check(answers["style"]=="浅色纸张 (Recommended)"&&answers["features"]=="置顶","last answer edit discarded earlier choice or preserved stale selection");
+});
+
+await Test("previous question navigation can revise the first answer before answering the second",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","back",[ChoiceQuestion()]);await Until(()=>f.Service.Current.NeedsAttention);
+    await f.Service.RouteVoiceAsync("第一项");var previous=await f.Service.RouteVoiceAsync("上一题");
+    Check(previous.ListenForReply&&previous.Message.Contains("请选择样式"),"previous question did not return to first choice");
+    await f.Service.RouteVoiceAsync("第二项");await f.Service.RouteVoiceAsync("第一项");await f.Service.RouteVoiceAsync("确认提交");
+    Check(f.Client.Responses.Single().Answers!["style"]=="深色夜间","first choice revision did not replace original answer");
+});
+
+await Test("confirmation and skip refuse incomplete question sets",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","incomplete",[Question()]);await Until(()=>f.Service.Current.NeedsAttention);
+    foreach(var text in new[]{"确认提交","跳过此题","下一题"})
+        Check((await f.Service.RouteVoiceAsync(text)).ListenForReply&&f.Client.Responses.Count==0,"incomplete question was skipped or submitted");
+    await f.Service.RouteVoiceAsync("工作区");var confirm=await f.Service.RouteVoiceAsync("提交答案");
+    Check(confirm.ListenForReply&&confirm.Message.Contains("文件名")&&f.Client.Responses.Count==0,"partial set accepted confirmation");
+    await f.Service.RouteVoiceAsync("notes.txt");await f.Service.RouteVoiceAsync("确认答案");
+    Check(f.Client.Responses.Count==1,"completed question set was not submitted exactly once");
+});
+
+await Test("clearing answers preserves task and requires a new complete confirmation",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","clear",[Question()]);await Until(()=>f.Service.Current.NeedsAttention);
+    await f.Service.RouteVoiceAsync("工作区");await f.Service.RouteVoiceAsync("old.txt");
+    var cleared=await f.Service.RouteVoiceAsync("取消回答");
+    Check(cleared.ListenForReply&&f.Client.CancelCount==0&&f.Client.ReleaseCount==0&&f.Service.Current.IsMonitoring,"answer cancellation cancelled or released real task");
+    await f.Service.RouteVoiceAsync("确认提交");Check(f.Client.Responses.Count==0,"cleared answer was still submitted");
+    await f.Service.RouteVoiceAsync("工作区");await f.Service.RouteVoiceAsync("new.txt");await f.Service.RouteVoiceAsync("确认提交");
+    Check(f.Client.Responses.Single().Answers!["q2"]=="new.txt","cleared draft recovered old answer");
+});
+
+await Test("confirmation after same-id schema change cannot submit the old completed draft",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","before-schema",[ChoiceQuestion()]);await Until(()=>f.Service.Current.NeedsAttention);
+    await f.Service.RouteVoiceAsync("第一项");await f.Service.RouteVoiceAsync("全选");
+    var changed=ChoiceQuestion() with{Questions=[new("style","新样式","请选择新样式",[new("绿色",""),new("蓝色","")]),new("features","新功能","请选择新功能",[new("导出","")])]};
+    f.Client.SetRemote("waitingInput","after-schema",[changed]);await Until(()=>f.Service.Current.Detail.Contains("请选择新样式"));
+    var confirm=await f.Service.RouteVoiceAsync("确认提交");
+    Check(confirm.ListenForReply&&f.Client.Responses.Count==0,"same-id schema change reused previously completed voice draft");
+    await f.Service.RouteVoiceAsync("第二项");await f.Service.RouteVoiceAsync("第一项");await f.Service.RouteVoiceAsync("确认提交");
+    var answers=f.Client.Responses.Single().Answers!;
+    Check(answers["style"]=="蓝色"&&answers["features"]=="导出","new schema answers still contained old option labels");
+});
+
+await Test("queued spoken confirmation cannot apply after request schema replacement",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","queued-old",[Question()]);await Until(()=>f.Service.Current.NeedsAttention);
+    await f.Service.RouteVoiceAsync("工作区");await f.Service.RouteVoiceAsync("notes.txt");
+    var gate=ActionGate(f.Service);await gate.WaitAsync();var confirm=f.Service.RouteVoiceAsync("确认提交");
+    var changed=Question() with{Reason="updated question context"};
+    f.Client.SetRemote("waitingInput","queued-new",[changed]);PublishTask(f.Service,f.Service.Current with{PendingInteractions=[changed]});gate.Release();
+    var result=await confirm;
+    Check(result.ListenForReply&&f.Client.Responses.Count==0,"queued confirmation sent answers to replaced request");
+    await f.Service.RouteVoiceAsync("确认提交");Check(f.Client.Responses.Count==0,"second confirmation resurrected stale completed draft");
+    await f.Service.RouteVoiceAsync("工作区");await f.Service.RouteVoiceAsync("new.txt");await f.Service.RouteVoiceAsync("确认提交");
+    Check(f.Client.Responses.Single().Answers!["q2"]=="new.txt","replaced queued request did not accept a newly answered draft");
+});
+
+await Test("selected second authorization is described before only that request is approved",async()=>
+{
+    using var f=new TaskCase();await f.Start();var second=Approval("two") with{ToolName="read_directory",Reason="读取任务目录"};
+    f.Client.SetRemote("waitingApproval","two-approvals",[Approval("one"),second]);await Until(()=>f.Service.Current.PendingInteractions.Count==2);
+    var selected=await f.Service.RouteVoiceAsync("选择授权第二项");
+    Check(selected.ListenForReply&&selected.Message.Contains(second.ToolName)&&selected.Message.Contains(second.Reason)&&f.Client.Responses.Count==0,"selection approved a request or omitted its details");
+    var approved=await f.Service.RouteVoiceAsync("批准本次");var response=f.Client.Responses.Single();
+    Check(response.Interaction=="two"&&response.Outcome=="allowed-once"&&f.Client.Remote.PendingInteractions.Single().Id=="one","approval did not target exactly selected second request");
+});
+
+await Test("changed selected authorization requires a new explicit selection",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingApproval","old-approval",[Approval("one"),Approval("two")]);await Until(()=>f.Service.Current.PendingInteractions.Count==2);
+    await f.Service.RouteVoiceAsync("选择授权第二项");
+    var changed=Approval("two") with{Reason="changed operation"};f.Client.SetRemote("waitingApproval","replaced-approval",[Approval("one"),changed]);
+    await Until(()=>f.Service.Current.PendingInteractions.Any(p=>p.Reason=="changed operation"));
+    var answer=await f.Service.RouteVoiceAsync("批准本次");
+    Check(answer.ListenForReply&&f.Client.Responses.Count==0,"old selected focus authorized changed operation");
+    await f.Service.RouteVoiceAsync("选择授权第二项");await f.Service.RouteVoiceAsync("拒绝本次");
+    Check(f.Client.Responses.Single() is{Interaction:"two",Outcome:"rejected"},"reselected changed request could not be rejected individually");
+});
+
+await Test("repeated confirmation after successful reply never becomes a new task prompt",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","one-reply",[Question()]);await Until(()=>f.Service.Current.NeedsAttention);
+    await f.Service.RouteVoiceAsync("工作区");await f.Service.RouteVoiceAsync("notes.txt");await f.Service.RouteVoiceAsync("确认提交");
+    foreach(var text in new[]{"确认提交","提交答案","检查答案","重听"})
+    {
+        var result=await f.Service.RouteVoiceAsync(text);
+        Check(result.Handled&&!result.ListenForReply&&f.Client.Prompts.Count==1&&f.Client.Responses.Count==1,"stale interaction command was posted or submitted twice: "+text);
+    }
+});
+
+await Test("empty task creation and status query request a follow-up utterance",async()=>
+{
+    using var f=new TaskCase();var created=await f.Service.RouteVoiceAsync("新建DSH任务");
+    Check(created.ListenForReply&&f.Client.Prompts.Count==0,"empty task creation fell back to wake mode without asking content");
+    var status=await f.Service.RouteVoiceAsync("当前任务状态");Check(status.ListenForReply&&f.Client.Prompts.Count==0,"awaiting-prompt status query lost follow-up capture");
+    var submitted=await f.Service.RouteVoiceAsync("只回复通过");Check(!submitted.ListenForReply&&f.Client.Prompts.Single().Prompt=="只回复通过","submitted content created a spurious follow-up answer window");
+});
+
+await Test("numbered question edits replace only the chosen answer and reject missing question numbers",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","numbered-edit",[ChoiceQuestion()]);await Until(()=>f.Service.Current.NeedsAttention);
+    await f.Service.RouteVoiceAsync("第一项");await f.Service.RouteVoiceAsync("第一项和第三项");
+    var invalid=await f.Service.RouteVoiceAsync("修改第三题");
+    Check(invalid.ListenForReply&&f.Service.Current.VoiceAnswers.Count==2&&f.Client.Responses.Count==0,"out-of-range edit removed an existing answer");
+    var edited=await f.Service.RouteVoiceAsync("修改第一题");
+    Check(edited.ListenForReply&&edited.Message.Contains("请选择样式")&&!f.Service.Current.VoiceAnswers.ContainsKey("style")&&f.Service.Current.VoiceAnswers["features"]=="搜索 | 颜色标签","numbered edit cleared other question answers");
+    await f.Service.RouteVoiceAsync("第二项");await f.Service.RouteVoiceAsync("确认提交");
+    var answers=f.Client.Responses.Single().Answers!;
+    Check(answers["style"]=="深色夜间"&&answers["features"]=="搜索 | 颜色标签","numbered edit did not preserve other answers");
+});
+
+await Test("out-of-order question focus survives disconnect and binds the next utterance correctly",async()=>
+{
+    using var f=new TaskCase();await f.Start();
+    var questions=Question() with{Questions=[new("first","第一题","第一项内容",[]),new("second","第二题","第二项内容",[]),new("third","第三题","第三项内容",[])]};
+    f.Client.SetRemote("waitingInput","focused-third",[questions]);await Until(()=>f.Service.Current.NeedsAttention);
+    var focus=await f.Service.RouteVoiceAsync("重答三题");Check(focus.Message.Contains("第三项内容"),"explicit third question focus was ignored");
+    f.Client.ReadFailure=new IOException("temporary disconnect");await Until(()=>f.Service.Current.State=="disconnected");
+    f.Client.ReadFailure=null;await Until(()=>f.Service.Current.State=="waitingInput");
+    Check(f.Service.Current.Detail.Contains("第三项内容"),"poll recovery displayed the first unanswered question instead of focused question");
+    var next=await f.Service.RouteVoiceAsync("第三题答案");
+    Check(f.Service.Current.VoiceAnswers["third"]=="第三题答案"&&next.Message.Contains("第一项内容"),"focused utterance bound to another question");
+    await f.Service.RouteVoiceAsync("第一题答案");await f.Service.RouteVoiceAsync("第二题答案");await f.Service.RouteVoiceAsync("确认提交");
+    var answers=f.Client.Responses.Single().Answers!;
+    Check(answers["first"]=="第一题答案"&&answers["second"]=="第二题答案"&&answers["third"]=="第三题答案","out-of-order answers were misbound");
+});
+
+await Test("incremental multiple-choice additions and removals preserve other answers without submitting",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","incremental",[ChoiceQuestion()]);await Until(()=>f.Service.Current.NeedsAttention);
+    await f.Service.RouteVoiceAsync("第一项");await f.Service.RouteVoiceAsync("第一项和第三项");
+    var added=await f.Service.RouteVoiceAsync("加选第二项");
+    Check(added.ListenForReply&&f.Service.Current.VoiceAnswers["features"]=="搜索 | 置顶 | 颜色标签"&&f.Client.Responses.Count==0,"add choice did not union the last multiple-choice answer");
+    await f.Service.RouteVoiceAsync("取消选择第三项");await f.Service.RouteVoiceAsync("去掉第一项");
+    Check(f.Service.Current.VoiceAnswers["features"]=="置顶"&&f.Service.Current.VoiceAnswers["style"]=="浅色纸张 (Recommended)","removing a choice changed the wrong question or removed other answers");
+    foreach(var text in new[]{"加上第九项","去掉未知","加上回答：自由文本"})
+    {
+        var invalid=await f.Service.RouteVoiceAsync(text);
+        Check(invalid.ListenForReply&&f.Service.Current.VoiceAnswers["features"]=="置顶"&&f.Client.Responses.Count==0,"invalid incremental choice silently mutated the answer: "+text);
+    }
+    await f.Service.RouteVoiceAsync("确认提交");Check(f.Client.Responses.Single().Answers!["features"]=="置顶","incremental choice summary was not the submitted answer");
+});
+
+await Test("removing all multiple choices reopens only that question and requires a new answer",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","remove-all",[ChoiceQuestion()]);await Until(()=>f.Service.Current.NeedsAttention);
+    await f.Service.RouteVoiceAsync("第一项");await f.Service.RouteVoiceAsync("第一项");
+    var removed=await f.Service.RouteVoiceAsync("取消选择第一项");
+    Check(removed.ListenForReply&&!f.Service.Current.VoiceAnswers.ContainsKey("features")&&f.Service.Current.VoiceAnswers.ContainsKey("style"),"removing all choices retained an empty answer or cleared unrelated style");
+    await f.Service.RouteVoiceAsync("确认提交");Check(f.Client.Responses.Count==0,"empty multiple-choice answer submitted implicitly");
+    var restored=await f.Service.RouteVoiceAsync("加上第三项");
+    Check(restored.ListenForReply&&f.Service.Current.VoiceAnswers["features"]=="颜色标签","incremental addition could not answer current reopened multiple-choice question");
+    await f.Service.RouteVoiceAsync("确认提交");Check(f.Client.Responses.Single().Answers!["features"]=="颜色标签","reopened multi-choice answer was not submitted");
+});
+
+await Test("a disappeared selected authorization cannot transfer an old approval to the only remaining request",async()=>
+{
+    using var f=new TaskCase();await f.Start();var first=Approval("one") with{ToolName="read_directory",Reason="读取目录"};var second=Approval("two") with{ToolName="write_file",Reason="写入文件"};
+    f.Client.SetRemote("waitingApproval","selected-two",[first,second]);await Until(()=>f.Service.Current.PendingInteractions.Count==2);
+    await f.Service.RouteVoiceAsync("选择授权第二项");
+    f.Client.SetRemote("waitingApproval","first-remains",[first]);await Until(()=>f.Service.Current.PendingInteractions.Count==1);
+    var stale=await f.Service.RouteVoiceAsync("批准本次");
+    Check(stale.ListenForReply&&stale.Message.Contains("原授权请求已变化")&&stale.Message.Contains(first.Reason)&&f.Client.Responses.Count==0,"approval of disappeared second request was transferred to the remaining first request");
+    await f.Service.RouteVoiceAsync("拒绝本次");Check(f.Client.Responses.Single() is{Interaction:"one",Outcome:"rejected"},"new explicit decision could not address the newly described request");
+});
+
+await Test("a microphone snapshot cannot approve a different remaining authorization",async()=>
+{
+    using var f=new TaskCase();await f.Start();var first=Approval("one") with{Reason="读取目录"};var second=Approval("two") with{Reason="写入文件"};
+    f.Client.SetRemote("waitingApproval","microphone-two",[first,second]);await Until(()=>f.Service.Current.PendingInteractions.Count==2);
+    await f.Service.RouteVoiceAsync("选择授权第二项");var spokenContext=f.Service.Current;
+    f.Client.SetRemote("waitingApproval","microphone-one",[first]);await Until(()=>f.Service.Current.PendingInteractions.Count==1);
+    foreach(var decision in new[]{"批准本次","拒绝本次"})
+    {
+        var result=await f.Service.RouteVoiceAsync(decision,spokenContext);
+        Check(result.Handled&&result.ListenForReply&&f.Client.Responses.Count==0&&f.Client.Prompts.Count==1,"stale microphone context was applied to the remaining authorization: "+decision);
+        Check(f.Service.Current.PendingInteractions.Single().Id=="one"&&f.Client.CancelCount==0&&f.Client.Creates.Count==1,"stale microphone context changed the task or pending requests");
+    }
+});
+
+await Test("microphone context is rechecked when schema changes while awaiting the action gate",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","microphone-old-schema",[ChoiceQuestion()]);await Until(()=>f.Service.Current.NeedsAttention);
+    var spokenContext=f.Service.Current;var gate=ActionGate(f.Service);await gate.WaitAsync();
+    var answer=f.Service.RouteVoiceAsync("第一项",spokenContext);
+    Check(!answer.IsCompleted,"microphone answer did not wait for the action gate");
+    var changed=ChoiceQuestion() with{Questions=[new("style","样式","新样式选择",[new("绿色",""),new("蓝色","")])]};
+    f.Client.SetRemote("waitingInput","microphone-new-schema",[changed]);PublishTask(f.Service,f.Service.Current with{PendingInteractions=[changed]});gate.Release();
+    var result=await answer;
+    Check(result.Handled&&result.ListenForReply&&f.Client.Responses.Count==0&&f.Client.Prompts.Count==1&&f.Service.Current.VoiceAnswers.Count==0,"queued microphone answer was recorded or submitted after schema replacement");
+    Check(f.Client.CancelCount==0&&f.Client.ReleaseCount==0&&f.Client.Creates.Count==1,"stale queued answer changed task lifecycle");
+    await f.Service.RouteVoiceAsync("第一项",f.Service.Current);await f.Service.RouteVoiceAsync("确认提交",f.Service.Current);
+    Check(f.Client.Responses.Single().Answers!["style"]=="绿色","fresh microphone context could not answer the replacement schema");
+});
+
+await Test("changed voice answer revision rejects old recordings without overwriting or submitting the newer draft",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","microphone-answer-revision",[ChoiceQuestion()]);await Until(()=>f.Service.Current.NeedsAttention);
+    var firstQuestionContext=f.Service.Current;await f.Service.RouteVoiceAsync("第一项",firstQuestionContext);
+    var firstAnswer=f.Service.Current;
+    Check(firstAnswer.VoiceAnswerRevision>firstQuestionContext.VoiceAnswerRevision&&firstAnswer.VoiceAnswers.Count==1,"answer did not advance the microphone draft revision");
+    var staleAnswer=await f.Service.RouteVoiceAsync("第二项",firstQuestionContext);
+    Check(staleAnswer.Handled&&staleAnswer.ListenForReply&&f.Service.Current.VoiceAnswerRevision==firstAnswer.VoiceAnswerRevision
+        &&f.Service.Current.VoiceAnswers.Count==1&&f.Service.Current.VoiceAnswers["style"]=="浅色纸张 (Recommended)","old recording answered the next question or overwrote the new draft");
+    await f.Service.RouteVoiceAsync("第二项",f.Service.Current);var completeContext=f.Service.Current;
+    await f.Service.RouteVoiceAsync("修改第一题",f.Service.Current);await f.Service.RouteVoiceAsync("第二项",f.Service.Current);
+    var revised=f.Service.Current;
+    Check(revised.VoiceAnswerRevision>completeContext.VoiceAnswerRevision&&revised.VoiceAnswers["style"]=="深色夜间"&&revised.VoiceAnswers["features"]=="置顶","test did not establish a newer completed draft");
+    foreach(var staleCommand in new[]{"确认提交","取消回答"})
+    {
+        var rejected=await f.Service.RouteVoiceAsync(staleCommand,completeContext);
+        Check(rejected.Handled&&rejected.ListenForReply&&f.Client.Responses.Count==0&&f.Client.Prompts.Count==1
+            &&f.Service.Current.VoiceAnswerRevision==revised.VoiceAnswerRevision&&f.Service.Current.VoiceAnswers["style"]=="深色夜间"
+            &&f.Service.Current.VoiceAnswers["features"]=="置顶","old recording submitted or cleared the revised draft: "+staleCommand);
+    }
+    await f.Service.RouteVoiceAsync("确认提交",f.Service.Current);
+    Check(f.Client.Responses.Single().Answers!["style"]=="深色夜间"&&f.Client.Responses.Single().Answers!["features"]=="置顶","fresh recording failed to submit the revised draft exactly once");
+});
+
+await Test("stopping monitoring clears published voice drafts even if remote release fails",async()=>
+{
+    foreach(var releaseFailure in new Exception?[]{null,new IOException("release failed")})
+    {
+        using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","stop-draft",[Question()]);await Until(()=>f.Service.Current.NeedsAttention);
+        await f.Service.RouteVoiceAsync("工作区");Check(f.Service.Current.VoiceAnswers.Count==1,"test did not establish a voice draft");
+        f.Client.ReleaseFailure=releaseFailure;await f.Service.RouteVoiceAsync("停止监控");
+        Check(!f.Service.Current.IsMonitoring&&f.Service.Current.VoiceInteractionId==""&&f.Service.Current.VoiceAnswers.Count==0&&f.Client.CancelCount==0,"stopped task retained a published answer draft or cancelled real task");
+    }
+});
+
+await Test("voice answer snapshots are immutable and repeats do not invalidate the visible draft",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","visible-draft",[Question()]);await Until(()=>f.Service.Current.NeedsAttention);
+    await f.Service.RouteVoiceAsync("工作区");var first=f.Service.Current;
+    Check(first.VoiceInteractionId=="question-1"&&first.VoiceAnswers.Count==1&&first.VoiceAnswers["q1"]=="工作区","first spoken answer was not published for the UI");
+    await f.Service.RouteVoiceAsync("重听");
+    Check(f.Service.Current.VoiceAnswerRevision==first.VoiceAnswerRevision,"repeating prompt invalidated the visible answer draft");
+    await f.Service.RouteVoiceAsync("notes.txt");var complete=f.Service.Current;
+    Check(first.VoiceAnswers.Count==1&&!first.VoiceAnswers.ContainsKey("q2")&&complete.VoiceAnswers["q2"]=="notes.txt"&&complete.VoiceAnswerRevision>first.VoiceAnswerRevision,"later answer mutated an earlier snapshot or failed to advance revision");
+    await f.Service.RouteVoiceAsync("确认提交");
+    Check(f.Service.Current.VoiceInteractionId==""&&f.Service.Current.VoiceAnswers.Count==0,"submitted answer remained visible as an active voice draft");
+});
+
+await Test("voice task list excludes device and archived sessions and requires list before numbered selection",async()=>
+{
+    using var f=new TaskCase();var now=DateTimeOffset.UtcNow;
+    var first=new DshSessionSummary("ordinary-new","备忘录","C:/tasks/memo",now,"idle");
+    var second=new DshSessionSummary("ordinary-old","清单","C:/tasks/list",now.AddMinutes(-1),"idle");
+    f.Client.SetSessions([second,first,first with{Id="device",Title="音箱控制",IsDeviceControl=true},first with{Id="archive",Title="旧归档",IsArchived=true}]);
+    f.Client.ReadOverride=(id,_)=>Task.FromResult(f.Client.Remote with{SessionId=id,TaskStatus="idle",HasSubmittedPrompt=false});
+    var unlisted=await f.Service.RouteVoiceAsync("切换任务到第一项");
+    Check(unlisted.ListenForReply&&f.Client.AdoptCount==0&&f.Client.Creates.Count==0,"an unheard task number adopted or created a task");
+    var list=await f.Service.RouteVoiceAsync("任务列表");
+    Check(list.ListenForReply&&list.Message.Contains("共2个任务")&&list.Message.Contains("第1项：备忘录")&&!list.Message.Contains("音箱控制")&&!list.Message.Contains("旧归档"),"spoken list included unsafe targets or wrong order");
+    var selected=await f.Service.RouteVoiceAsync("切换任务到第二项");
+    Check(selected.ListenForReply&&f.Service.Current.SessionId==second.Id&&f.Client.Current.VoiceTarget?.Id==second.Id&&f.Client.AdoptCount==1&&f.Client.Prompts.Count==0,"heard second task did not become the existing idle target");
+});
+
+await Test("duplicate spoken task names remain ambiguous but listed numbers can disambiguate",async()=>
+{
+    using var f=new TaskCase();var now=DateTimeOffset.UtcNow;
+    var first=new DshSessionSummary("memo-new","备忘录","C:/tasks/memo-a",now,"idle");
+    var second=new DshSessionSummary("memo-old","备忘录","C:/tasks/memo-b",now.AddMinutes(-1),"idle");
+    f.Client.SetSessions([second,first]);f.Client.ReadOverride=(id,_)=>Task.FromResult(f.Client.Remote with{SessionId=id,TaskStatus="idle",HasSubmittedPrompt=false});
+    await f.Service.RouteVoiceAsync("列出任务");var ambiguous=await f.Service.RouteVoiceAsync("切换任务到备忘录");
+    Check(ambiguous.ListenForReply&&f.Client.AdoptCount==0&&!f.Service.Current.IsMonitoring,"duplicate title silently selected the first task");
+    await f.Service.RouteVoiceAsync("切换任务到第二项");
+    Check(f.Service.Current.SessionId==second.Id&&f.Client.Creates.Count==0,"explicit listed number could not resolve duplicate titles");
+});
+
+await Test("new sessions inserted after speech listing cannot renumber choices or cancel the old task",async()=>
+{
+    using var f=new TaskCase();var now=DateTimeOffset.UtcNow;
+    var first=new DshSessionSummary("listed-first","检查配置","C:/tasks/config",now,"idle");
+    var second=new DshSessionSummary("listed-second","备忘录","C:/tasks/memo",now.AddMinutes(-1),"idle");
+    f.Client.SetSessions([first,second]);f.Client.ReadOverride=(id,_)=>Task.FromResult(f.Client.Remote with{SessionId=id,TaskStatus="running"});
+    await f.Service.MonitorAsync(second);await f.Service.RouteVoiceAsync("有哪些任务");
+    var inserted=first with{Id="inserted-newest",Title="刚插入",UpdatedAt=now.AddMinutes(1)};f.Client.SetSessions([inserted,first,second]);
+    await f.Service.RouteVoiceAsync("切换任务到第一项");
+    Check(f.Service.Current.SessionId==first.Id&&f.Client.AdoptCount==2&&f.Client.ReleaseCount==1&&f.Client.CancelCount==0,"list insertion changed heard number or switching cancelled the real old task");
+    Check(f.Client.Creates.Count==0&&f.Client.Prompts.Count==0,"voice switching created a duplicate session or replayed work");
+});
+
+await Test("profile change invalidates previously announced task numbers",async()=>
+{
+    using var f=new TaskCase();var first=new DshSessionSummary("old-target","备忘录","C:/tasks/memo",DateTimeOffset.UtcNow,"idle");
+    f.Client.SetSessions([first]);await f.Service.RouteVoiceAsync("任务列表");
+    f.Scope="scope-B";f.Client.SetSessions([first with{Id="new-profile-target"}]);
+    var result=await f.Service.RouteVoiceAsync("切换任务到第一项");
+    Check(result.ListenForReply&&result.Message.Contains("先说任务列表")&&f.Client.AdoptCount==0&&f.Client.Prompts.Count==0&&!f.Service.Current.IsMonitoring,"old list number crossed into new profile");
+});
+
+await Test("failed spoken answer submission preserves draft without automatic retransmission",async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","reply-failure",[Question()]);await Until(()=>f.Service.Current.NeedsAttention);
+    await f.Service.RouteVoiceAsync("工作区");await f.Service.RouteVoiceAsync("notes.txt");
+    f.Client.RespondFailure=new IOException("response unavailable");await Throws<IOException>(()=>f.Service.RouteVoiceAsync("确认提交"));
+    await Task.Delay(30);
+    Check(f.Client.Responses.Count==1&&f.Service.Current.NeedsAttention&&!f.Service.Current.IsBusy,"failed submission lost pending state or replayed automatically");
+    var review=await f.Service.RouteVoiceAsync("检查答案");
+    Check(review.ListenForReply&&review.Message.Contains("notes.txt")&&f.Client.Responses.Count==1,"failed submission lost draft or review retried it");
+    f.Client.RespondFailure=null;await f.Service.RouteVoiceAsync("确认提交");
+    Check(f.Client.Responses.Count==2&&f.Client.Responses.Last().Answers!["q2"]=="notes.txt","explicit retry could not send preserved draft");
+});
+
+await Test("explicit answer containing creation or device commands stays question data", async()=>
+{
+    using var f=new TaskCase();await f.Start();f.Client.SetRemote("waitingInput","explicit-body",[Question()]);
+    await Until(()=>f.Service.Current.NeedsAttention);
+    await f.Service.RouteVoiceAsync("我的答案是新建一个DSH任务并关闭歌词");
+    Check(f.Service.Current.VoiceAnswers["q1"]=="新建一个DSH任务并关闭歌词"&&f.Client.Creates.Count==1&&f.Client.Prompts.Count==1,"explicit answer routed as a command");
+    await f.Service.RouteVoiceAsync("notes.txt");await f.Service.RouteVoiceAsync("确认提交");
+    Check(f.Client.Responses.Single().Answers!["q1"]=="新建一个DSH任务并关闭歌词","answer body changed on submission");
 });
 
 Console.WriteLine($"RESULT {passed}/{passed+failed} passed"); return failed==0?0:1;
@@ -844,6 +1223,7 @@ internal sealed class FakeTaskClient:IDshTaskSessionClient
     public Exception? SubmitFailure {get;set;}
     public Exception? ReadFailure {get;set;}
     public Exception? ReleaseFailure {get;set;}
+    public Exception? RespondFailure {get;set;}
     public Func<string,CancellationToken,Task<DshTaskRemoteState>>? ReadOverride {get;set;}
     public int ReadCount {get;private set;}
     public bool ServerAvailable {get;set;}=true;
@@ -881,6 +1261,7 @@ internal sealed class FakeTaskClient:IDshTaskSessionClient
     public Task RespondTaskInteractionAsync(string id,string interaction,string type,string? outcome,IReadOnlyDictionary<string,string>? answers,CancellationToken ct=default)
     {
         Responses.Add((id,interaction,type,outcome,answers));
+        if(RespondFailure is not null)throw RespondFailure;
         Remote=Remote with{Revision=Remote.Revision+"answered",PendingInteractions=Remote.PendingInteractions.Where(p=>p.Id!=interaction).ToArray(),TaskStatus="running"};
         return Task.CompletedTask;
     }

@@ -1,4 +1,5 @@
 using HaloPixelToolBox.Profiles.CrossVersionProfiles;
+using HaloPixelToolBox.Models;
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
@@ -84,6 +85,11 @@ public sealed class VoiceAgentService : IDisposable
     private const int WorkerStartupTimeoutSeconds = 120;
     private readonly SemaphoreSlim lifecycleGate = new(1, 1);
     private readonly SemaphoreSlim workerInputGate = new(1, 1);
+    private readonly SemaphoreSlim taskSpeechGate = new(1, 1);
+    private long taskPromptVersion;
+    private long attentionPromptSequence;
+    private sealed record SpokenTaskContext(long Version, DshTaskSnapshot Snapshot);
+    private SpokenTaskContext? spokenTaskContext;
     private readonly object snapshotGate = new();
     private readonly object snapshotNotificationGate = new();
     private Process? workerProcess;
@@ -315,6 +321,9 @@ public sealed class VoiceAgentService : IDisposable
                 FfmpegPath = environment.FfmpegPath
             };
             activeEnvironmentFingerprint = environmentFingerprint;
+            Interlocked.Exchange(ref taskPromptVersion, 0);
+            Interlocked.Exchange(ref attentionPromptSequence, 0);
+            Volatile.Write(ref spokenTaskContext, null);
             workerProcess = process;
             terminalWorkerProcess = null;
             workerCancellation = new CancellationTokenSource();
@@ -417,7 +426,32 @@ public sealed class VoiceAgentService : IDisposable
             cancellationToken);
     }
 
-    public async Task NotifyTaskAsync(string cue, CancellationToken cancellationToken = default)
+    public Task NotifyTaskAsync(string cue, CancellationToken cancellationToken = default)
+        => SendTaskNotificationAsync(cue, string.Empty, false, false, cancellationToken);
+
+    public Task NotifyTaskAsync(string cue, string text, bool listenAfter, CancellationToken cancellationToken = default)
+        => SendTaskNotificationAsync(cue, text, listenAfter, false, cancellationToken);
+
+    public Task NotifyTaskAsync(string cue, string text, bool listenAfter, DshTaskSnapshot expectedContext,
+        CancellationToken cancellationToken = default)
+        => SendTaskNotificationAsync(cue, text, listenAfter, false, cancellationToken, expectedContext);
+
+    public async Task InvalidateTaskPromptAsync(CancellationToken cancellationToken = default)
+    {
+        var version = Interlocked.Increment(ref taskPromptVersion);
+        await taskSpeechGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (version != Interlocked.Read(ref taskPromptVersion)) return;
+            var process = workerProcess;
+            if (process is not null && IsActiveWorker(process, cancellationToken))
+                await WriteWorkerControlAsync(process, new { action = "replace_prompt", version }, cancellationToken);
+        }
+        finally { taskSpeechGate.Release(); }
+    }
+
+    private async Task SendTaskNotificationAsync(string cue, string text, bool listenAfter, bool completeTurn,
+        CancellationToken cancellationToken, DshTaskSnapshot? expectedContext = null)
     {
         if (cue is not ("task_started" or "task_progress" or "approval_required" or "input_required"
             or "task_completed" or "task_failed" or "task_cancelled")) return;
@@ -425,8 +459,27 @@ public sealed class VoiceAgentService : IDisposable
         if (process is not null && IsActiveWorker(process, cancellationToken)
             && readySource?.Task.IsCompletedSuccessfully == true)
         {
-            await WriteWorkerControlAsync(process,
-                new { action = "notify", id = Guid.NewGuid().ToString("D"), cue, listen_after = "wake" }, cancellationToken);
+            var taskSnapshot = CaptureTaskContext(expectedContext ?? App.DshTasks.Current);
+            if (expectedContext is not null && !SameTaskContext(taskSnapshot, App.DshTasks.Current)) return;
+            var version = string.IsNullOrWhiteSpace(text) && !listenAfter && !completeTurn
+                ? 0 : Interlocked.Increment(ref taskPromptVersion);
+            await taskSpeechGate.WaitAsync(cancellationToken);
+            try
+            {
+                if (version != 0 && version != Interlocked.Read(ref taskPromptVersion)) return;
+                if (expectedContext is not null && !SameTaskContext(taskSnapshot, App.DshTasks.Current)) return;
+                if (version != 0) Volatile.Write(ref spokenTaskContext, new SpokenTaskContext(version, taskSnapshot));
+                // Queue each logical prompt atomically. The worker splits it during synthesis;
+                // separate queue entries could drop the final resume instruction on overflow.
+                if (listenAfter) Interlocked.Increment(ref attentionPromptSequence);
+                await WriteWorkerControlAsync(process, new
+                {
+                    action = "notify", id = Guid.NewGuid().ToString("D"), cue, text = BoundSpokenPrompt(text), version,
+                    listen_after = listenAfter ? "command" : "wake",
+                    complete_turn = completeTurn || cue is "task_completed" or "task_failed" or "task_cancelled"
+                }, cancellationToken);
+            }
+            finally { taskSpeechGate.Release(); }
             return;
         }
         // Before ASR is ready there is no capture to suppress. Use the same default playback
@@ -434,6 +487,35 @@ public sealed class VoiceAgentService : IDisposable
         var tone = CreateTaskToneFile(cue);
         await Task.Run(() => PlaySound(tone, IntPtr.Zero, SoundFilename | SoundNoDefault | SoundSync), cancellationToken);
     }
+
+    private static string BoundSpokenPrompt(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return string.Empty;
+        const int maximumCharacters = 60000; // Below the worker's 64 KiB character limit, including the notice.
+        text = text.Trim();
+        if (text.Length <= maximumCharacters) return text;
+        var chunk = new StringBuilder();
+        foreach (var rune in text.EnumerateRunes())
+        {
+            if (chunk.Length + rune.Utf16SequenceLength > maximumCharacters) break;
+            chunk.Append(rune.ToString());
+        }
+        return chunk + "。内容过长，本次播报到这里，剩余内容保留在会话中。";
+    }
+
+    private static DshTaskSnapshot CaptureTaskContext(DshTaskSnapshot snapshot) => snapshot with
+    {
+        PendingInteractions = Array.AsReadOnly(snapshot.PendingInteractions.Select(DshTaskInteractionIdentity.Capture).ToArray()),
+        VoiceAnswers = new System.Collections.ObjectModel.ReadOnlyDictionary<string, string>(
+            snapshot.VoiceAnswers.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal))
+    };
+
+    private static bool SameTaskContext(DshTaskSnapshot expected, DshTaskSnapshot actual)
+        => expected.SessionId == actual.SessionId && expected.IsMonitoring == actual.IsMonitoring
+            && expected.State == actual.State && expected.Detail == actual.Detail
+            && expected.VoiceAnswerRevision == actual.VoiceAnswerRevision
+            && expected.PendingInteractions.Count == actual.PendingInteractions.Count
+            && expected.PendingInteractions.All(item => actual.PendingInteractions.Any(p => DshTaskInteractionIdentity.Matches(item, p)));
 
     private async Task WriteWorkerControlAsync(Process process, object message, CancellationToken token, bool allowStopping = false)
     {
@@ -511,7 +593,37 @@ public sealed class VoiceAgentService : IDisposable
                     {
                         var text = GetString(root, "text")?.Trim();
                         if (!string.IsNullOrWhiteSpace(text))
-                            await ExecuteCommandAsync(process, text, cancellationToken);
+                        {
+                            var hasVersion = root.TryGetProperty("prompt_version", out var versionProperty)
+                                && versionProperty.ValueKind == JsonValueKind.Number && versionProperty.TryGetInt64(out _);
+                            var version = hasVersion ? versionProperty.GetInt64() : -1;
+                            var fromPrompt = root.TryGetProperty("from_prompt", out var fromPromptProperty)
+                                && fromPromptProperty.ValueKind == JsonValueKind.True;
+                            var context = Volatile.Read(ref spokenTaskContext);
+                            var taskAtReceipt = CaptureTaskContext(App.DshTasks.Current);
+                            if ((hasVersion && version != Interlocked.Read(ref taskPromptVersion))
+                                || (taskAtReceipt.NeedsAttention && (!hasVersion || version <= 0 || context?.Version != version)))
+                            {
+                                var task = App.DshTasks.Current;
+                                var warning = "问题已经变化，这段回答没有提交。"
+                                    + (task.NeedsAttention ? task.Detail : "请重新说出指令。");
+                                UpdateSnapshot(VoiceAgentPhase.CoolingDown, "旧问题的语音回答未提交", warning,
+                                    lastTranscript: text, lastResponse: warning, isRunning: true,
+                                    expectedWorker: process, workerToken: cancellationToken);
+                                await DshTaskFeedback.PublishVoiceReplyAsync(warning, cancellationToken);
+                                await SendTaskNotificationAsync("input_required", warning, task.NeedsAttention, true, cancellationToken);
+                            }
+                            else await ExecuteCommandAsync(process, text,
+                                (fromPrompt || taskAtReceipt.NeedsAttention) && context?.Version == version
+                                    ? context.Snapshot : taskAtReceipt, cancellationToken);
+                        }
+                    }
+                    else if (string.Equals(type, "notification", StringComparison.OrdinalIgnoreCase)
+                        && GetString(root, "stage") == "failed")
+                    {
+                        UpdateSnapshot(VoiceAgentPhase.CoolingDown, "语音提示未完整播放",
+                            GetString(root, "error") ?? "请查看字幕屏或会话中的任务提示。",
+                            isRunning: true, expectedWorker: process, workerToken: cancellationToken);
                     }
                     else if (string.Equals(type, "error", StringComparison.OrdinalIgnoreCase))
                     {
@@ -546,7 +658,8 @@ public sealed class VoiceAgentService : IDisposable
         }
     }
 
-    private async Task ExecuteCommandAsync(Process process, string command, CancellationToken cancellationToken)
+    private async Task ExecuteCommandAsync(Process process, string command, DshTaskSnapshot expectedTask,
+        CancellationToken cancellationToken)
     {
         var options = activeOptions;
         if (options is null || !IsActiveWorker(process, cancellationToken))
@@ -560,14 +673,33 @@ public sealed class VoiceAgentService : IDisposable
             isRunning: true,
             expectedWorker: process,
             workerToken: cancellationToken);
+        var attentionAtStart = Interlocked.Read(ref attentionPromptSequence);
+        var notificationOwnsResume = false;
         try
         {
-            var routed = await App.DshTasks.RouteVoiceAsync(command, cancellationToken);
+            var routed = await App.DshTasks.RouteVoiceAsync(command, expectedTask, cancellationToken);
             if (routed.Handled)
             {
                 UpdateSnapshot(VoiceAgentPhase.CoolingDown, "任务交互已处理", routed.Message,
                     lastTranscript: command, lastResponse: routed.Message, isRunning: true,
                     expectedWorker: process, workerToken: cancellationToken);
+                // The monitor can discover the next question while this route is completing.
+                // Its current question already owns playback/listening; do not replace it with
+                // an older "submitted" reply or a second copy of the same options.
+                if (Interlocked.Read(ref attentionPromptSequence) != attentionAtStart
+                    && App.DshTasks.Current.NeedsAttention)
+                {
+                    notificationOwnsResume = true;
+                    return;
+                }
+                var task = App.DshTasks.Current;
+                var needsNextAnswer = task.NeedsAttention && !routed.ListenForReply;
+                var reply = needsNextAnswer ? task.Detail : routed.Message;
+                var listenForReply = routed.ListenForReply || needsNextAnswer;
+                await DshTaskFeedback.PublishVoiceReplyAsync(reply, cancellationToken);
+                await SendTaskNotificationAsync(listenForReply ? "input_required" : "task_progress",
+                    reply, listenForReply, true, cancellationToken);
+                notificationOwnsResume = true;
                 return;
             }
             // Only positively identified device commands may enter its fixed persona.
@@ -577,6 +709,10 @@ public sealed class VoiceAgentService : IDisposable
                     "请说明是控制音箱，还是新建或继续 DSH 任务。",
                     lastTranscript: command, lastResponse: "未确认目标会话，未发送指令。", isRunning: true,
                     expectedWorker: process, workerToken: cancellationToken);
+                const string clarification = "未发送指令。请说明是控制音箱，还是新建或继续 DSH 任务。";
+                await DshTaskFeedback.PublishVoiceReplyAsync(clarification, cancellationToken);
+                await SendTaskNotificationAsync("input_required", clarification, true, true, cancellationToken);
+                notificationOwnsResume = true;
                 return;
             }
             var result = await App.DshSessions.ExecuteDeviceCommandAsync(
@@ -598,6 +734,19 @@ public sealed class VoiceAgentService : IDisposable
                 isRunning: true,
                 expectedWorker: process,
                 workerToken: cancellationToken);
+            var spokenResponse = string.IsNullOrWhiteSpace(response) ? result.Message : response;
+            if (Interlocked.Read(ref attentionPromptSequence) != attentionAtStart
+                && App.DshTasks.Current.NeedsAttention)
+            {
+                // A task question arrived while the device command was running. Its prompt
+                // owns direct listening; an older device result must not cancel that question.
+                notificationOwnsResume = true;
+                return;
+            }
+            await DshTaskFeedback.PublishVoiceReplyAsync(spokenResponse, cancellationToken);
+            await SendTaskNotificationAsync(result.Success ? "task_completed" : "task_failed",
+                spokenResponse, false, true, cancellationToken);
+            notificationOwnsResume = true;
         }
         catch (OperationCanceledException)
         {
@@ -609,10 +758,18 @@ public sealed class VoiceAgentService : IDisposable
         {
             UpdateSnapshot(VoiceAgentPhase.Error, "DSH 执行失败", exception.Message,
                 lastTranscript: command, isRunning: true, expectedWorker: process, workerToken: cancellationToken);
+            try
+            {
+                var failure = "这次指令未能确认完成，请查看会话状态后重试。";
+                await DshTaskFeedback.PublishVoiceReplyAsync(failure, cancellationToken);
+                await SendTaskNotificationAsync("task_failed", failure, false, true, cancellationToken);
+                notificationOwnsResume = true;
+            }
+            catch (Exception playbackException) { Debug.WriteLine($"[VoiceAgent] {playbackException.Message}"); }
         }
         finally
         {
-            if (IsActiveWorker(process, cancellationToken))
+            if (!notificationOwnsResume && IsActiveWorker(process, cancellationToken))
             {
                 try
                 {
@@ -646,6 +803,10 @@ public sealed class VoiceAgentService : IDisposable
                 break;
             case "wake_detected":
                 UpdateSnapshot(VoiceAgentPhase.Acknowledging, "已唤醒，正在回复“我在”", detail,
+                    isRunning: true, expectedWorker: process, workerToken: cancellationToken);
+                break;
+            case "speaking_task":
+                UpdateSnapshot(VoiceAgentPhase.Acknowledging, "正在播报任务提示", detail,
                     isRunning: true, expectedWorker: process, workerToken: cancellationToken);
                 break;
             case "listening_command":

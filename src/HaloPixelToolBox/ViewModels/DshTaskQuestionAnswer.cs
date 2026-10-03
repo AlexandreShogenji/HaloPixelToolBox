@@ -63,6 +63,37 @@ public sealed class DshTaskQuestionAnswer
         if (changed) Changed?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>Import an explicit answer from voice without guessing an option or notifying midway.</summary>
+    public void ImportAnswer(string value)
+    {
+        var text = (value ?? string.Empty).Trim();
+        var selections = new bool[selectedOptions.Length];
+        var exact = Question.Options.Select((option, index) => (option, index))
+            .Where(item => item.option.Label.Trim() == text).Select(item => item.index).ToArray();
+        if (text.Length > 0 && exact.Length == 1)
+        {
+            selections[exact[0]] = true;
+            text = string.Empty;
+        }
+        else if (text.Length > 0 && Question.MultiSelect)
+        {
+            var complete = true;
+            foreach (var token in text.Split(" | ", StringSplitOptions.None))
+            {
+                var matches = Question.Options.Select((option, index) => (option, index))
+                    .Where(item => item.option.Label.Trim() == token.Trim()).Select(item => item.index).ToArray();
+                if (token.Trim().Length == 0 || matches.Length != 1) { complete = false; break; }
+                selections[matches[0]] = true;
+            }
+            if (complete) text = string.Empty;
+            else Array.Clear(selections);
+        }
+        var changed = freeText != text || !selectedOptions.SequenceEqual(selections);
+        freeText = text;
+        Array.Copy(selections, selectedOptions, selections.Length);
+        if (changed) Changed?.Invoke(this, EventArgs.Empty);
+    }
+
     public string Answer
     {
         get

@@ -3,9 +3,10 @@
 The parent process communicates with this worker through newline-delimited JSON:
 
 * stdout: state, command, and error events only
-* stdin:  {"action":"resume"}, {"action":"stop"}, or
-          {"action":"notify","id":"...","cue":"task_completed","listen_after":"wake"}
-* notification events: type=notification, id, cue, stage=started/played/failed
+* stdin:  {"action":"resume"}, {"action":"stop"}, {"action":"replace_prompt","version":2}, or
+          {"action":"notify","id":"...","cue":"input_required","text":"请选择一或二",
+           "listen_after":"command","complete_turn":true,"version":3}
+* notification events: type=notification, id, cue, stage=started/played/failed/cancelled
 
 Human-readable diagnostics are written to stderr so stdout remains machine-safe.
 """
@@ -14,9 +15,11 @@ from __future__ import annotations
 
 import argparse
 import array
+import base64
 import collections
 import contextlib
 import ctypes
+import hashlib
 import json
 import math
 import os
@@ -57,6 +60,8 @@ NOTIFICATION_CUES = {
     "approval_required": "waiting", "input_required": "waiting",
     "task_completed": "completed", "task_failed": "failed", "task_cancelled": "cancelled",
 }
+MAX_SPOKEN_TEXT = 65536
+SPEECH_CHUNK_LENGTH = 600
 
 PRIMARY_WAKE_ALIASES = (
     "花再花再",
@@ -117,8 +122,11 @@ def matches_wake_word(value: str) -> bool:
 class ActionChannel:
     def __init__(self) -> None:
         self.actions: queue.Queue[str] = queue.Queue()
-        self.notifications: queue.Queue[dict[str, str]] = queue.Queue(maxsize=16)
+        self.notifications: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=16)
         self.stop_event = threading.Event()
+        self.prompt_version = 0
+        self.cancelled_prompt_version = -1
+        self.answer_prompt_version: int | None = None
         self.thread = threading.Thread(target=self._read, name="voice-agent-stdin", daemon=True)
 
     def start(self) -> None:
@@ -153,19 +161,49 @@ class ActionChannel:
             self.actions.put("stop")
         elif action == "resume":
             self.actions.put("resume")
+        elif action == "replace_prompt":
+            version = request.get("version")
+            if isinstance(version, int) and not isinstance(version, bool) and version > self.prompt_version:
+                self.prompt_version = version
+                self.cancelled_prompt_version = version
         elif action == "notify":
             request_id, cue = request.get("id"), request.get("cue")
             valid_id = isinstance(request_id, str) and 0 < len(request_id) <= 128 and request_id.strip() == request_id
             valid_id = valid_id and not any(ord(character) < 32 for character in request_id)
             valid = valid_id and isinstance(cue, str) and cue in NOTIFICATION_CUES
-            valid = valid and request.get("listen_after", "wake") == "wake"
-            valid = valid and not (set(request) - {"action", "id", "cue", "listen_after"})
+            text = request.get("text", "")
+            valid = valid and isinstance(text, str) and len(text) <= MAX_SPOKEN_TEXT
+            valid = valid and not any(ord(character) < 32 and character not in "\n\r\t" for character in text)
+            listen_after = request.get("listen_after", "wake")
+            valid = valid and isinstance(listen_after, str) and listen_after in {"wake", "command"}
+            valid = valid and isinstance(request.get("complete_turn", False), bool)
+            version = request.get("version", 0)
+            valid = valid and isinstance(version, int) and not isinstance(version, bool) and version >= 0
+            valid = valid and not (set(request) - {"action", "id", "cue", "text", "listen_after", "complete_turn", "version"})
             if not valid:
                 emit("notification", id=request_id if valid_id else "", cue=cue if isinstance(cue, str) else "",
                      stage="failed", error="invalid_notification")
                 return
             try:
-                self.notifications.put_nowait({"id": request_id, "cue": cue})
+                notification = {"id": request_id, "cue": cue}
+                if text.strip():
+                    notification["text"] = text.strip()
+                if request.get("listen_after", "wake") != "wake":
+                    notification["listen_after"] = "command"
+                if request.get("complete_turn", False):
+                    notification["complete_turn"] = True
+                if version:
+                    notification["version"] = version
+                    if version > self.prompt_version:
+                        self.prompt_version = version
+                        # The next prompt supersedes queued status tones and old questions.
+                        while True:
+                            try:
+                                old = self.notifications.get_nowait()
+                                emit("notification", id=old["id"], cue=old["cue"], stage="cancelled")
+                            except queue.Empty:
+                                break
+                self.notifications.put_nowait(notification)
             except queue.Full:
                 emit("notification", id=request_id, cue=cue, stage="failed", error="notification_queue_full")
         elif action:
@@ -174,13 +212,23 @@ class ActionChannel:
     def has_notifications(self) -> bool:
         return not self.notifications.empty()
 
-    def next_notification(self) -> dict[str, str] | None:
-        try:
-            return self.notifications.get_nowait()
-        except queue.Empty:
-            return None
+    def next_notification(self) -> dict[str, Any] | None:
+        while True:
+            try:
+                notification = self.notifications.get_nowait()
+                if self.is_current(notification):
+                    return notification
+                emit("notification", id=notification["id"], cue=notification["cue"], stage="cancelled")
+            except queue.Empty:
+                return None
 
-    def wait_for_resume(self, on_notification: Callable[[dict[str, str]], None] | None = None) -> str:
+    def is_current(self, notification: dict[str, Any]) -> bool:
+        return not notification.get("version") or notification["version"] == self.prompt_version
+
+    def wait_for_resume(self, on_notification: Callable[[dict[str, Any]], None] | None = None,
+                        cancelled_at_start: int | None = None) -> str:
+        if cancelled_at_start is None:
+            cancelled_at_start = self.cancelled_prompt_version
         while not self.stopped():
             # Control requests use a separate queue and always win over another
             # notification; a queued resume must never be consumed as audio work.
@@ -193,7 +241,18 @@ class ActionChannel:
             notification = self.next_notification() if on_notification is not None else None
             if notification is not None:
                 on_notification(notification)
+                if not self.is_current(notification):
+                    if self.cancelled_prompt_version == self.prompt_version:
+                        return "resume"
+                    continue
+                if notification.get("listen_after") == "command":
+                    self.answer_prompt_version = notification.get("version")
+                    return "command"
+                if notification.get("complete_turn"):
+                    return "resume"
                 continue
+            if self.cancelled_prompt_version != cancelled_at_start:
+                return "resume"
             try:
                 action = self.actions.get(timeout=0.1)
             except queue.Empty:
@@ -689,6 +748,115 @@ class NotificationSounds:
         self.cache.cleanup()
 
 
+class NotificationSpeech:
+    """Offline Windows speech; task text stays local and never becomes shell code."""
+
+    MAX_ENTRIES = 32
+    MAX_BYTES = 16 * 1024 * 1024
+    SCRIPT = r"""
+$ErrorActionPreference = 'Stop'
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
+$request = [Console]::In.ReadToEnd() | ConvertFrom-Json
+Add-Type -AssemblyName System.Speech
+$speaker = [System.Speech.Synthesis.SpeechSynthesizer]::new()
+try {
+    $voices = @($speaker.GetInstalledVoices() | Where-Object { $_.Enabled -and $_.VoiceInfo.Culture.Name -like 'zh-*' })
+    if ($voices.Count -eq 0) { throw 'No installed Chinese Windows speech voice.' }
+    $preferred = $voices | Sort-Object @{ Expression = { if ($_.VoiceInfo.Name -match 'Xiaoxiao|晓晓') { 0 } elseif ($_.VoiceInfo.Gender -eq 'Female') { 1 } else { 2 } } } | Select-Object -First 1
+    $speaker.SelectVoice($preferred.VoiceInfo.Name)
+    $speaker.Volume = 100
+    $speaker.Rate = 0
+    $speaker.SetOutputToWaveFile([string]$request.path)
+    $speaker.Speak([string]$request.text)
+} finally { $speaker.Dispose() }
+"""
+
+    def __init__(self) -> None:
+        self.cache = tempfile.TemporaryDirectory(prefix="halo-voice-speech-")
+        self.paths: collections.OrderedDict[str, Path] = collections.OrderedDict()
+
+    def _synthesize(self, text: str, path: Path, should_stop: Callable[[], bool]) -> None:
+        powershell = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/WindowsPowerShell/v1.0/powershell.exe"
+        script = base64.b64encode(self.SCRIPT.encode("utf-16le")).decode("ascii")
+        process = subprocess.Popen(
+            [str(powershell), "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", script],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        payload = json.dumps({"text": text, "path": str(path)}, ensure_ascii=False).encode("utf-8")
+        deadline = time.monotonic() + 20
+        try:
+            while not should_stop():
+                try:
+                    _, error = process.communicate(input=payload, timeout=.1)
+                    if process.returncode != 0:
+                        raise RuntimeError("本机中文语音合成不可用，请在 Windows 安装中文语音包。")
+                    return
+                except subprocess.TimeoutExpired:
+                    payload = None
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("本机语音合成超时，文字提示仍保留在字幕屏。")
+            raise InterruptedError("语音提示已停止")
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.communicate()
+
+    def path_for(self, text: str, should_stop: Callable[[], bool]) -> Path:
+        text = re.sub(r"\s+", " ", text).strip()
+        if not text or len(text) > MAX_SPOKEN_TEXT:
+            raise ValueError("语音提示内容为空或过长")
+        key = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        existing = self.paths.get(key)
+        if existing is not None and existing.is_file():
+            self.paths.move_to_end(key)
+            return existing
+        path = Path(self.cache.name) / (key + ".wav")
+        try:
+            self._synthesize(text, path, should_stop)
+            validate_reply(path)
+            if path.stat().st_size > self.MAX_BYTES:
+                raise ValueError("语音提示音频超过缓存上限")
+        except Exception:
+            path.unlink(missing_ok=True)
+            raise
+        self.paths[key] = path
+        while len(self.paths) > self.MAX_ENTRIES or sum(item.stat().st_size for item in self.paths.values()) > self.MAX_BYTES:
+            _, oldest = self.paths.popitem(last=False)
+            oldest.unlink(missing_ok=True)
+        return path
+
+    def play(self, text: str, should_stop: Callable[[], bool]) -> None:
+        # One logical prompt occupies one queue slot. Split only during playback,
+        # so a long result cannot drop the final resume/listen instruction.
+        for start in range(0, len(text), SPEECH_CHUNK_LENGTH):
+            if should_stop():
+                return
+            path = self.path_for(text[start:start + SPEECH_CHUNK_LENGTH], should_stop)
+            if not should_stop():
+                play_speech(path, should_stop)
+
+    def close(self) -> None:
+        self.cache.cleanup()
+
+
+def play_speech(path: Path, should_stop: Callable[[], bool]) -> None:
+    """Long prompts can be cancelled when a question is answered elsewhere."""
+    with wave.open(str(path), "rb") as source:
+        duration = source.getnframes() / source.getframerate()
+    winmm = ctypes.WinDLL("winmm")
+    winmm.PlaySoundW.argtypes = [ctypes.c_wchar_p, ctypes.c_void_p, ctypes.c_uint]
+    winmm.PlaySoundW.restype = ctypes.c_int
+    if not winmm.PlaySoundW(str(path), None, 0x00020003):  # filename, no default, async
+        raise RuntimeError("Windows 无法播放任务语音提示")
+    try:
+        deadline = time.monotonic() + duration + .08
+        while not should_stop() and time.monotonic() < deadline:
+            time.sleep(.03)
+    finally:
+        winmm.PlaySoundW(None, None, 0)
+
+
 def decode_audio_file(ffmpeg: str, path: Path, sample_rate: int) -> bytes:
     if not path.is_file():
         raise FileNotFoundError(f"音频文件不存在：{path}")
@@ -797,6 +965,7 @@ def run_live(args: argparse.Namespace) -> int:
     actions = ActionChannel()
     capture: AudioCapture | None = None
     notification_sounds: NotificationSounds | None = None
+    notification_speech: NotificationSpeech | None = None
     try:
         emit_state("loading", "正在加载 SenseVoice 与 FSMN VAD 模型")
         check_ffmpeg(args.ffmpeg)
@@ -848,16 +1017,20 @@ def run_live(args: argparse.Namespace) -> int:
 
         detector = start_fresh_capture(args.startup_drain_ms, wake_silence_ms)
         notification_sounds = NotificationSounds()
+        notification_speech = NotificationSpeech()
 
-        def play_notification(notification: dict[str, str]) -> None:
+        def play_notification(notification: dict[str, Any]) -> None:
             assert capture is not None and notification_sounds is not None
-            if actions.stopped():
+            if actions.stopped() or not actions.is_current(notification):
                 return
             capture.clear_buffer()
             emit("notification", **notification, stage="started")
             error = None
             try:
                 notification_sounds.play(notification["cue"])
+                if notification.get("text") and not actions.stopped():
+                    emit_state("speaking_task", "正在播报任务提示")
+                    notification_speech.play(notification["text"], lambda: actions.stopped() or not actions.is_current(notification))
             except Exception as exc:
                 error = str(exc)
                 log(f"notification playback failed: {exc!r}")
@@ -869,54 +1042,66 @@ def run_live(args: argparse.Namespace) -> int:
                     capture.drain(args.resume_cooldown_ms / 1000.0, actions.stopped)
                 capture.clear_buffer()
             if not actions.stopped():
-                emit("notification", **notification, stage="failed" if error else "played",
+                emit("notification", **notification, stage="cancelled" if not actions.is_current(notification) else "failed" if error else "played",
                      **({"error": error} if error else {}))
 
         emit_state("ready", "正在等待“花再花再”")
+        listen_directly = False
 
         while not actions.stopped():
+            if listen_directly and actions.answer_prompt_version is not None and actions.answer_prompt_version != actions.prompt_version:
+                listen_directly = False
+                detector = start_fresh_capture(0, wake_silence_ms)
             notification = actions.next_notification()
             if notification is not None:
                 play_notification(notification)
                 if actions.stopped():
                     break
-                detector = start_fresh_capture(0, wake_silence_ms)
-                emit_state("ready", "正在等待“花再花再”")
-                continue
-            wake_pcm = detector.next_utterance(
-                args.wake_max_seconds,
-                args.wake_timeout_seconds,
-                actions.stopped,
-                interrupt_idle=actions.has_notifications,
-            )
-            if actions.stopped():
-                break
-            if wake_pcm is None:
-                if actions.has_notifications():
+                listen_directly = actions.is_current(notification) and (
+                    notification.get("listen_after") == "command" or (
+                        listen_directly and not notification.get("complete_turn")))
+                if notification.get("listen_after") == "command":
+                    actions.answer_prompt_version = notification.get("version")
+                if listen_directly:
+                    # Drain queued status messages before opening the answer window.
+                    if actions.has_notifications():
+                        continue
+                else:
+                    detector = start_fresh_capture(0, wake_silence_ms)
+                    emit_state("ready", "正在等待“花再花再”")
                     continue
-                emit_state("ready", "等待唤醒超时，继续监听“花再花再”")
-                continue
+            if not listen_directly:
+                wake_pcm = detector.next_utterance(
+                    args.wake_max_seconds,
+                    args.wake_timeout_seconds,
+                    actions.stopped,
+                    interrupt_idle=actions.has_notifications,
+                )
+                if actions.stopped():
+                    break
+                if wake_pcm is None:
+                    if actions.has_notifications():
+                        continue
+                    emit_state("ready", "等待唤醒超时，继续监听“花再花再”")
+                    continue
 
-            # Background wake checks must keep the waiting status stable. Only
-            # an accepted wake word advances the visible interaction phase.
-            wake_text, wake_raw = recognizer.recognize_pcm(wake_pcm)
-            if not matches_wake_word(wake_text):
-                emit_state("ready", "正在等待“花再花再”", last_heard=wake_text)
-                continue
+                # Background checks keep the waiting status stable.
+                wake_text, wake_raw = recognizer.recognize_pcm(wake_pcm)
+                if not matches_wake_word(wake_text):
+                    emit_state("ready", "正在等待“花再花再”", last_heard=wake_text)
+                    continue
+                emit_state("wake_detected", "已识别唤醒词“花再花再”", text=wake_text, raw=wake_raw)
+                emit_state("cooldown", "正在播放“我在”并清空麦克风缓冲")
+                play_reply(reply_path)
+                if actions.stopped():
+                    break
 
-            emit_state(
-                "wake_detected",
-                "已识别唤醒词“花再花再”",
-                text=wake_text,
-                raw=wake_raw,
-            )
-            emit_state("cooldown", "正在播放“我在”并清空麦克风缓冲")
-            play_reply(reply_path)
-            if actions.stopped():
-                break
-
-            detector = start_fresh_capture(args.reply_cooldown_ms, command_silence_ms)
-            emit_state("listening_command", "请说出指令")
+            command_version = actions.prompt_version
+            command_from_prompt = listen_directly
+            detector = start_fresh_capture(0 if listen_directly else args.reply_cooldown_ms, command_silence_ms)
+            emit_state("listening_command", "请直接回答，可说选项名称或编号" if listen_directly else "请说出指令")
+            answer_version = command_version
+            listen_directly = False
 
             command_deadline = time.monotonic() + args.command_wait_seconds
             command_sent = False
@@ -929,6 +1114,7 @@ def run_live(args: argparse.Namespace) -> int:
                         remaining,
                         actions.stopped,
                         reject_truncated=True,
+                        interrupt_idle=lambda: actions.has_notifications() or actions.prompt_version != answer_version,
                     )
                 except UtteranceTooLongError:
                     command_rejection = (
@@ -950,23 +1136,31 @@ def run_live(args: argparse.Namespace) -> int:
                     break
                 if command_pcm is None:
                     break
+                if actions.prompt_version != answer_version:
+                    break
                 emit_state("recognizing", "正在识别指令")
                 command_text, command_raw = recognizer.recognize_pcm(command_pcm)
                 if actions.stopped():
+                    break
+                if actions.prompt_version != answer_version:
                     break
                 if not command_text:
                     emit_state("listening_command", "没有听清，请再说一次")
                     continue
 
-                emit("command", text=command_text, raw=command_raw)
+                cancelled_before_command = actions.cancelled_prompt_version
+                emit("command", text=command_text, raw=command_raw, prompt_version=command_version,
+                     from_prompt=command_from_prompt)
                 command_sent = True
                 play_reply(processing_reply_path)
-                action = actions.wait_for_resume(play_notification)
+                action = actions.wait_for_resume(play_notification, cancelled_before_command)
                 if action == "stop":
                     return 0
-                emit_state("cooldown", "正在清空麦克风缓冲")
-                detector = start_fresh_capture(args.resume_cooldown_ms, wake_silence_ms)
-                emit_state("ready", "正在等待“花再花再”")
+                listen_directly = action == "command"
+                if not listen_directly:
+                    emit_state("cooldown", "正在清空麦克风缓冲")
+                    detector = start_fresh_capture(args.resume_cooldown_ms, wake_silence_ms)
+                    emit_state("ready", "正在等待“花再花再”")
                 break
 
             if actions.stopped():
@@ -981,6 +1175,8 @@ def run_live(args: argparse.Namespace) -> int:
             capture.stop()
         if notification_sounds is not None:
             notification_sounds.close()
+        if notification_speech is not None:
+            notification_speech.close()
 
 
 def build_parser() -> argparse.ArgumentParser:

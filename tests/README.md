@@ -12,9 +12,9 @@ pwsh -File eng/Test.ps1
 
 | 入口 | 内容 | 环境 |
 | --- | --- | --- |
-| `-Suite Dsh` | 会话服务、语音任务路由、聊天 ViewModel、页面绑定、任务交互、监听入口、JS 桥接、工具协议与包内容 | .NET 8 SDK、Node.js 20+、npm、插件依赖 |
+| `-Suite Dsh` | 会话服务、语音任务路由、口述选项解析与字幕分页、聊天 ViewModel、页面绑定、任务交互、监听入口、JS 桥接、工具协议与包内容 | .NET 8 SDK、Node.js 20+、npm、插件依赖 |
 | `-Suite Audio` | 已有音频文件、配置、端点契约、设备命令和 ViewModel 回归 | .NET 8 SDK |
-| `-Suite Voice` | 唤醒匹配、句尾检测、缓存边界、取消和提示音队列 | Python、numpy |
+| `-Suite Voice` | 唤醒匹配、句尾检测、缓存边界、动态提示语音与有界缓存、取消、版本失效和提示后续听 | Python、numpy |
 | `-Suite All`（默认） | 全部以上测试 | 全部以上环境 |
 
 脚本不自动安装依赖。首次运行 DSH 检查前，使用插件锁文件安装依赖：
