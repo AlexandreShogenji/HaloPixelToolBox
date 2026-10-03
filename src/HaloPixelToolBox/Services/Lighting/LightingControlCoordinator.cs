@@ -2,6 +2,7 @@ using HaloPixelToolBox.Core.Models.DeviceControl;
 using HaloPixelToolBox.Core.Models.Display;
 using HaloPixelToolBox.Core.Models.Lighting;
 using HaloPixelToolBox.Core.Services.Lighting;
+using HaloPixelToolBox.Core.Services.DeviceControl;
 using HaloPixelToolBox.Models;
 using HaloPixelToolBox.Profiles.CrossVersionProfiles;
 
@@ -284,16 +285,51 @@ public sealed class LightingControlCoordinator
         }
     }
 
-    public async Task<DeviceCommandResult> ApplyPresetAsync(
+    public Task<DeviceCommandResult> ApplyPresetAsync(
         LightingColorPreset preset,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(preset);
+        return ApplyPresetSelectionAsync(
+            () => LookupResolution<LightingColorPreset>.Resolved(preset, preset.Name, LookupMatchKind.Exact),
+            cancellationToken);
+    }
 
+    public Task<DeviceCommandResult> ApplyPresetReferenceAsync(
+        string reference,
+        IReadOnlyList<LightingColorPreset> presets,
+        CancellationToken cancellationToken = default)
+        => ApplyPresetSelectionAsync(() => DeviceSettingReferenceResolver.Resolve(
+            reference,
+            presets.Select(preset => new DeviceLookupCandidate<LightingColorPreset>(preset, preset.Name)).ToArray(),
+            preset => preset.AmbientRed == DisplayFeatureProfile.AmbientLightRed
+                && preset.AmbientGreen == DisplayFeatureProfile.AmbientLightGreen
+                && preset.AmbientBlue == DisplayFeatureProfile.AmbientLightBlue
+                && preset.PixelRed == DisplayFeatureProfile.PixelScreenRed
+                && preset.PixelGreen == DisplayFeatureProfile.PixelScreenGreen
+                && preset.PixelBlue == DisplayFeatureProfile.PixelScreenBlue,
+            ["灯光", "配置", "配色", "方案", "预设"]), cancellationToken);
+
+    private async Task<DeviceCommandResult> ApplyPresetSelectionAsync(
+        Func<LookupResolution<LightingColorPreset>> resolve,
+        CancellationToken cancellationToken)
+    {
         var desiredStateChanged = false;
         await SharedMutationGate.WaitAsync(cancellationToken);
         try
         {
+            // Resolve random choices inside the same gate as writes so consecutive requests
+            // compare against the latest saved pair, including presets that share the same colors.
+            var resolution = resolve();
+            if (!resolution.IsResolved || resolution.Value is null)
+            {
+                var candidates = resolution.Suggestions.Count > 0
+                    ? $"；候选：{string.Join("、", resolution.Suggestions)}" : string.Empty;
+                return DeviceCommandResult.Rejected(
+                    resolution.IsAmbiguous ? DeviceCommandStatus.Conflict : DeviceCommandStatus.NotFound,
+                    $"未能唯一解析灯光配置：{resolution.Error ?? "未找到匹配"}{candidates}");
+            }
+            var preset = resolution.Value;
             NotifyExternalMutationStarting(LightingMutationScope.All);
             var ambientColor = new HaloPixelColor(
                 (byte)preset.AmbientRed,

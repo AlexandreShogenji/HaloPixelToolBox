@@ -64,8 +64,18 @@ assertRequired('show_pixelbar_subtitle', ['text'])
 assertDescriptionIncludes('show_pixelbar_subtitle', ['55 UTF-8 bytes', '18 common Chinese characters', 'scrolling does not increase', 'Preserve failure, uncertainty and approval', 'Do not silently shorten user-provided'])
 assertRequired('restore_pixelbar_default_scene', [])
 assertDeepEqual(tools.restore_pixelbar_default_scene.parameters.properties, {}, 'default restoration must not ask for a fabricated category or scene')
-assertRequired('activate_pixelbar_scene_by_reference', ['category', 'scene'])
-assertRequired('set_pixelbar_light_effect', ['mode'])
+assertRequired('activate_pixelbar_scene_by_reference', [])
+assertRequired('apply_pixelbar_lighting_preset', [])
+assertRequired('set_pixelbar_light_effect', [])
+assertSchema('apply_pixelbar_lighting_preset', 'name', { type: 'string', minLength: 1, default: '随机' })
+assertSchema('activate_pixelbar_scene_by_reference', 'category', { default: '随机' })
+assertSchema('activate_pixelbar_scene_by_reference', 'scene', { default: '随机' })
+assertDescriptionIncludes('set_pixelbar_light_effect', ['use random immediately', 'next only for explicit'])
+assertDescriptionIncludes('apply_pixelbar_lighting_preset', ['use 随机 immediately', 'ambiguous explicit names'])
+assertDescriptionIncludes('activate_pixelbar_scene_by_reference', ['default to random', 'Honor explicit category'])
+for (const property of ['lightingPreset', 'lightEffectMode', 'sceneCategory', 'sceneReference', 'volume']) {
+  assert(!Object.hasOwn(tools.configure_pixelbar.parameters.properties[property], 'default'), `combined ${property} must never acquire an implicit change`)
+}
 assertEnum('set_pixelbar_light_effect', 'mode', ['set', 'next', 'previous', 'random'])
 assertEnum('configure_pixelbar', 'lightEffectMode', ['set', 'next', 'previous', 'random'])
 assertDescriptionIncludes('set_pixelbar_light_effect', ['换个氛围灯效', 'not a saved two-color lighting preset'])
@@ -200,13 +210,31 @@ if (process.platform === 'win32') {
     assert(subtitleResult.success === true, 'a 55-byte subtitle must reach the fake device')
     assertDeepEqual(subtitleResult.subtitleLimit, { encoding: 'UTF-8', unit: 'bytes', actual: 55, max: 55, remaining: 0, fits: true }, 'successful requests must expose input byte counts without claiming device success from length alone')
   }
+  // Preserve omitted selectors through the real plugin transport so the device service
+  // can apply defaults. A combined request must never acquire unrelated random changes.
+  const randomCases = [
+    ['apply_pixelbar_lighting_preset', {}, 'apply_lighting_preset'],
+    ['apply_pixelbar_lighting_preset', { name: '第三个' }, 'apply_lighting_preset'],
+    ['set_pixelbar_light_effect', {}, 'set_ambient_light_effect'],
+    ['set_pixelbar_light_effect', { effect: '幻彩潮汐' }, 'set_ambient_light_effect'],
+    ['set_pixelbar_light_effect', { mode: 'previous' }, 'set_ambient_light_effect'],
+    ['activate_pixelbar_scene_by_reference', {}, 'activate_scene_by_reference'],
+    ['activate_pixelbar_scene_by_reference', { category: '时钟' }, 'activate_scene_by_reference'],
+    ['activate_pixelbar_scene_by_reference', { category: '时钟', scene: '第三个' }, 'activate_scene_by_reference'],
+    ['configure_pixelbar', { volume: 13 }, 'configure_device'],
+    ['configure_pixelbar', { lightingPreset: '随机', lightEffectMode: 'random', sceneCategory: '时钟', sceneReference: '随机' }, 'configure_device'],
+  ]
+  for (const [tool, parameters] of randomCases) {
+    const result = await effectTools[tool].execute(parameters, {})
+    assert(result.success === true, `${tool} must reach the fake device with optional selectors`)
+  }
   await new Promise((resolve, reject) => effectServer.close((error) => error ? reject(error) : resolve()))
 
   assert(directEffectResult?.success === true, 'direct effect tool must return the fake pipe result')
   assert(combinedEffectResult?.success === true, 'combined effect fields must return the fake pipe result')
   assert(restoredDefaultResult?.success === true, 'default restoration must return the fake pipe result')
   assert(combinedRestoreResult?.success === true, 'combined restoration must return the fake pipe result')
-  assert(effectRequests.length === 7, 'effect/default and subtitle checks must capture seven pipe requests')
+  assert(effectRequests.length === 7 + randomCases.length, 'every explicit and defaulted call must issue exactly one request')
   assert(effectRequests[0]?.method === 'set_ambient_light_effect', 'direct effect tool must use set_ambient_light_effect')
   assertDeepEqual(effectRequests[0]?.parameters, { mode: 'next' }, 'direct effect tool must preserve mode only')
   assert(effectRequests[1]?.method === 'configure_device', 'combined effect fields must use configure_device')
@@ -222,6 +250,11 @@ if (process.platform === 'win32') {
   for (let index = 0; index < boundarySubtitles.length; index++) {
     assert(effectRequests[index + 4]?.method === 'show_subtitle', 'boundary subtitles must use the subtitle method')
     assertDeepEqual(effectRequests[index + 4]?.parameters, { text: boundarySubtitles[index], scroll: 'left' }, 'valid custom text including emoji must reach the device unchanged')
+  }
+  for (let index = 0; index < randomCases.length; index++) {
+    const [tool, parameters, method] = randomCases[index]
+    assert(effectRequests[index + 7]?.method === method, `${tool} must preserve its device method`)
+    assertDeepEqual(effectRequests[index + 7]?.parameters, parameters, `${tool} must preserve explicit selectors and not inject unrelated settings`)
   }
 }
 

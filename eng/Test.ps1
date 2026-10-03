@@ -70,6 +70,7 @@ if ($RunVoiceTests) {
 Push-Location -LiteralPath $TestRepoRoot
 try {
     if ($RunDshTests) {
+        Invoke-DotNetRegression "tests/device-setting-tests/DeviceSettingTests.csproj"
         Invoke-DotNetRegression "tests/dsh-session-service-tests/SessionServiceTests.csproj"
         Invoke-DotNetRegression "tests/dsh-task-routing-tests/TaskRoutingTests.csproj"
         Invoke-DotNetRegression "tests/dsh-spoken-interaction-tests/SpokenInteractionTests.csproj"

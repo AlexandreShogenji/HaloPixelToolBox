@@ -15,6 +15,7 @@ namespace HaloPixelToolBox.Core.Services.DeviceControl;
 /// </summary>
 public sealed class HaloPixelDeviceControlService : IHaloPixelDeviceControlService
 {
+    private static readonly SemaphoreSlim SceneReferenceMutationGate = new(1, 1);
     private readonly HaloPixelDevice device;
     private readonly HaloPixelLightingService lightingService;
     private readonly HaloPixelDisplayService displayService;
@@ -274,66 +275,83 @@ public sealed class HaloPixelDeviceControlService : IHaloPixelDeviceControlServi
         string sceneReference,
         CancellationToken cancellationToken = default)
     {
+        await SceneReferenceMutationGate.WaitAsync(cancellationToken);
+        try
+        {
+            // The HID queue serializes individual writes. Selection must also wait so two
+            // overlapping random requests don't both choose against the same prior scene.
+            return await ActivateSceneByReferenceCoreAsync(category, sceneReference, cancellationToken);
+        }
+        finally
+        {
+            SceneReferenceMutationGate.Release();
+        }
+    }
+
+    private async Task<DeviceCommandResult> ActivateSceneByReferenceCoreAsync(
+        string category,
+        string sceneReference,
+        CancellationToken cancellationToken)
+    {
         if (string.IsNullOrWhiteSpace(category))
             return DeviceCommandResult.Rejected(DeviceCommandStatus.InvalidArgument, "场景分类不能为空");
         if (string.IsNullOrWhiteSpace(sceneReference))
             return DeviceCommandResult.Rejected(DeviceCommandStatus.InvalidArgument, "场景名称或序号不能为空");
 
-        var categoryResolution = ResolveCategory(category);
-        if (!categoryResolution.IsResolved)
+        var anyCategory = DeviceSettingReferenceResolver.IsRandomReference(category);
+        var plans = sceneLoader.LoadCategoryPlans();
+        var scenes = LoadScenes().OrderBy(item => item.CategoryIndex).ThenBy(item => item.SceneIndex).ToList();
+        var categoryName = "全部分类";
+        if (!anyCategory)
         {
-            return DeviceCommandResult.Rejected(
-                categoryResolution.IsAmbiguous ? DeviceCommandStatus.Conflict : DeviceCommandStatus.NotFound,
-                FormatLookupError($"场景分类“{category}”", categoryResolution));
-        }
+            if (DeviceNameResolver.IsRandomReference(category))
+                return DeviceCommandResult.Rejected(DeviceCommandStatus.NotFound, $"未找到场景分类“{category}”");
+            var categoryResolution = ResolveCategory(category);
+            if (!categoryResolution.IsResolved)
+            {
+                return DeviceCommandResult.Rejected(
+                    categoryResolution.IsAmbiguous ? DeviceCommandStatus.Conflict : DeviceCommandStatus.NotFound,
+                    FormatLookupError($"场景分类“{category}”", categoryResolution));
+            }
 
-        var plan = categoryResolution.Value!;
-        var scenes = LoadScenes()
-            .Where(item => item.Category == plan.Category)
-            .OrderBy(item => item.SceneIndex)
-            .ToList();
+            var plan = categoryResolution.Value!;
+            categoryName = plan.DisplayName;
+            scenes = scenes.Where(item => item.Category == plan.Category).ToList();
+        }
         if (scenes.Count == 0)
-            return DeviceCommandResult.Rejected(DeviceCommandStatus.NotFound, $"“{plan.DisplayName}”没有可用场景");
+            return DeviceCommandResult.Rejected(DeviceCommandStatus.NotFound, $"“{categoryName}”没有可用场景");
 
-        PersonalSceneDefinition scene;
-        int position;
-        if (DeviceNameResolver.TryResolvePositionReference(sceneReference, scenes.Count, out var positionResolution))
+        var lastScene = sceneRestoreService.GetLastRememberedScene();
+        var sceneCandidates = scenes.Select(item => new DeviceLookupCandidate<PersonalSceneDefinition>(
+            item, item.Name, string.IsNullOrWhiteSpace(item.Id) ? [] : [item.Id])).ToArray();
+        var stopWords = SceneStopWords.Concat(anyCategory
+            ? Array.Empty<string>()
+            : [categoryName, scenes[0].Category.ToString()]);
+        var sceneResolution = DeviceSettingReferenceResolver.Resolve(
+            sceneReference, sceneCandidates,
+            item => lastScene is not null && item.CategoryIndex == lastScene.CategoryIndex
+                && item.SceneIndex == lastScene.SceneIndex,
+            stopWords);
+        if (!sceneResolution.IsResolved)
         {
-            if (!positionResolution.IsResolved)
-            {
-                return DeviceCommandResult.Rejected(
-                    DeviceCommandStatus.InvalidArgument,
-                    $"无法解析“{sceneReference}”：{positionResolution.Error}。可选位置：1-{scenes.Count}");
-            }
-
-            position = positionResolution.Value;
-            scene = scenes[position - 1];
+            var isOrdinal = DeviceNameResolver.TryResolvePositionReference(sceneReference, scenes.Count, out _);
+            return DeviceCommandResult.Rejected(
+                sceneResolution.IsAmbiguous ? DeviceCommandStatus.Conflict
+                    : isOrdinal ? DeviceCommandStatus.InvalidArgument : DeviceCommandStatus.NotFound,
+                FormatLookupError($"“{categoryName}”中的场景“{sceneReference}”", sceneResolution));
         }
-        else
-        {
-            var sceneCandidates = scenes.Select((item, index) => new DeviceLookupCandidate<PersonalSceneDefinition>(
-                item,
-                item.Name,
-                string.IsNullOrWhiteSpace(item.Id)
-                    ? [$"第{index + 1}个", (index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture)]
-                    : [item.Id, $"第{index + 1}个", (index + 1).ToString(System.Globalization.CultureInfo.InvariantCulture)]));
-            var stopWords = SceneStopWords.Concat([plan.DisplayName, plan.Category.ToString()]);
-            var sceneResolution = DeviceNameResolver.Resolve(sceneReference, sceneCandidates, stopWords);
-            if (!sceneResolution.IsResolved)
-            {
-                return DeviceCommandResult.Rejected(
-                    sceneResolution.IsAmbiguous ? DeviceCommandStatus.Conflict : DeviceCommandStatus.NotFound,
-                    FormatLookupError($"“{plan.DisplayName}”中的场景“{sceneReference}”", sceneResolution));
-            }
+        if (anyCategory && sceneResolution.MatchKind == LookupMatchKind.Ordinal)
+            return DeviceCommandResult.Rejected(DeviceCommandStatus.InvalidArgument,
+                "按序号选择场景时需要指定分类；未指定分类时可随机选择或提供完整场景名称");
 
-            scene = sceneResolution.Value!;
-            position = scenes.IndexOf(scene) + 1;
-        }
-
+        var scene = sceneResolution.Value!;
+        var selectedCategoryName = plans.FirstOrDefault(plan => plan.Category == scene.Category)?.DisplayName
+            ?? scene.Category.ToString();
+        var position = scenes.Where(item => item.Category == scene.Category).ToList().IndexOf(scene) + 1;
         var activated = await ActivateSceneAsync(scene.CategoryIndex, scene.SceneIndex, cancellationToken);
         return activated.Success
             ? DeviceCommandResult.Succeeded(
-                $"已切换场景：{plan.DisplayName} / {scene.Name}（第 {position} 个，设备索引 {scene.CategoryIndex}-{scene.SceneIndex}）")
+                $"已切换场景：{selectedCategoryName} / {scene.Name}（第 {position} 个，设备索引 {scene.CategoryIndex}-{scene.SceneIndex}）")
             : activated;
     }
 

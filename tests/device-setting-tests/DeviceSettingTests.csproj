@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/HaloPixelToolBox.Core/Services/DeviceControl/DeviceNameResolver.cs" Link="DeviceNameResolver.cs" />
+    <Compile Include="../../src/HaloPixelToolBox.Core/Services/DeviceControl/DeviceSettingReferenceResolver.cs" Link="DeviceSettingReferenceResolver.cs" />
+    <Compile Include="../../src/HaloPixelToolBox.Core/Models/DeviceControl/LookupResolution.cs" Link="LookupResolution.cs" />
+    <Compile Include="../../src/HaloPixelToolBox.Core/Models/DeviceControl/DeviceCommandResult.cs" Link="DeviceCommandResult.cs" />
+    <Compile Include="../../src/HaloPixelToolBox.Core/Models/DeviceControl/DeviceCommandStatus.cs" Link="DeviceCommandStatus.cs" />
+    <Compile Include="../../src/HaloPixelToolBox.Core/Models/Display/HaloPixelColor.cs" Link="HaloPixelColor.cs" />
+    <Compile Include="../../src/HaloPixelToolBox.Core/Models/Lighting/AmbientLightOptions.cs" Link="AmbientLightOptions.cs" />
+    <Compile Include="../../src/HaloPixelToolBox.Core/Models/Lighting/AmbientLightEffect.cs" Link="AmbientLightEffect.cs" />
+    <Compile Include="../../src/HaloPixelToolBox.Core/Models/Lighting/AmbientLightBrightness.cs" Link="AmbientLightBrightness.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/Services/Lighting/AmbientLightEffectResolver.cs" Link="AmbientLightEffectResolver.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/Services/Lighting/LightingControlCoordinator.cs" Link="LightingControlCoordinator.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/Services/DeviceControl/DeviceSettingCommandDefaults.cs" Link="DeviceSettingCommandDefaults.cs" />
+    <Compile Include="../../src/HaloPixelToolBox/Models/LightingColorPreset.cs" Link="LightingColorPreset.cs" />
+  </ItemGroup>
+</Project>

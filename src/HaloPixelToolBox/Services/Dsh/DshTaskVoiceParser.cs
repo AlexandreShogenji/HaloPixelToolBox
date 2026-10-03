@@ -15,8 +15,8 @@ internal static class DshTaskVoiceParser
     internal const string SceneSwitchVerbPattern = @"(?:切换(?:为|到|成)?|切到|切回|换成|换到|更换(?:为|成)?|换|恢复|还原|设为|设置为)";
     private const string ShortSceneSwitchPattern = @"^" + SceneSwitchVerbPattern + @"(?:一下)?"
         + SceneChoicePattern + ShortSceneTargetPattern + @"(?:一下)?(?:吧|好吗|可以吗)?$";
-    private const string ColorSchemeObjectPattern = @"(?:(?:颜色|配色)(?:方案|预设)|灯光方案)";
-    private const string ColorSchemeChoicePattern = @"(?:(?:另外|另|下)?[一1](?:个|套)|个|套|下一套|第[一二三四五六七八九十百两0-9]+(?:个|套)?)?";
+    private const string ColorSchemeObjectPattern = @"(?:配色(?:方案|预设)?|颜色(?:方案|预设)|灯光(?:方案|预设))";
+    private const string ColorSchemeChoicePattern = @"(?:(?:另外|另|下|上)?[一1](?:个|套|种|種|款)|个|套|种|種|款|下一套|上一套|第[一二三四五六七八九十百两0-9]+(?:个|套|种|種|款)?)?";
     private const string ColorSchemeSuffixPattern = @"(?:一下)?(?:吧|好吗|可以吗)?$";
     public static string Normalize(string text) => Regex.Replace(text.Normalize(NormalizationForm.FormKC), @"[\s，,。.!！?？：:；;“”\""']", "").ToLowerInvariant();
     public static bool IsCreate(string text) => !IsNonCreationRequest(text)
@@ -58,8 +58,8 @@ internal static class DshTaskVoiceParser
         if (Regex.IsMatch(normalized, @"任务|会话|编写|开发|实现|代码|项目|文件|函数|分析|设计|绘制|绘画|画图|修复|文档|网页|页面|界面|网站|前端|备忘录|按钮|组件|css|html|bug"))
             return false;
         var device = @"(?:(?:把|将)?(?:音箱|设备)(?:的)?)?";
-        return Regex.IsMatch(normalized, @"^" + device + @"(?:随机)?" + SceneSwitchVerbPattern
-                + @"(?:一下)?(?:随机)?" + ColorSchemeChoicePattern + ColorSchemeObjectPattern + ColorSchemeSuffixPattern)
+        return Regex.IsMatch(normalized, @"^" + device + @"(?:随机|随便|任意)?" + SceneSwitchVerbPattern
+                + @"(?:一下)?(?:随机|随便|任意)?" + ColorSchemeChoicePattern + ColorSchemeObjectPattern + ColorSchemeSuffixPattern)
             || Regex.IsMatch(normalized, @"^" + device + @"(?:把|将)?" + ColorSchemeObjectPattern
                 + SceneSwitchVerbPattern + @"(?:一下)?[^吗呢?？]{1,32}" + ColorSchemeSuffixPattern)
             || Regex.IsMatch(normalized, @"^" + device + SceneSwitchVerbPattern + ColorSchemeObjectPattern

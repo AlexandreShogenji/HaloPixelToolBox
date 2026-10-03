@@ -61,10 +61,10 @@ export function apply(ctx, config) {
   })
   registerTool(ctx, config, {
     name: 'set_pixelbar_light_effect',
-    description: 'Change or cycle the Halo PixelBar hardware ambient-light animation mode. Use next for “换个氛围灯效/换一种/下一个”, previous for the previous mode, random for a different random mode, or set with an explicit effect name or 1-based position. The six effects are 氛围呼吸/Breathing, 幻彩潮汐/ColorTide, 纯色静光/Static, 炫彩涟漪/Ripple, 流光逐影/Flow, and 动态光影/Dynamic. This changes only the ambient animation mode and keeps color, speed, brightness, power, and pixel-screen settings; it is not a saved two-color lighting preset such as 贺喜遥香.',
+    description: 'Change or cycle the Halo PixelBar hardware ambient-light animation mode. For “换个氛围灯效/换一种灯效” without a named target, use random immediately without asking the user to choose; it selects a different mode when possible. Use next only for explicit “下一个灯效”, previous for the previous mode, or set with an explicit effect name or 1-based position. The six effects are 氛围呼吸/Breathing, 幻彩潮汐/ColorTide, 纯色静光/Static, 炫彩涟漪/Ripple, 流光逐影/Flow, and 动态光影/Dynamic. This changes only the ambient animation mode and keeps color, speed, brightness, power, and pixel-screen settings; it is not a saved two-color lighting preset such as 贺喜遥香.',
     parameters: {
-      mode: { type: 'string', enum: ['set', 'next', 'previous', 'random'], required: true, description: 'Use set for an explicit effect, next for “换个/下一个灯效”, previous for the previous effect, or random for a different random effect.' },
-      effect: { type: 'string', minLength: 1, description: 'Required only when mode is set; omit it for next, previous, and random. Accepts a Chinese or English effect name, simplified/traditional alias, or 1-based position from 1 to 6.' },
+      mode: { type: 'string', enum: ['set', 'next', 'previous', 'random'], description: 'Defaults to random if neither mode nor effect is supplied; defaults to set when only effect is supplied. Use random for an unspecified replacement, next/previous only for explicit sequential requests, and set for an explicit name or position.' },
+      effect: { type: 'string', minLength: 1, description: 'Required when mode is set; supplying effect alone implies set. Omit it for next, previous, and random. Accepts a Chinese or English effect name, simplified/traditional alias, or 1-based position from 1 to 6.' },
     },
     method: 'set_ambient_light_effect',
   })
@@ -183,9 +183,9 @@ export function apply(ctx, config) {
   })
   registerTool(ctx, config, {
     name: 'apply_pixelbar_lighting_preset',
-    description: 'Apply a saved, named HaloPixelToolBox two-color lighting preset, which sets ambient-light and pixel-screen colors together. Use this only when the user names or explicitly asks for a saved lighting preset/配色, such as 贺喜遥香. Do not use it for “换个氛围灯效”, “下一个灯效”, or another hardware animation mode. Minor spacing and one-character traditional/simplified differences are tolerated.',
+    description: 'Apply a saved HaloPixelToolBox two-color lighting preset, which sets ambient-light and pixel-screen colors together. Use this for a saved lighting preset/配色, including “换个配色/换个颜色方案/换套灯光预设”. If the user does not specify a target, use 随机 immediately without listing options or asking for a choice. Random avoids the current color pair when alternatives exist. Explicit names and 1-based positions take priority; ambiguous explicit names still need clarification. Do not use it for “换个氛围灯效”, “下一个灯效”, or another hardware animation mode. Minor spacing and one-character traditional/simplified differences are tolerated.',
     parameters: {
-      name: { type: 'string', required: true, description: 'Saved two-color lighting preset name, for example 贺喜遥香. This is not an ambient-light animation effect name.' },
+      name: { type: 'string', minLength: 1, default: '随机', description: 'Saved two-color lighting preset name (贺喜遥香), 1-based position (第三个), or 随机/random. Omitted means random. This is not an ambient-light animation effect name.' },
     },
     method: 'apply_lighting_preset',
   })
@@ -201,10 +201,10 @@ export function apply(ctx, config) {
   })
   registerTool(ctx, config, {
     name: 'activate_pixelbar_scene_by_reference',
-    description: 'Activate a Halo PixelBar scene using human-readable category and scene references. Both names may be simplified or traditional Chinese, partial names, ordinal phrases such as 第一个, or 随机/random when supported by the category resolver.',
+    description: 'Activate a Halo PixelBar scene using human-readable category and scene references. For “换个时钟场景” use category 时钟 and scene 随机; for “换个场景” with no category use 随机 for both. Unspecified replacements default to random without a choice question, avoiding the last selected scene when alternatives exist. Honor explicit category, name or 1-based ordinal. References support simplified/traditional Chinese and partial names; ambiguous explicit names still need clarification. “恢复默认场景” must use restore_pixelbar_default_scene instead.',
     parameters: {
-      category: { type: 'string', minLength: 1, required: true, description: 'Scene category reference, for example 自定义、時鐘、游戏 or Custom.' },
-      scene: { type: 'string', minLength: 1, required: true, description: 'Scene name or reference, for example 第一个、随机、像素时钟 or a partial scene name.' },
+      category: { type: 'string', minLength: 1, default: '随机', description: 'Scene category reference, for example 自定义、時鐘、游戏 or Custom. Omitted or 随机 permits selection across all categories; keep any category specified by the user. An explicit ordinal requires a specific category.' },
+      scene: { type: 'string', minLength: 1, default: '随机', description: 'Scene name or reference, for example 第一个、随机、像素时钟 or a partial scene name. Omitted means random in the requested category.' },
     },
     method: 'activate_scene_by_reference',
     minimumTimeoutMs: 120000,
@@ -234,15 +234,15 @@ export function apply(ctx, config) {
     parameters: {
       ambientLightEnabled: { type: 'boolean', description: 'Optional ambient-light power state.' },
       pixelScreenEnabled: { type: 'boolean', description: 'Optional 256x32 pixel-screen power state.' },
-      lightEffectMode: { type: 'string', enum: ['set', 'next', 'previous', 'random'], description: 'Optional hardware ambient-light animation operation. set requires lightEffectReference; next, previous, and random require that lightEffectReference be omitted.' },
+      lightEffectMode: { type: 'string', enum: ['set', 'next', 'previous', 'random'], description: 'Optional hardware ambient-light animation operation. For an unspecified replacement use random; next/previous require an explicit sequential request. set requires lightEffectReference; next, previous, and random require that lightEffectReference be omitted. Omit the whole field to leave the effect unchanged.' },
       lightEffectReference: { type: 'string', minLength: 1, description: 'Hardware ambient-light effect name, simplified/traditional alias, or 1-based position. Provide only with lightEffectMode set.' },
       lightSpeedMode: { type: 'string', enum: ['set', 'increase', 'decrease'], description: 'Optional ambient-light speed operation; provide with lightSpeedValue.' },
       lightSpeedValue: { type: 'integer', minimum: 1, maximum: 10, description: 'Absolute 1-10 speed for set, or number of steps for increase/decrease; provide with lightSpeedMode.' },
-      lightingPreset: { type: 'string', description: 'Optional saved two-color lighting preset name, such as 贺喜遥香. Do not use this field for a hardware ambient-light animation effect.' },
+      lightingPreset: { type: 'string', minLength: 1, description: 'Optional saved two-color lighting preset name, 1-based position or 随机. Use 随机 for “换个配色/换个颜色方案” without a specific target. Omit to leave colors unchanged. Do not use this field for a hardware ambient-light animation effect.' },
       restoreDefaultScene: { type: 'boolean', description: 'Set true to restore the most recently selected personal pixel-screen scene, or the App fallback clock when none was remembered. Equivalent to the App “恢复默认场景” button and does not change ambient lighting. When true, omit sceneCategory, scenePosition, and sceneReference; false performs no restoration.' },
-      sceneCategory: { type: 'string', description: 'Optional human-readable scene category; provide with scenePosition or sceneReference.' },
+      sceneCategory: { type: 'string', description: 'Optional human-readable scene category; provide with scenePosition or sceneReference. For a requested random scene without a category, use 随机 with sceneReference 随机. Omit all scene fields to leave the scene unchanged.' },
       scenePosition: { type: 'integer', minimum: 1, maximum: 255, description: 'Optional 1-based scene position; provide with sceneCategory.' },
-      sceneReference: { type: 'string', description: 'Optional scene name, partial name, ordinal phrase or random reference; provide with sceneCategory.' },
+      sceneReference: { type: 'string', description: 'Optional scene name, partial name, ordinal phrase or random reference; provide with sceneCategory. Use 随机 for a scene replacement without a specific target; keep the category the user requested.' },
       volume: { type: 'integer', minimum: 0, maximum: 16, description: 'Optional integer speaker volume from 0 to 16.' },
       continueOnError: { type: 'boolean', description: 'Whether to continue later operations after one operation fails. Defaults to false; set true to attempt every requested change and return a partial-failure result.' },
     },

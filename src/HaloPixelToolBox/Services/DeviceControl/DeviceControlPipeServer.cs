@@ -316,14 +316,14 @@ public sealed partial class DeviceControlPipeServer : IDisposable
                 "get_catalog" => await GetCatalogAsync(
                     GetOptionalString(request.Parameters, "category"), cancellationToken),
                 "apply_lighting_preset" => await ApplyLightingPresetAsync(
-                    GetRequiredString(request.Parameters, "name"), cancellationToken),
+                    DeviceSettingCommandDefaults.ReadReference(request.Parameters, "name"), cancellationToken),
                 "activate_scene_by_position" => await deviceControlService.ActivateSceneByPositionAsync(
                     GetRequiredString(request.Parameters, "category"),
                     GetRequiredInteger(request.Parameters, "position"),
                     cancellationToken),
                 "activate_scene_by_reference" => await deviceControlService.ActivateSceneByReferenceAsync(
-                    GetRequiredString(request.Parameters, "category"),
-                    GetRequiredString(request.Parameters, "scene"),
+                    DeviceSettingCommandDefaults.ReadReference(request.Parameters, "category"),
+                    DeviceSettingCommandDefaults.ReadReference(request.Parameters, "scene"),
                     cancellationToken),
                 "start_spotify_lyrics" => await StartSpotifyLyricsAsync(request.Parameters, cancellationToken),
                 "get_lyrics_status" => DeviceCommandResult<LyricsSubtitleSessionStatus>.Succeeded(
@@ -484,40 +484,7 @@ public sealed partial class DeviceControlPipeServer : IDisposable
         if (presets.Count == 0)
             return DeviceCommandResult.Rejected(DeviceCommandStatus.NotFound, "尚未保存灯光配色方案");
 
-        Models.LightingColorPreset? preset;
-        if (DeviceNameResolver.IsRandomReference(requestedName))
-        {
-            preset = presets[Random.Shared.Next(presets.Count)];
-        }
-        else
-        {
-            var resolution = DeviceNameResolver.Resolve(
-                requestedName,
-                presets.Select(item => new DeviceLookupCandidate<Models.LightingColorPreset>(
-                    item,
-                    item.Name)),
-                ["灯光", "配置", "配色", "方案", "预设"]);
-            if (!resolution.IsResolved)
-            {
-                var candidates = resolution.Suggestions.Count > 0
-                    ? $"；候选：{string.Join("、", resolution.Suggestions)}"
-                    : string.Empty;
-                return DeviceCommandResult.Rejected(
-                    resolution.IsAmbiguous ? DeviceCommandStatus.Conflict : DeviceCommandStatus.NotFound,
-                    $"未能唯一解析灯光配置“{requestedName}”{candidates}");
-            }
-
-            preset = resolution.Value;
-        }
-
-        if (preset is null)
-        {
-            return DeviceCommandResult.Rejected(
-                DeviceCommandStatus.NotFound,
-                $"未找到灯光配置“{requestedName}”；可用配置：{string.Join("、", presets.Select(item => item.Name))}");
-        }
-
-        return await lightingControl.ApplyPresetAsync(preset, cancellationToken);
+        return await lightingControl.ApplyPresetReferenceAsync(requestedName, presets, cancellationToken);
     }
 
     private Task<DeviceCommandResult<AmbientLightSpeedChange>> SetAmbientLightSpeedAsync(
@@ -547,12 +514,7 @@ public sealed partial class DeviceControlPipeServer : IDisposable
         JsonElement parameters,
         CancellationToken cancellationToken)
     {
-        var mode = GetRequiredString(parameters, "mode");
-        var reference = GetOptionalString(parameters, "effect");
-        if (!string.Equals(mode, "set", StringComparison.OrdinalIgnoreCase)
-            && parameters.TryGetProperty("effect", out _))
-            throw new ArgumentException("只有 set 模式可以提供 effect；next、previous、random 不接受 effect");
-        AmbientLightEffectResolver.Parse(mode, reference);
+        var (mode, reference) = DeviceSettingCommandDefaults.ReadAmbientEffect(parameters);
         return lightingControl.SetAmbientEffectAsync(mode, reference, cancellationToken);
     }
 

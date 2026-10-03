@@ -32,6 +32,28 @@ HaloPixelToolBox owns the USB HID connection. The plugin only connects to the
 current Windows user's `HaloPixelToolBox.DeviceControl.v1` named pipe, so DSH
 never receives raw HID access.
 
+### Random replacements by default (0.7.3)
+
+“换个配色 / 换个颜色方案 / 换个氛围灯效 / 换个场景” without a target
+selects randomly, without asking the user to choose. A named category remains
+binding: “换个时钟场景” selects a random clock. Random replacements avoid the
+current color pair, effect or last selected scene when another option exists.
+With only one option, that option is retained; an empty catalog reports no
+available option. Explicit names, ordinals and sequential requests still win;
+an ambiguous explicit name is not replaced with a random guess.
+
+- `apply_pixelbar_lighting_preset`: omit `name` or pass `随机`.
+- `set_pixelbar_light_effect`: omit both fields or pass `mode: "random"`.
+  An `effect` without `mode` means `set`. “下一个灯效” still means `next`.
+- `activate_pixelbar_scene_by_reference`: omit `scene` for a random scene in
+  the requested `category`; omit both for a random scene across categories.
+- `configure_pixelbar`: explicitly use `lightingPreset: "随机"`,
+  `lightEffectMode: "random"` or `sceneCategory` with `sceneReference: "随机"`.
+  Omitted settings remain unchanged. Volume, power, speed, schedules, lyrics
+  source, output devices and authorization are never randomized by this rule.
+
+Update the bundled plugin and restart DSH to load the new descriptions.
+
 ### Subtitle length contract (0.7.1)
 
 Generated status text should fit one 55-byte UTF-8 send and preserve the current
@@ -156,7 +178,7 @@ light and pixel screen, such as `贺喜遥香`; it is not an animation mode. A
 pixel-screen scene is also separate. `get_pixelbar_catalog` returns these in
 separate `ambientLightEffects`, `currentAmbientLightEffect`, `lightingPresets`,
 and `scenes` fields. For example, “换个氛围灯效” maps to
-`set_pixelbar_light_effect` with `mode: "next"`, while “应用贺喜遥香灯光预设”
+`set_pixelbar_light_effect` with `mode: "random"`, while “应用贺喜遥香灯光预设”
 maps to `apply_pixelbar_lighting_preset`.
 
 Spotify lyrics use the Windows media session for the currently

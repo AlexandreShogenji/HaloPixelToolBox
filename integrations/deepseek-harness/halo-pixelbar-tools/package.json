@@ -1,6 +1,6 @@
 {
   "name": "dsh-halo-pixelbar-tools",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "DeepSeek Harness tools for controlling Halo PixelBar through HaloPixelToolBox",
   "type": "module",
   "main": "index.js",
