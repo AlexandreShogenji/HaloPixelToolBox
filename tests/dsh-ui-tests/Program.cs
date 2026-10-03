@@ -14,6 +14,12 @@ async Task WaitUntil(Func<bool> condition)
     for (int i = 0; i < 100 && !condition(); i++) await Task.Delay(10);
     if (!condition()) throw new InvalidOperationException("Timed out waiting for probe state");
 }
+if (args.Contains("--resources"))
+{
+    await ResourceRuntimeProbe.RunAsync(Check);
+    Console.WriteLine($"All {passed} resource lifecycle and history budget probes passed.");
+    return;
+}
 if (args.Contains("--voice"))
 {
     await VoiceRuntimeProbe.RunAsync(Check);

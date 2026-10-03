@@ -9,6 +9,7 @@
     <Using Include="Microsoft.UI.Xaml.Controls"/>
     <Using Include="HaloPixelToolBox.ViewModels"/>
     <Compile Include="../../src/HaloPixelToolBox/ViewModels/DshSessionsPageViewModel.cs" Link="DshSessionsPageViewModel.cs"/>
+    <Compile Include="../../src/HaloPixelToolBox/Services/WindowActivityService.cs" Link="WindowActivityService.cs"/>
     <Compile Include="../../src/HaloPixelToolBox/ViewModels/DshSessionsPageViewModel.Voice.cs" Link="DshSessionsPageViewModel.Voice.cs"/>
     <Compile Include="../../src/HaloPixelToolBox/ViewModels/ViewModelBase.cs" Link="ViewModelBase.cs"/>
     <Compile Include="../../src/HaloPixelToolBox/Models/Dsh/DshSessions.cs" Link="DshSessions.cs"/>

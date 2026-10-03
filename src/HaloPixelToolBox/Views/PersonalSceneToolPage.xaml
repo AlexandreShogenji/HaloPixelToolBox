@@ -9,312 +9,338 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
     <Grid>
-        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Spacing="14" Margin="0,0,24,24" MaxWidth="1280">
-                <Grid ColumnSpacing="16">
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                    <StackPanel Spacing="4">
-                        <!-- <TextBlock Text="设备内容" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/> -->
-                        <TextBlock Text="个性场景" Style="{StaticResource TitleTextBlockStyle}"/>
-                        <TextBlock Text="{x:Bind ViewModel.SceneCountText, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
-                    </StackPanel>
-                    <Button Grid.Column="1" Content="重新扫描" Command="{x:Bind ViewModel.ReloadScenesCommand}" VerticalAlignment="Bottom"/>
-                </Grid>
+        <!-- Keep this GridView in the finite page viewport so ItemsWrapGrid can recycle offscreen previews. -->
+        <GridView x:Name="ScenePreviewGrid"
+                  ItemsSource="{x:Bind ViewModel.SelectedScenes, Mode=OneWay}"
+                  SelectionMode="None"
+                  HorizontalAlignment="Stretch"
+                  Margin="0,0,24,24"
+                  MaxWidth="1280"
+                  Padding="0"
+                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                  ScrollViewer.HorizontalScrollMode="Disabled"
+                  ScrollViewer.VerticalScrollBarVisibility="Auto"
+                  ScrollViewer.VerticalScrollMode="Enabled"
+                  Loaded="ScenePreviewGrid_Loaded"
+                  SizeChanged="ScenePreviewGrid_SizeChanged">
+            <GridView.Header>
+                <StackPanel Spacing="14" Margin="0,0,0,14">
+                    <Grid ColumnSpacing="16">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel Spacing="4">
+                            <!-- <TextBlock Text="设备内容" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/> -->
+                            <TextBlock Text="个性场景" Style="{StaticResource TitleTextBlockStyle}"/>
+                            <TextBlock Text="{x:Bind ViewModel.SceneCountText, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="重新扫描" Command="{x:Bind ViewModel.ReloadScenesCommand}" VerticalAlignment="Bottom"/>
+                    </Grid>
 
-                <GridView ItemsSource="{x:Bind ViewModel.Categories, Mode=OneWay}"
-                          SelectionMode="None"
-                          IsItemClickEnabled="False"
-                          HorizontalAlignment="Stretch">
-                    <GridView.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <ItemsWrapGrid Orientation="Horizontal"/>
-                        </ItemsPanelTemplate>
-                    </GridView.ItemsPanel>
-                    <GridView.ItemContainerStyle>
-                        <Style TargetType="GridViewItem">
-                            <Setter Property="Margin" Value="0,0,8,8"/>
-                        </Style>
-                    </GridView.ItemContainerStyle>
-                    <GridView.ItemTemplate>
-                        <DataTemplate x:DataType="viewModels:PersonalSceneCategoryGroup">
-                            <ToggleButton Click="CategoryButton_Click"
-                                          Tag="{Binding}"
-                                          IsChecked="{x:Bind IsSelected, Mode=OneWay}"
-                                          MinWidth="112"
-                                          Padding="14,10"
-                                          Content="{x:Bind Header}"/>
-                        </DataTemplate>
-                    </GridView.ItemTemplate>
-                </GridView>
+                    <GridView ItemsSource="{x:Bind ViewModel.Categories, Mode=OneWay}"
+                              SelectionMode="None"
+                              IsItemClickEnabled="False"
+                              HorizontalAlignment="Stretch"
+                              ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                              ScrollViewer.VerticalScrollMode="Disabled">
+                        <GridView.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <ItemsWrapGrid Orientation="Horizontal"/>
+                            </ItemsPanelTemplate>
+                        </GridView.ItemsPanel>
+                        <GridView.ItemContainerStyle>
+                            <Style TargetType="GridViewItem">
+                                <Setter Property="Margin" Value="0,0,8,8"/>
+                            </Style>
+                        </GridView.ItemContainerStyle>
+                        <GridView.ItemTemplate>
+                            <DataTemplate x:DataType="viewModels:PersonalSceneCategoryGroup">
+                                <ToggleButton Click="CategoryButton_Click"
+                                              Tag="{Binding}"
+                                              IsChecked="{x:Bind IsSelected, Mode=OneWay}"
+                                              MinWidth="112"
+                                              Padding="14,10"
+                                              Content="{x:Bind Header}"/>
+                            </DataTemplate>
+                        </GridView.ItemTemplate>
+                    </GridView>
+                </StackPanel>
+            </GridView.Header>
+            <GridView.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <ItemsWrapGrid Orientation="Horizontal"
+                                   Loaded="ScenePreviewItemsPanel_Loaded"/>
+                </ItemsPanelTemplate>
+            </GridView.ItemsPanel>
+            <GridView.ItemContainerStyle>
+                <Style TargetType="GridViewItem">
+                    <Setter Property="Margin" Value="0,0,12,12"/>
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                    <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+                </Style>
+            </GridView.ItemContainerStyle>
+            <GridView.ItemTemplate>
+                <DataTemplate x:DataType="scenes:PersonalSceneDefinition">
+                    <Grid>
+                        <Button Click="SceneButton_Click"
+                                Tag="{Binding}"
+                                Padding="0"
+                                BorderThickness="1"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                Background="Transparent"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch">
+                            <Grid CornerRadius="6" Background="Black">
+                                <Image Stretch="UniformToFill">
+                                    <Image.Source>
+                                        <BitmapImage DecodePixelWidth="600"
+                                                     DecodePixelType="Logical"
+                                                     UriSource="{x:Bind PreviewSource, Mode=OneWay}"/>
+                                    </Image.Source>
+                                </Image>
+                                <Border Background="#F0FFB15A"
+                                        CornerRadius="0,0,0,4"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Top"
+                                        Padding="8,3"
+                                        Opacity="{x:Bind InUseBadgeOpacity, Mode=OneWay}">
+                                    <TextBlock Text="使用中"
+                                               Foreground="Black"
+                                               FontSize="12"
+                                               FontWeight="SemiBold"/>
+                                </Border>
+                            </Grid>
+                        </Button>
+                        <Button Content="删除"
+                                Click="SceneDelete_Click"
+                                Tag="{Binding}"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Bottom"
+                                Margin="0,0,6,6"
+                                Padding="8,2"
+                                FontSize="12"
+                                Opacity="{x:Bind DeleteButtonOpacity, Mode=OneWay}"
+                                IsHitTestVisible="{x:Bind DeleteButtonHitTestVisible, Mode=OneWay}"/>
+                    </Grid>
+                </DataTemplate>
+            </GridView.ItemTemplate>
+            <GridView.Footer>
+                <StackPanel Spacing="14" Margin="0,14,0,0">
+                    <Border Visibility="{x:Bind ViewModel.CustomWorkbenchVisibility, Mode=OneWay}"
+                            Padding="18"
+                            CornerRadius="8"
+                            BorderThickness="1"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                        <StackPanel Spacing="14">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="自定义图像资源" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                                <TextBlock Text="在 256×32 画板上直接创作，或拖入 1 到 5 张 PNG/JPG 图像；1 张为静态资源，多张为动画序列。"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
 
-                <GridView x:Name="ScenePreviewGrid"
-                          ItemsSource="{x:Bind ViewModel.SelectedScenes, Mode=OneWay}"
-                          SelectionMode="None"
-                          HorizontalAlignment="Stretch"
-                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                          ScrollViewer.HorizontalScrollMode="Disabled"
-                          ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                          ScrollViewer.VerticalScrollMode="Disabled"
-                          Loaded="ScenePreviewGrid_Loaded"
-                          SizeChanged="ScenePreviewGrid_SizeChanged">
-                    <GridView.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <ItemsWrapGrid Orientation="Horizontal"
-                                           Loaded="ScenePreviewItemsPanel_Loaded"/>
-                        </ItemsPanelTemplate>
-                    </GridView.ItemsPanel>
-                    <GridView.ItemContainerStyle>
-                        <Style TargetType="GridViewItem">
-                            <Setter Property="Margin" Value="0,0,12,12"/>
-                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                            <Setter Property="VerticalContentAlignment" Value="Stretch"/>
-                        </Style>
-                    </GridView.ItemContainerStyle>
-                    <GridView.ItemTemplate>
-                        <DataTemplate x:DataType="scenes:PersonalSceneDefinition">
-                            <Grid>
-                                <Button Click="SceneButton_Click"
-                                        Tag="{Binding}"
+                            <Border Padding="14"
+                                    CornerRadius="8"
+                                    BorderThickness="1"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    Background="{ThemeResource LayerFillColorAltBrush}">
+                                <StackPanel Spacing="12">
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="2">
+                                            <TextBlock Text="256×32 像素画板" FontWeight="SemiBold"/>
+                                            <TextBlock Text="白色像素会点亮；按住并拖动绘制，鼠标右键可临时擦除。"
+                                                       FontSize="12"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1"
+                                                   x:Name="PixelCanvasCoordinateText"
+                                                   Text="256 × 32"
+                                                   FontFamily="Consolas"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   VerticalAlignment="Center"/>
+                                    </Grid>
+
+                                    <Border CornerRadius="4"
+                                            BorderThickness="1"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                            Background="Black"
+                                            HorizontalAlignment="Stretch">
+                                        <Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Left">
+                                            <Image x:Name="PixelCanvasImage"
+                                                   Width="1024"
+                                                   Height="128"
+                                                   Stretch="Fill"
+                                                   PointerPressed="PixelCanvas_PointerPressed"
+                                                   PointerMoved="PixelCanvas_PointerMoved"
+                                                   PointerReleased="PixelCanvas_PointerReleased"
+                                                   PointerCanceled="PixelCanvas_PointerReleased"
+                                                   PointerCaptureLost="PixelCanvas_PointerReleased"/>
+                                        </Viewbox>
+                                    </Border>
+
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <ToggleButton x:Name="PixelCanvasDrawButton"
+                                                          Content="画笔"
+                                                          IsChecked="True"
+                                                          Click="PixelCanvasDraw_Click"/>
+                                            <ToggleButton x:Name="PixelCanvasEraseButton"
+                                                          Content="橡皮"
+                                                          Click="PixelCanvasErase_Click"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                            <TextBlock Text="笔刷" VerticalAlignment="Center"/>
+                                            <ComboBox x:Name="PixelCanvasBrushSizeBox"
+                                                      Width="76"
+                                                      SelectedIndex="0"
+                                                      SelectionChanged="PixelCanvasBrushSize_SelectionChanged">
+                                                <ComboBoxItem Content="1 px" Tag="1"/>
+                                                <ComboBoxItem Content="2 px" Tag="2"/>
+                                                <ComboBoxItem Content="4 px" Tag="4"/>
+                                            </ComboBox>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+                                            <Button Content="撤销" Click="PixelCanvasUndo_Click"/>
+                                            <Button Content="重做" Click="PixelCanvasRedo_Click"/>
+                                            <Button Content="清空" Click="PixelCanvasClear_Click"/>
+                                            <Button Content="导入图片" Click="PixelCanvasImport_Click"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="3"
+                                                    Orientation="Horizontal"
+                                                    Spacing="8"
+                                                    HorizontalAlignment="Right">
+                                            <Button Content="保存为第 1 帧" Click="PixelCanvasSaveFrame_Click"/>
+                                            <Button Content="生成并发送（单帧）"
+                                                    Click="PixelCanvasGenerateAndSend_Click"
+                                                    Style="{StaticResource AccentButtonStyle}"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <GridView ItemsSource="{x:Bind ViewModel.CustomFrameSlots, Mode=OneWay}"
+                                      SelectionMode="None"
+                                      ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                      ScrollViewer.VerticalScrollMode="Disabled">
+                                <GridView.ItemContainerStyle>
+                                    <Style TargetType="GridViewItem">
+                                        <Setter Property="Margin" Value="0,0,10,10"/>
+                                    </Style>
+                                </GridView.ItemContainerStyle>
+                                <GridView.ItemTemplate>
+                                    <DataTemplate x:DataType="viewModels:CustomSceneFrameSlot">
+                                        <StackPanel Spacing="8" Width="168">
+                                            <Border AllowDrop="True"
+                                                    DragOver="CustomFrame_DragOver"
+                                                    Drop="CustomFrame_Drop"
+                                                    Tag="{Binding}"
+                                                    Height="64"
+                                                    CornerRadius="6"
+                                                    BorderThickness="1"
+                                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                    Background="Black">
+                                                <Grid>
+                                                    <Image Stretch="UniformToFill"
+                                                           Opacity="{x:Bind PreviewOpacity, Mode=OneWay}">
+                                                        <Image.Source>
+                                                            <BitmapImage DecodePixelWidth="168"
+                                                                         DecodePixelType="Logical"
+                                                                         UriSource="{x:Bind PreviewSource, Mode=OneWay}"/>
+                                                        </Image.Source>
+                                                    </Image>
+                                                    <StackPanel HorizontalAlignment="Center"
+                                                                VerticalAlignment="Center"
+                                                                Opacity="{x:Bind PlaceholderOpacity, Mode=OneWay}"
+                                                                Spacing="2">
+                                                        <TextBlock Text="{x:Bind Title}" TextAlignment="Center"/>
+                                                        <TextBlock Text="拖入 PNG/JPG"
+                                                                   FontSize="12"
+                                                                   TextAlignment="Center"
+                                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Border>
+                                            <TextBlock Text="{x:Bind StatusText, Mode=OneWay}"
+                                                       FontSize="12"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                                <Button Content="选择" Click="CustomFrameChoose_Click" Tag="{Binding}"/>
+                                                <Button Content="清除" Click="CustomFrameClear_Click" Tag="{Binding}"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </GridView.ItemTemplate>
+                            </GridView>
+
+                            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                <Button Content="生成资源" Command="{x:Bind ViewModel.GenerateCustomSceneCommand}"/>
+                                <TextBlock Text="{x:Bind ViewModel.CustomSceneGenerationStatus, Mode=OneWay}"
+                                           VerticalAlignment="Center"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+
+                            <Grid Visibility="{x:Bind ViewModel.GeneratedCustomSceneVisibility, Mode=OneWay}"
+                                  ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Button Click="GeneratedCustomScene_Click"
                                         Padding="0"
                                         BorderThickness="1"
                                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                        Background="Transparent"
-                                        HorizontalAlignment="Stretch"
-                                        VerticalAlignment="Stretch">
-                                    <Grid CornerRadius="6" Background="Black">
-                                        <Image Source="{x:Bind PreviewSource, Mode=OneWay}" Stretch="UniformToFill"/>
-                                        <Border Background="#F0FFB15A"
-                                                CornerRadius="0,0,0,4"
+                                        Background="Transparent">
+                                    <Grid Width="360" Height="44" CornerRadius="6" Background="Black">
+                                        <Image Stretch="UniformToFill">
+                                            <Image.Source>
+                                                <BitmapImage DecodePixelWidth="360"
+                                                             DecodePixelType="Logical"
+                                                             UriSource="{x:Bind ViewModel.GeneratedCustomScenePreviewSource, Mode=OneWay}"/>
+                                            </Image.Source>
+                                        </Image>
+                                        <Border Background="#F04CD964"
+                                                CornerRadius="4,0,0,0"
                                                 HorizontalAlignment="Right"
-                                                VerticalAlignment="Top"
-                                                Padding="8,3"
-                                                Opacity="{x:Bind InUseBadgeOpacity, Mode=OneWay}">
-                                            <TextBlock Text="使用中"
+                                                VerticalAlignment="Bottom"
+                                                Padding="8,2">
+                                            <TextBlock Text="已就绪"
                                                        Foreground="Black"
                                                        FontSize="12"
                                                        FontWeight="SemiBold"/>
                                         </Border>
                                     </Grid>
                                 </Button>
-                                <Button Content="删除"
-                                        Click="SceneDelete_Click"
-                                        Tag="{Binding}"
-                                        HorizontalAlignment="Right"
-                                        VerticalAlignment="Bottom"
-                                        Margin="0,0,6,6"
-                                        Padding="8,2"
-                                        FontSize="12"
-                                        Opacity="{x:Bind DeleteButtonOpacity, Mode=OneWay}"
-                                        IsHitTestVisible="{x:Bind DeleteButtonHitTestVisible, Mode=OneWay}"/>
+                                <Button Grid.Column="1"
+                                        Content="固定到列表"
+                                        Command="{x:Bind ViewModel.PinGeneratedCustomSceneCommand}"
+                                        VerticalAlignment="Center"/>
+                                <Button Grid.Column="2"
+                                        Content="删除资源"
+                                        Command="{x:Bind ViewModel.DeleteGeneratedCustomSceneCommand}"
+                                        VerticalAlignment="Center"/>
                             </Grid>
-                        </DataTemplate>
-                    </GridView.ItemTemplate>
-                </GridView>
-
-                <Border Visibility="{x:Bind ViewModel.CustomWorkbenchVisibility, Mode=OneWay}"
-                        Padding="18"
-                        CornerRadius="8"
-                        BorderThickness="1"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-                    <StackPanel Spacing="14">
-                        <StackPanel Spacing="4">
-                            <TextBlock Text="自定义图像资源" Style="{StaticResource SubtitleTextBlockStyle}"/>
-                            <TextBlock Text="在 256×32 画板上直接创作，或拖入 1 到 5 张 PNG/JPG 图像；1 张为静态资源，多张为动画序列。"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                       TextWrapping="Wrap"/>
                         </StackPanel>
+                    </Border>
 
-                        <Border Padding="14"
-                                CornerRadius="8"
-                                BorderThickness="1"
-                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                Background="{ThemeResource LayerFillColorAltBrush}">
-                            <StackPanel Spacing="12">
-                                <Grid ColumnSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Spacing="2">
-                                        <TextBlock Text="256×32 像素画板" FontWeight="SemiBold"/>
-                                        <TextBlock Text="白色像素会点亮；按住并拖动绘制，鼠标右键可临时擦除。"
-                                                   FontSize="12"
-                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                    </StackPanel>
-                                    <TextBlock Grid.Column="1"
-                                               x:Name="PixelCanvasCoordinateText"
-                                               Text="256 × 32"
-                                               FontFamily="Consolas"
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                               VerticalAlignment="Center"/>
-                                </Grid>
-
-                                <Border CornerRadius="4"
-                                        BorderThickness="1"
-                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                        Background="Black"
-                                        HorizontalAlignment="Stretch">
-                                    <Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Left">
-                                        <Image x:Name="PixelCanvasImage"
-                                               Width="1024"
-                                               Height="128"
-                                               Stretch="Fill"
-                                               PointerPressed="PixelCanvas_PointerPressed"
-                                               PointerMoved="PixelCanvas_PointerMoved"
-                                               PointerReleased="PixelCanvas_PointerReleased"
-                                               PointerCanceled="PixelCanvas_PointerReleased"
-                                               PointerCaptureLost="PixelCanvas_PointerReleased"/>
-                                    </Viewbox>
-                                </Border>
-
-                                <Grid ColumnSpacing="16">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <ToggleButton x:Name="PixelCanvasDrawButton"
-                                                      Content="画笔"
-                                                      IsChecked="True"
-                                                      Click="PixelCanvasDraw_Click"/>
-                                        <ToggleButton x:Name="PixelCanvasEraseButton"
-                                                      Content="橡皮"
-                                                      Click="PixelCanvasErase_Click"/>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                        <TextBlock Text="笔刷" VerticalAlignment="Center"/>
-                                        <ComboBox x:Name="PixelCanvasBrushSizeBox"
-                                                  Width="76"
-                                                  SelectedIndex="0"
-                                                  SelectionChanged="PixelCanvasBrushSize_SelectionChanged">
-                                            <ComboBoxItem Content="1 px" Tag="1"/>
-                                            <ComboBoxItem Content="2 px" Tag="2"/>
-                                            <ComboBoxItem Content="4 px" Tag="4"/>
-                                        </ComboBox>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
-                                        <Button Content="撤销" Click="PixelCanvasUndo_Click"/>
-                                        <Button Content="重做" Click="PixelCanvasRedo_Click"/>
-                                        <Button Content="清空" Click="PixelCanvasClear_Click"/>
-                                        <Button Content="导入图片" Click="PixelCanvasImport_Click"/>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="3"
-                                                Orientation="Horizontal"
-                                                Spacing="8"
-                                                HorizontalAlignment="Right">
-                                        <Button Content="保存为第 1 帧" Click="PixelCanvasSaveFrame_Click"/>
-                                        <Button Content="生成并发送（单帧）"
-                                                Click="PixelCanvasGenerateAndSend_Click"
-                                                Style="{StaticResource AccentButtonStyle}"/>
-                                    </StackPanel>
-                                </Grid>
-                            </StackPanel>
-                        </Border>
-
-                        <GridView ItemsSource="{x:Bind ViewModel.CustomFrameSlots, Mode=OneWay}"
-                                  SelectionMode="None">
-                            <GridView.ItemContainerStyle>
-                                <Style TargetType="GridViewItem">
-                                    <Setter Property="Margin" Value="0,0,10,10"/>
-                                </Style>
-                            </GridView.ItemContainerStyle>
-                            <GridView.ItemTemplate>
-                                <DataTemplate x:DataType="viewModels:CustomSceneFrameSlot">
-                                    <StackPanel Spacing="8" Width="168">
-                                        <Border AllowDrop="True"
-                                                DragOver="CustomFrame_DragOver"
-                                                Drop="CustomFrame_Drop"
-                                                Tag="{Binding}"
-                                                Height="64"
-                                                CornerRadius="6"
-                                                BorderThickness="1"
-                                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                                Background="Black">
-                                            <Grid>
-                                                <Image Source="{x:Bind PreviewSource, Mode=OneWay}"
-                                                       Stretch="UniformToFill"
-                                                       Opacity="{x:Bind PreviewOpacity, Mode=OneWay}"/>
-                                                <StackPanel HorizontalAlignment="Center"
-                                                            VerticalAlignment="Center"
-                                                            Opacity="{x:Bind PlaceholderOpacity, Mode=OneWay}"
-                                                            Spacing="2">
-                                                    <TextBlock Text="{x:Bind Title}" TextAlignment="Center"/>
-                                                    <TextBlock Text="拖入 PNG/JPG"
-                                                               FontSize="12"
-                                                               TextAlignment="Center"
-                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                                </StackPanel>
-                                            </Grid>
-                                        </Border>
-                                        <TextBlock Text="{x:Bind StatusText, Mode=OneWay}"
-                                                   FontSize="12"
-                                                   TextTrimming="CharacterEllipsis"
-                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                        <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <Button Content="选择" Click="CustomFrameChoose_Click" Tag="{Binding}"/>
-                                            <Button Content="清除" Click="CustomFrameClear_Click" Tag="{Binding}"/>
-                                        </StackPanel>
-                                    </StackPanel>
-                                </DataTemplate>
-                            </GridView.ItemTemplate>
-                        </GridView>
-
-                        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                            <Button Content="生成资源" Command="{x:Bind ViewModel.GenerateCustomSceneCommand}"/>
-                            <TextBlock Text="{x:Bind ViewModel.CustomSceneGenerationStatus, Mode=OneWay}"
-                                       VerticalAlignment="Center"
-                                       TextWrapping="Wrap"/>
-                        </StackPanel>
-
-                        <Grid Visibility="{x:Bind ViewModel.GeneratedCustomSceneVisibility, Mode=OneWay}"
-                              ColumnSpacing="12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <Button Click="GeneratedCustomScene_Click"
-                                    Padding="0"
-                                    BorderThickness="1"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                    Background="Transparent">
-                                <Grid Width="360" Height="44" CornerRadius="6" Background="Black">
-                                    <Image Source="{x:Bind ViewModel.GeneratedCustomScenePreviewSource, Mode=OneWay}"
-                                           Stretch="UniformToFill"/>
-                                    <Border Background="#F04CD964"
-                                            CornerRadius="4,0,0,0"
-                                            HorizontalAlignment="Right"
-                                            VerticalAlignment="Bottom"
-                                            Padding="8,2">
-                                        <TextBlock Text="已就绪"
-                                                   Foreground="Black"
-                                                   FontSize="12"
-                                                   FontWeight="SemiBold"/>
-                                    </Border>
-                                </Grid>
-                            </Button>
-                            <Button Grid.Column="1"
-                                    Content="固定到列表"
-                                    Command="{x:Bind ViewModel.PinGeneratedCustomSceneCommand}"
-                                    VerticalAlignment="Center"/>
-                            <Button Grid.Column="2"
-                                    Content="删除资源"
-                                    Command="{x:Bind ViewModel.DeleteGeneratedCustomSceneCommand}"
-                                    VerticalAlignment="Center"/>
-                        </Grid>
+                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                        <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="Wrap"/>
                     </StackPanel>
-                </Border>
-
-                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                    <TextBlock Text="{x:Bind ViewModel.StatusMessage, Mode=OneWay}"
-                               VerticalAlignment="Center"
-                               TextWrapping="Wrap"/>
                 </StackPanel>
-            </StackPanel>
-        </ScrollViewer>
+            </GridView.Footer>
+        </GridView>
 
         <Border Background="#CC000000"
                 Opacity="{x:Bind ViewModel.UploadOverlayOpacity, Mode=OneWay}"

@@ -808,6 +808,10 @@ await Test("failed continuation is marked unknown without replay or new start cu
 {
     using var f=new TaskCase();await f.Start();f.Client.SetRemote("completed","old-completed",[]);await Until(()=>f.Service.Current.State=="completed");
     f.Client.SubmitFailure=new IOException("continuation reply unavailable");
+    // The monitor now wakes immediately after uncertain submissions. Hold its
+    // verification read so this assertion observes the uncertainty publication.
+    var verification=new TaskCompletionSource<DshTaskRemoteState>(TaskCreationOptions.RunContinuationsAsynchronously);
+    f.Client.ReadOverride=(_,ct)=>verification.Task.WaitAsync(ct);
     await Throws<IOException>(()=>f.Service.SendMessageAsync("只回复第二轮"));
     Check(f.Service.Current.State=="unknown"&&f.Service.Current.StatusText=="消息提交结果未确认"&&f.Client.Creates.Count==1&&f.Client.Prompts.Count==2&&f.Cues.Count(c=>c=="task_started")==1,"continuation failure kept stale completion or replayed prompt/start cue");
 });
@@ -1322,6 +1326,8 @@ await Test("explicit answer containing creation or device commands stays questio
     Check(f.Client.Responses.Single().Answers!["q1"]=="新建一个DSH任务并关闭歌词","answer body changed on submission");
 });
 
+await PollingProbe.RunAsync(Test);
+
 Console.WriteLine($"RESULT {passed}/{passed+failed} passed"); return failed==0?0:1;
 
 internal sealed class TaskCase: IDisposable
@@ -1332,9 +1338,9 @@ internal sealed class TaskCase: IDisposable
     public string StateRoot {get;}=Path.Combine(Path.GetTempPath(),"halo-routing-case-"+Guid.NewGuid().ToString("N"));
     public System.Collections.Concurrent.ConcurrentQueue<string> Cues {get;}=new();
     public System.Collections.Concurrent.ConcurrentQueue<(DshTaskSnapshot Snapshot,string Cue)> Feedback {get;}=new();
-    public TaskCase() => Service=new(Client,()=>"C:/tasks",()=>Scope,feedback:(snapshot,cue,_)=>{Cues.Enqueue(cue);Feedback.Enqueue((snapshot,cue));return Task.CompletedTask;},
+    public TaskCase(TimeProvider? timeProvider=null, TimeSpan? interval=null) => Service=new(Client,()=>"C:/tasks",()=>Scope,feedback:(snapshot,cue,_)=>{Cues.Enqueue(cue);Feedback.Enqueue((snapshot,cue));return Task.CompletedTask;},
         stateRoot:StateRoot,
-        pollInterval:TimeSpan.FromMilliseconds(10));
+        pollInterval:interval??TimeSpan.FromMilliseconds(10), timeProvider:timeProvider);
     public Task<DshTaskSnapshot> Start()=>Service.StartAsync(new("C:/test","test","raw prompt"));
     public void Dispose()=>Service.Dispose();
 }

@@ -3,11 +3,11 @@ using CommunityToolkit.Mvvm.Input;
 using HaloPixelToolBox.Core.Models.Display;
 using HaloPixelToolBox.Core.Models.Lighting;
 using HaloPixelToolBox.Core.Services;
-using HaloPixelToolBox.Core.Services.Device;
 using HaloPixelToolBox.Core.Services.Lighting;
 using HaloPixelToolBox.Core.Services.Scenes;
 using HaloPixelToolBox.Interface.Services;
 using HaloPixelToolBox.Profiles.CrossVersionProfiles;
+using HaloPixelToolBox.Services;
 using HaloPixelToolBox.Views;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
@@ -22,15 +22,15 @@ namespace HaloPixelToolBox.ViewModels;
 public partial class MainPageViewModel : ViewModelBase
 {
     private readonly HaloPixelDisplayService displayService = new();
-    private readonly HaloPixelDeviceConnectionMonitor deviceConnectionMonitor = new();
+    private readonly DeviceConnectionStatusService deviceStatus = DeviceConnectionStatusService.Shared;
     private readonly PersonalSceneRestoreService restoreService = new();
-    private readonly DispatcherTimer deviceStatusTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly DispatcherQueue? dispatcherQueue = DispatcherQueue.GetForCurrentThread();
     private readonly SemaphoreSlim deviceControlLock = new(1, 1);
     private int lastSentDeviceVolume = -1;
     private int volumeUpdateVersion;
     private bool isApplyingDeviceVolume;
     private bool isMonitoring;
+    private string? currentScenePreviewUri;
 
     [ObservableProperty]
     private double subtitleSpeakerVolume = 14;
@@ -117,12 +117,6 @@ public partial class MainPageViewModel : ViewModelBase
     public MainPageViewModel()
     {
         HaloPixelLightingService.SetPreviewColors(ReadAmbientProfileColor(), ReadPixelProfileColor());
-        deviceStatusTimer.Tick += (_, _) =>
-        {
-            RefreshDeviceConnectionStatus();
-            RefreshPreviewState();
-            UpdateCurrentSystemTime();
-        };
         RefreshDeviceConnectionStatus();
         RefreshPreviewState();
         UpdateCurrentSystemTime();
@@ -135,29 +129,39 @@ public partial class MainPageViewModel : ViewModelBase
         {
             HaloPixelDisplayService.ContentSent += DisplayService_ContentSent;
             HaloPixelLightingService.PreviewStateChanged += LightingService_PreviewStateChanged;
+            deviceStatus.StatusRefreshed += DeviceStatus_Refreshed;
             isMonitoring = true;
         }
 
         RefreshDeviceConnectionStatus();
         RefreshPreviewState();
         RefreshQuickActions();
+        UpdateCurrentSystemTime();
         if (HaloPixelDisplayService.LastContentSent is { } lastContent)
             ApplyDisplayContent(lastContent);
         else
             ApplyDisplayContent(HaloPixelDisplayService.CreateScenePreviewSnapshot(restoreService.GetCurrentScene()));
         _ = RefreshDeviceVolumeAsync();
-        deviceStatusTimer.Start();
     }
 
     public void StopMonitoring()
     {
-        deviceStatusTimer.Stop();
         if (!isMonitoring)
             return;
 
         HaloPixelDisplayService.ContentSent -= DisplayService_ContentSent;
         HaloPixelLightingService.PreviewStateChanged -= LightingService_PreviewStateChanged;
+        deviceStatus.StatusRefreshed -= DeviceStatus_Refreshed;
         isMonitoring = false;
+        // A cached page must not retain and play its animated scene while hidden.
+        CurrentScenePreviewSource = null;
+        currentScenePreviewUri = null;
+    }
+
+    private void DeviceStatus_Refreshed(object? sender, bool isConnected)
+    {
+        RefreshDeviceConnectionStatus();
+        UpdateCurrentSystemTime();
     }
 
     partial void OnSubtitleSpeakerVolumeChanged(double value)
@@ -172,8 +176,9 @@ public partial class MainPageViewModel : ViewModelBase
     [RelayCommand]
     private void TestDeviceConnection()
     {
+        deviceStatus.Refresh();
         RefreshDeviceConnectionStatus();
-        CurrentOutputStatusText = deviceConnectionMonitor.IsConnected()
+        CurrentOutputStatusText = deviceStatus.IsConnected
             ? "设备连接正常，可以发送字幕、场景和灯光设置"
              : "未检测到花再 Halo PixelBar，请检查 USB 连接";
     }
@@ -277,10 +282,18 @@ public partial class MainPageViewModel : ViewModelBase
         => new(Color.FromArgb(255, red, green, blue));
 
     private void DisplayService_ContentSent(object? sender, DisplayContentChangedEventArgs args)
-        => RunOnUiThread(() => ApplyDisplayContent(args));
+        => RunOnUiThread(() =>
+        {
+            if (isMonitoring)
+                ApplyDisplayContent(args);
+        });
 
     private void LightingService_PreviewStateChanged(object? sender, EventArgs args)
-        => RunOnUiThread(RefreshPreviewState);
+        => RunOnUiThread(() =>
+        {
+            if (isMonitoring)
+                RefreshPreviewState();
+        });
 
     private void ApplyDisplayContent(DisplayContentChangedEventArgs args)
     {
@@ -321,6 +334,7 @@ public partial class MainPageViewModel : ViewModelBase
             return;
 
         CurrentScenePreviewSource = null;
+        currentScenePreviewUri = null;
         CurrentScenePreviewVisibility = Microsoft.UI.Xaml.Visibility.Collapsed;
         CurrentOutputTextVisibility = Microsoft.UI.Xaml.Visibility.Visible;
         CurrentOutputText = string.IsNullOrWhiteSpace(args.Text) ? "等待下一条字幕" : args.Text;
@@ -367,7 +381,7 @@ public partial class MainPageViewModel : ViewModelBase
     private static HaloPixelColor BuildColor(int red, int green, int blue)
         => new((byte)Math.Clamp(red, 0, 255), (byte)Math.Clamp(green, 0, 255), (byte)Math.Clamp(blue, 0, 255));
 
-    private static ImageSource? CreateScenePreviewSource(string? source)
+    private ImageSource? CreateScenePreviewSource(string? source)
     {
         if (string.IsNullOrWhiteSpace(source)
             || !Uri.TryCreate(source, UriKind.Absolute, out var previewUri))
@@ -377,7 +391,20 @@ public partial class MainPageViewModel : ViewModelBase
 
         try
         {
-            return new BitmapImage(previewUri);
+            if (string.Equals(currentScenePreviewUri, source, StringComparison.Ordinal)
+                && CurrentScenePreviewSource is not null)
+            {
+                return CurrentScenePreviewSource;
+            }
+
+            var preview = new BitmapImage
+            {
+                DecodePixelType = DecodePixelType.Logical,
+                DecodePixelWidth = 512,
+                UriSource = previewUri
+            };
+            currentScenePreviewUri = source;
+            return preview;
         }
         catch
         {
@@ -391,10 +418,12 @@ public partial class MainPageViewModel : ViewModelBase
 
     private void RefreshDeviceConnectionStatus()
     {
-        var isConnected = deviceConnectionMonitor.IsConnected();
+        var isConnected = deviceStatus.IsConnected;
         DeviceConnectionStatusText = isConnected ? "设备在线" : "设备离线";
         DeviceConnectionDetailText = isConnected ? "已连接" : "未连接";
-        DeviceConnectionBrush = new SolidColorBrush(isConnected ? Colors.LimeGreen : Colors.Gray);
+        var color = isConnected ? Colors.LimeGreen : Colors.Gray;
+        if (!DeviceConnectionBrush.Color.Equals(color))
+            DeviceConnectionBrush = new SolidColorBrush(color);
     }
 
     private async Task SetSubtitleSpeakerVolumeAsync(double value)

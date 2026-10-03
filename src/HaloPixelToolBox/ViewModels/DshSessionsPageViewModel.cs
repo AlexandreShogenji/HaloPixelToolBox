@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HaloPixelToolBox.Models;
 using HaloPixelToolBox.Profiles.CrossVersionProfiles;
+using HaloPixelToolBox.Services;
 using Microsoft.UI.Dispatching;
 using System.Collections.ObjectModel;
 
@@ -10,10 +11,14 @@ namespace HaloPixelToolBox.ViewModels;
 public partial class DshSessionsPageViewModel : ViewModelBase
 {
     public const string DeviceHistoryId = "halo:device-control-history";
+    internal const int MaximumHistoryRows = 500;
+    internal const long MaximumHistoryTextBytes = 4 * 1024 * 1024;
     private readonly DispatcherQueue? dispatcherQueue = DispatcherQueue.GetForCurrentThread();
     private IReadOnlyList<DshSessionSummary> allSessions = [];
     private CancellationTokenSource? pageCancellation;
     private CancellationTokenSource? historyCancellation;
+    private CancellationTokenSource? visibleRefreshCancellation;
+    private bool historicalWindow;
     private bool attached;
     private bool rebuildingList;
     private bool connectionOperationInProgress;
@@ -73,6 +78,8 @@ public partial class DshSessionsPageViewModel : ViewModelBase
     public bool CanClearVoiceTarget => voiceTargetId is not null;
     public bool CanLoadEarlier => SelectedSession is not null && hasEarlierHistory && !IsHistoryLoading && IsConnected;
     public bool CanRetryHistory => SelectedSession is not null && !IsHistoryLoading && IsConnected;
+    public bool CanLoadLatest => CanRetryHistory && historicalWindow;
+    public Visibility LoadLatestVisibility => historicalWindow ? Visibility.Visible : Visibility.Collapsed;
     public bool CanSendMessage => attached && IsConnected && !IsSending && !IsSessionOperationBusy
         && SelectedSession is { Session.IsArchived: false } && !string.IsNullOrWhiteSpace(MessageDraft)
         && CanSendToSelectedMonitoredTask
@@ -141,6 +148,7 @@ public partial class DshSessionsPageViewModel : ViewModelBase
         connectionOperationInProgress = false;
         IsHistoryLoading = false;
         App.DshSessions.Changed += Service_Changed;
+        WindowActivityService.VisibilityChanged += WindowVisibility_Changed;
         ApplySnapshot(App.DshSessions.Current);
         AttachTasks();
         AttachVoice();
@@ -148,7 +156,7 @@ public partial class DshSessionsPageViewModel : ViewModelBase
         if (SelectedSession is not null && History.Count == 0 && historyCancellation is null
             && !IsHistoryLoading && !HasHistoryError)
             _ = LoadHistoryAsync(reset: true, earlier: false);
-        _ = RefreshWhileVisibleAsync(pageCancellation.Token);
+        UpdateVisibleRefresh();
     }
 
     public void Detach()
@@ -158,13 +166,16 @@ public partial class DshSessionsPageViewModel : ViewModelBase
         attached = false;
         viewGeneration++;
         App.DshSessions.Changed -= Service_Changed;
+        WindowActivityService.VisibilityChanged -= WindowVisibility_Changed;
+        StopVisibleRefresh();
         DetachTasks();
         DetachVoice();
         pageCancellation?.Cancel();
         pageCancellation?.Dispose();
         pageCancellation = null;
-        CancelHistoryRead();
-        loadedHistoryStamp = null;
+        // The page itself is navigation-cached; retain drafts/selection, not all
+        // previously decoded conversation text while another tool is displayed.
+        ClearHistory();
         if (IsSessionOperationBusy)
             SessionOperationStatus = "会话操作已中断，请刷新列表确认结果。";
     }
@@ -174,7 +185,7 @@ public partial class DshSessionsPageViewModel : ViewModelBase
         var generation = viewGeneration;
         void Apply()
         {
-            if (attached && generation == viewGeneration)
+            if (attached && generation == viewGeneration && WindowActivityService.IsVisible)
                 ApplySnapshot(snapshot);
         }
         if (dispatcherQueue is null || dispatcherQueue.HasThreadAccess)
@@ -337,6 +348,7 @@ public partial class DshSessionsPageViewModel : ViewModelBase
         OnPropertyChanged(nameof(EmptyHistoryMessage));
         LoadEarlierCommand.NotifyCanExecuteChanged();
         RetryHistoryCommand.NotifyCanExecuteChanged();
+        LoadLatestCommand.NotifyCanExecuteChanged();
     }
     partial void OnHasHistoryErrorChanged(bool value)
     {
@@ -412,6 +424,7 @@ public partial class DshSessionsPageViewModel : ViewModelBase
         ClearVoiceTargetCommand.NotifyCanExecuteChanged();
         LoadEarlierCommand.NotifyCanExecuteChanged();
         RetryHistoryCommand.NotifyCanExecuteChanged();
+        LoadLatestCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(EmptyListMessage));
         OnPropertyChanged(nameof(ConnectionStatus));
         OnPropertyChanged(nameof(ConnectActionVisibility));
@@ -435,6 +448,7 @@ public partial class DshSessionsPageViewModel : ViewModelBase
         SelectVoiceTargetCommand.NotifyCanExecuteChanged();
         LoadEarlierCommand.NotifyCanExecuteChanged();
         RetryHistoryCommand.NotifyCanExecuteChanged();
+        LoadLatestCommand.NotifyCanExecuteChanged();
         NotifyChatActions();
     }
 
@@ -507,13 +521,57 @@ public partial class DshSessionsPageViewModel : ViewModelBase
             while (!cancellationToken.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromSeconds(8), cancellationToken);
-                if (!attached || !IsConnected || connectionOperationInProgress)
+                if (!attached || !WindowActivityService.IsVisible || !IsConnected || connectionOperationInProgress)
                     continue;
                 if (await RunConnectionOperationAsync(App.DshSessions.RefreshAsync, background: true))
                     await RefreshSelectedHistoryAsync(background: true, force: false);
             }
         }
         catch (OperationCanceledException) { }
+    }
+
+    private void StopVisibleRefresh()
+    {
+        visibleRefreshCancellation?.Cancel();
+        visibleRefreshCancellation?.Dispose();
+        visibleRefreshCancellation = null;
+    }
+
+    private void UpdateVisibleRefresh()
+    {
+        StopVisibleRefresh();
+        if (!attached || pageCancellation is null || !WindowActivityService.IsVisible) return;
+        visibleRefreshCancellation = CancellationTokenSource.CreateLinkedTokenSource(pageCancellation.Token);
+        _ = RefreshWhileVisibleAsync(visibleRefreshCancellation.Token);
+    }
+
+    private void WindowVisibility_Changed(object? sender, bool visible)
+    {
+        var generation = viewGeneration;
+        void Apply()
+        {
+            if (!attached || generation != viewGeneration || visible != WindowActivityService.IsVisible) return;
+            UpdateVisibleRefresh();
+            if (!visible)
+            {
+                CancelHistoryRead();
+                IsHistoryLoading = false;
+                loadedHistoryStamp = null;
+                return;
+            }
+            ApplySnapshot(App.DshSessions.Current);
+            ApplyTaskSnapshot(App.DshTasks.Current);
+            ApplyVoiceSnapshot(App.VoiceAgent.Current);
+            _ = RefreshAfterShowingAsync();
+        }
+        if (dispatcherQueue is null || dispatcherQueue.HasThreadAccess) Apply();
+        else dispatcherQueue.TryEnqueue(Apply);
+    }
+
+    private async Task RefreshAfterShowingAsync()
+    {
+        if (IsConnected && await RunConnectionOperationAsync(App.DshSessions.RefreshAsync, background: true))
+            await RefreshSelectedHistoryAsync(background: true, force: false);
     }
 
     [RelayCommand(CanExecute = nameof(CanSelectVoiceTarget))]
@@ -571,7 +629,17 @@ public partial class DshSessionsPageViewModel : ViewModelBase
             {
                 ApplySnapshot(App.DshSessions.Current);
                 if (SelectedSession?.Id == selection.Id)
-                    await RefreshSelectedHistoryAsync(background: true, force: true);
+                {
+                    if (historicalWindow && result.Accepted)
+                    {
+                        // The send may finish while minimized. Clear the old
+                        // window now; showing the page will load the live tail.
+                        ClearHistory();
+                        await LoadHistoryAsync(reset: true, earlier: false);
+                    }
+                    else
+                        await RefreshSelectedHistoryAsync(background: true, force: true);
+                }
             }
         }
         catch (OperationCanceledException)
@@ -704,8 +772,16 @@ public partial class DshSessionsPageViewModel : ViewModelBase
 
     private async Task RefreshSelectedHistoryAsync(bool background, bool force)
     {
-        if (!attached || !IsConnected || SelectedSession is null)
+        if (!attached || !IsConnected || SelectedSession is null || !WindowActivityService.IsVisible)
             return;
+        // After paging beyond the retained window, don't merge a disjoint tail
+        // into the older page the user is reading. Explicit refresh returns live.
+        if (historicalWindow)
+        {
+            if (background) return;
+            await LoadHistoryAsync(reset: true, earlier: false);
+            return;
+        }
         var stamp = GetHistoryStamp(SelectedSession);
         if (IsHistoryLoading)
         {
@@ -733,7 +809,8 @@ public partial class DshSessionsPageViewModel : ViewModelBase
 
     private async Task LoadHistoryAsync(bool reset, bool earlier, bool background = false)
     {
-        if (!attached || SelectedSession is not { } selection || pageCancellation is null || !IsConnected)
+        if (!attached || SelectedSession is not { } selection || pageCancellation is null || !IsConnected
+            || !WindowActivityService.IsVisible)
             return;
         if (!reset && IsHistoryLoading)
             return;
@@ -801,9 +878,23 @@ public partial class DshSessionsPageViewModel : ViewModelBase
                 }
                 merged[identity] = row;
             }
-            UpdateRows(History, merged.Values.OrderBy(row => row.Entry.CreatedAt ?? DateTimeOffset.MinValue)
-                .ThenBy(row => row.Entry.SessionId, StringComparer.Ordinal).ThenBy(row => row.Sequence).ToArray());
-            if (reset || earlier || wasEmpty || historyPagingNeedsReset)
+            var ordered = merged.Values.OrderBy(row => row.Entry.CreatedAt ?? DateTimeOffset.MinValue)
+                .ThenBy(row => row.Entry.SessionId, StringComparer.Ordinal).ThenBy(row => row.Sequence).ToArray();
+            var overBudget = ordered.Length > MaximumHistoryRows
+                || ordered.Sum(HistoryTextBytes) > MaximumHistoryTextBytes;
+            if (overBudget)
+            {
+                // Grouped pages may expand a source sequence suffix to handle
+                // backdated timestamps. Never split that page from its opaque
+                // cursor: retain it whole, even when it alone exceeds the soft
+                // budget. Transport/source-page byte limits still bound it;
+                // subsequent overflow replaces it instead of accumulating pages.
+                var pageIds = entries.Select(entry => (entry.SessionId, entry.Sequence)).ToHashSet();
+                ordered = ordered.Where(row => pageIds.Contains(row.Identity)).ToArray();
+                if (earlier) SetHistoricalWindow(true);
+            }
+            UpdateRows(History, ordered);
+            if (reset || earlier || wasEmpty || historyPagingNeedsReset || overBudget)
             {
                 beforeSequence = nextSequence;
                 beforeDeviceCursor = nextDeviceCursor;
@@ -817,7 +908,7 @@ public partial class DshSessionsPageViewModel : ViewModelBase
             {
                 HasHistoryError = false;
                 HistoryErrorDetail = string.Empty;
-                HistoryStatus = truncated ? "部分记录已截断" : string.Empty;
+                HistoryStatus = historicalWindow ? "正在查看更早记录" : truncated ? "部分记录已截断" : string.Empty;
             }
             OnPropertyChanged(nameof(LoadEarlierVisibility));
         }
@@ -896,6 +987,19 @@ public partial class DshSessionsPageViewModel : ViewModelBase
         OnPropertyChanged(nameof(EmptyHistoryMessage));
     }
 
+    private static long HistoryTextBytes(DshHistoryListItem row)
+        => 2L * (row.Entry.Text.Length + row.Entry.SessionId.Length + row.Entry.Role.Length + row.Entry.Kind.Length);
+
+    private void SetHistoricalWindow(bool value)
+    {
+        historicalWindow = value;
+        OnPropertyChanged(nameof(LoadLatestVisibility));
+        LoadLatestCommand.NotifyCanExecuteChanged();
+    }
+
+    [RelayCommand(CanExecute = nameof(CanLoadLatest))]
+    private Task LoadLatestAsync() => LoadHistoryAsync(reset: true, earlier: false);
+
     private static void UpdateRows(ObservableCollection<DshHistoryListItem> rows, IReadOnlyList<DshHistoryListItem> desired)
     {
         for (var index = 0; index < desired.Count; index++)
@@ -931,6 +1035,7 @@ public partial class DshSessionsPageViewModel : ViewModelBase
     private void ClearHistory()
     {
         CancelHistoryRead();
+        SetHistoricalWindow(false);
         History.Clear();
         VisibleHistory.Clear();
         historySessionId = null;

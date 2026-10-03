@@ -16,6 +16,7 @@ public sealed partial class DshTaskService : IDisposable
     private readonly Func<DshTaskSnapshot, string, CancellationToken, Task>? feedback;
     private readonly string stateRoot;
     private readonly TimeSpan pollInterval;
+    private readonly TimeProvider timeProvider;
     private readonly SemaphoreSlim actions = new(1, 1);
     private readonly object stateGate = new();
     private readonly CancellationTokenSource shutdown = new();
@@ -31,11 +32,14 @@ public sealed partial class DshTaskService : IDisposable
     private bool awaitingVoicePrompt;
     private string restoreAttemptedScope = string.Empty;
     private long generation;
+    private TaskCompletionSource monitorWake = NewMonitorWake();
+    private DshSessionSummary? observedSession;
+    private bool observedConnected;
     private bool disposed;
 
     public DshTaskService(IDshTaskSessionClient client, Func<string>? defaultRoot = null,
         Func<string>? scopeKey = null, Func<DshTaskSnapshot, string, CancellationToken, Task>? feedback = null,
-        string? stateRoot = null, TimeSpan? pollInterval = null)
+        string? stateRoot = null, TimeSpan? pollInterval = null, TimeProvider? timeProvider = null)
     {
         this.client = client;
         this.defaultRoot = defaultRoot ?? (() => DisplayFeatureProfile.DshTaskRootDirectory);
@@ -44,6 +48,7 @@ public sealed partial class DshTaskService : IDisposable
         this.feedback = feedback;
         this.stateRoot = stateRoot ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HaloPixelToolBox", "DshTasks");
         this.pollInterval = pollInterval ?? TimeSpan.FromSeconds(1);
+        this.timeProvider = timeProvider ?? TimeProvider.System;
         client.Changed += ClientChanged;
     }
 
@@ -141,6 +146,12 @@ public sealed partial class DshTaskService : IDisposable
         monitoring?.Cancel();
         monitoring = CancellationTokenSource.CreateLinkedTokenSource(shutdown.Token);
         generation++;
+        lock (stateGate)
+        {
+            monitorWake = NewMonitorWake();
+            observedSession = client.Current.Sessions.FirstOrDefault(item => item.Id == session.Id) ?? session;
+            observedConnected = client.Current.IsConnected;
+        }
         revision = string.Empty;
         lastCueIdentity = string.Empty;
         voiceAnswers.Clear();
@@ -173,6 +184,7 @@ public sealed partial class DshTaskService : IDisposable
             awaitingVoicePrompt = false;
             revision = string.Empty;
             Publish(Current with { State = "running", StatusText = "消息已提交", Detail = "继续监控当前任务。", FinalText = string.Empty });
+            RequestMonitorRefresh();
             SaveIdentity();
             if (firstMessage) await FeedbackAsync("task_started", monitoring!.Token);
             return result;
@@ -183,6 +195,7 @@ public sealed partial class DshTaskService : IDisposable
             {
                 Publish(Current with { State = "unknown", StatusText = firstMessage ? "任务内容提交结果未确认" : "消息提交结果未确认",
                     Detail = exception.Message + "；请核对当前会话，未自动重发或重建。", IsBusy = false });
+                RequestMonitorRefresh();
                 SaveIdentity();
                 await FeedbackAsync(firstMessage ? "task_failed" : string.Empty, shutdown.Token);
             }
@@ -247,11 +260,15 @@ public sealed partial class DshTaskService : IDisposable
             revision = string.Empty;
             Publish(WithVoiceDraft(Current with { IsBusy = false, State = "running", StatusText = "回答已提交",
                 PendingInteractions = Current.PendingInteractions.Where(p => p.Id != pending.Id).ToArray() }));
+            RequestMonitorRefresh();
         }
         catch
         {
             if (activeScope == actionScope && actionScope == scopeFactory() && Current.SessionId == actionSessionId)
+            {
                 Publish(Current with { IsBusy = false });
+                RequestMonitorRefresh();
+            }
             throw;
         }
         finally { actions.Release(); }
@@ -270,6 +287,7 @@ public sealed partial class DshTaskService : IDisposable
             voiceDraft = null;
             revision = string.Empty;
             Publish(Current with { StatusText = "已请求取消当前轮", Detail = "DSH 会保留队列中尚未执行的消息；正在核对运行状态。" });
+            RequestMonitorRefresh();
         }
         finally { actions.Release(); }
     }
@@ -329,8 +347,18 @@ public sealed partial class DshTaskService : IDisposable
     private async Task MonitorLoopAsync(string sessionId, long epoch, CancellationToken token)
     {
         var consecutiveFailures = 0;
+        var unchangedIdlePolls = 0;
         while (!token.IsCancellationRequested && epoch == generation)
         {
+            Task wake;
+            lock (stateGate)
+            {
+                // Capture before reading so an action between the read and wait cannot
+                // lose its wake-up. A signal already consumed means this read is the refresh.
+                if (epoch != generation) return;
+                if (monitorWake.Task.IsCompleted) monitorWake = NewMonitorWake();
+                wake = monitorWake.Task;
+            }
             try
             {
                 await actions.WaitAsync(token);
@@ -358,7 +386,14 @@ public sealed partial class DshTaskService : IDisposable
                     if (token.IsCancellationRequested || epoch != generation) return;
                     EnsureActive(sessionId);
                     consecutiveFailures = 0;
+                    var previousRevision = revision;
+                    var previousState = Current.State;
                     await ApplyRemoteStateAsync(remote, token);
+                    var snapshot = Current;
+                    var unchangedIdle = !snapshot.NeedsAttention && !snapshot.IsBusy
+                        && snapshot.State is ("idle" or "awaitingPrompt" or "completed" or "failed" or "cancelled")
+                        && snapshot.State == previousState && remote.Revision == previousRevision;
+                    unchangedIdlePolls = unchangedIdle ? Math.Min(unchangedIdlePolls + 1, 4) : 0;
                 }
                 finally { actions.Release(); }
             }
@@ -372,6 +407,7 @@ public sealed partial class DshTaskService : IDisposable
                     return;
                 }
                 consecutiveFailures = Math.Min(consecutiveFailures + 1, 16);
+                unchangedIdlePolls = 0;
                 if (Current.State != "disconnected" || Current.Detail != exception.Message)
                 {
                     Publish(Current with { State = "disconnected", StatusText = "任务状态暂不可用", Detail = exception.Message,
@@ -379,11 +415,25 @@ public sealed partial class DshTaskService : IDisposable
                     await FeedbackAsync(string.Empty, token);
                 }
             }
-            var delay = consecutiveFailures == 0 ? pollInterval
+            var delay = consecutiveFailures == 0
+                ? TimeSpan.FromMilliseconds(Math.Max(pollInterval.TotalMilliseconds,
+                    Math.Min(15000, pollInterval.TotalMilliseconds * Math.Pow(2, unchangedIdlePolls))))
                 : TimeSpan.FromMilliseconds(Math.Min(30000, pollInterval.TotalMilliseconds * Math.Pow(2, consecutiveFailures)));
-            try { await Task.Delay(delay, token); }
+            try
+            {
+                await wake.WaitAsync(delay, timeProvider, token);
+                unchangedIdlePolls = 0;
+            }
+            catch (TimeoutException) { }
             catch (OperationCanceledException) { return; }
         }
+    }
+
+    private static TaskCompletionSource NewMonitorWake() => new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private void RequestMonitorRefresh()
+    {
+        lock (stateGate) monitorWake.TrySetResult();
     }
 
     private async Task ApplyRemoteStateAsync(DshTaskRemoteState remote, CancellationToken token, bool force = false)
@@ -637,6 +687,22 @@ public sealed partial class DshTaskService : IDisposable
     private void ClientChanged(object? sender, DshSessionsSnapshot snapshot)
     {
         if (disposed) return;
+        lock (stateGate)
+        {
+            if (current.IsMonitoring)
+            {
+                var session = snapshot.Sessions.FirstOrDefault(item => item.Id == current.SessionId);
+                // Session-list refreshes are frequent. Only actual remote activity or
+                // a connection transition should defeat the idle polling backoff.
+                if (observedConnected != snapshot.IsConnected
+                    || session?.RuntimeStatus != observedSession?.RuntimeStatus
+                    || session?.UpdatedAt != observedSession?.UpdatedAt
+                    || session?.IsArchived != observedSession?.IsArchived)
+                    monitorWake.TrySetResult();
+                observedSession = session;
+                observedConnected = snapshot.IsConnected;
+            }
+        }
         if (Current.IsMonitoring && activeScope != scopeFactory())
             StopForScopeChange();
         if (snapshot.IsConnected && Current.SessionId.Length == 0 && !Current.IsBusy && restoreAttemptedScope != scopeFactory())

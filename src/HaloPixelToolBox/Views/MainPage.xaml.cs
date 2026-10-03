@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Numerics;
 using HaloPixelToolBox.Core.Models.Lighting;
+using HaloPixelToolBox.Services;
 using Microsoft.UI;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml.Hosting;
@@ -117,7 +118,8 @@ public sealed partial class MainPage : Page
     {
         isPageLoaded = true;
         ViewModel.PropertyChanged += ViewModel_PropertyChanged;
-        ViewModel.StartMonitoring();
+        WindowActivityService.VisibilityChanged += WindowVisibilityChanged;
+        UpdateVisibleWork();
         UpdateDashboardHeaderLayout(DashboardHeaderGrid.ActualWidth);
         UpdateDashboardLayout(DashboardGrid.ActualWidth);
         UpdatePreviewFrameGeometry(DevicePreviewFrame.ActualWidth, DevicePreviewFrame.ActualHeight);
@@ -218,9 +220,28 @@ public sealed partial class MainPage : Page
     {
         isPageLoaded = false;
         ViewModel.PropertyChanged -= ViewModel_PropertyChanged;
+        WindowActivityService.VisibilityChanged -= WindowVisibilityChanged;
         ambientPreviewAnimationTimer.Stop();
         ambientPreviewAnimationClock.Reset();
         ViewModel.StopMonitoring();
+    }
+
+    private void WindowVisibilityChanged(object? sender, bool isVisible)
+        => UpdateVisibleWork();
+
+    private void UpdateVisibleWork()
+    {
+        if (isPageLoaded && WindowActivityService.IsVisible)
+        {
+            ViewModel.StartMonitoring();
+            ConfigureAmbientPreviewAnimation();
+        }
+        else
+        {
+            ViewModel.StopMonitoring();
+            ambientPreviewAnimationTimer.Stop();
+            ambientPreviewAnimationClock.Stop();
+        }
     }
 
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -240,10 +261,13 @@ public sealed partial class MainPage : Page
 
     private void ConfigureAmbientPreviewAnimation()
     {
-        if (!isPageLoaded || PreviewFrameOuter is null)
-            return;
-
         ambientPreviewAnimationTimer.Stop();
+        if (!isPageLoaded || !WindowActivityService.IsVisible || PreviewFrameOuter is null)
+        {
+            ambientPreviewAnimationClock.Stop();
+            return;
+        }
+
         ambientPreviewAnimationClock.Restart();
 
         RenderAmbientPreviewFrame(TimeSpan.Zero);

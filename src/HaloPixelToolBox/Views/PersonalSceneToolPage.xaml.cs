@@ -390,7 +390,9 @@ public sealed partial class PersonalSceneToolPage : Page
         var previewHeight = previewWidth / ScenePreviewAspectRatio;
         var horizontalInset = Math.Max(0, Math.Floor((availableWidth - itemSlotWidth * columnCount) / 2));
 
-        ScenePreviewGrid.Padding = new Thickness(horizontalInset, 0, horizontalInset, 0);
+        // Center only the cards; padding the GridView would also squeeze its
+        // category header and the custom-scene editor footer.
+        itemsPanel.Margin = new Thickness(horizontalInset, 0, horizontalInset, 0);
         itemsPanel.ItemWidth = itemSlotWidth;
         itemsPanel.ItemHeight = Math.Ceiling(previewHeight + ScenePreviewSpacing);
     }

@@ -1,3 +1,5 @@
+using HaloPixelToolBox.Services;
+using Microsoft.UI.Windowing;
 using Windows.UI.ViewManagement;
 using XFEExtension.NetCore.WinUIHelper.Utilities.Helper;
 
@@ -16,5 +18,13 @@ public sealed partial class MainWindow : Window
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets/icon.png"));
         AppWindow.TitleBar.PreferredHeightOption = Microsoft.UI.Windowing.TitleBarHeightOption.Tall;
         UISettings.ColorValuesChanged += (_, _) => DispatcherQueue.TryEnqueue(() => AppThemeHelper.ChangeTheme(AppThemeHelper.Theme));
+        AppWindow.Changed += (_, _) => UpdateWindowVisibility();
+        VisibilityChanged += (_, _) => UpdateWindowVisibility();
+        UpdateWindowVisibility();
     }
+
+    private void UpdateWindowVisibility()
+        => WindowActivityService.SetVisibility(AppWindow.IsVisible
+            && (AppWindow.Presenter is not OverlappedPresenter presenter
+                || presenter.State != OverlappedPresenterState.Minimized));
 }

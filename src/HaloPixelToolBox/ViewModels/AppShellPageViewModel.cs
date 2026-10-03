@@ -1,7 +1,7 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
-using HaloPixelToolBox.Core.Services.Device;
 using HaloPixelToolBox.Interface.Services;
 using HaloPixelToolBox.Profiles.CrossVersionProfiles;
+using HaloPixelToolBox.Services;
 using HaloPixelToolBox.Utilities.Helpers;
 using HaloPixelToolBox.Views;
 using Microsoft.UI;
@@ -15,8 +15,7 @@ namespace HaloPixelToolBox.ViewModels;
 
 public partial class AppShellPageViewModel : ViewModelBase
 {
-    private readonly HaloPixelDeviceConnectionMonitor deviceConnectionMonitor = new();
-    private readonly DispatcherTimer deviceStatusTimer = new() { Interval = TimeSpan.FromSeconds(2) };
+    private readonly DeviceConnectionStatusService deviceStatus = DeviceConnectionStatusService.Shared;
     private bool isCheckingForUpdates;
 
     [ObservableProperty]
@@ -48,9 +47,8 @@ public partial class AppShellPageViewModel : ViewModelBase
 
     public AppShellPageViewModel()
     {
-        deviceStatusTimer.Tick += (_, _) => RefreshDeviceConnectionStatus();
-        RefreshDeviceConnectionStatus();
-        deviceStatusTimer.Start();
+        deviceStatus.StatusRefreshed += (_, isConnected) => RefreshDeviceConnectionStatus(isConnected);
+        RefreshDeviceConnectionStatus(deviceStatus.IsConnected);
 
         NavigationViewService.NavigationService.Navigated += NavigationService_Navigated;
         if (CloseWindowService is not null)
@@ -105,12 +103,13 @@ public partial class AppShellPageViewModel : ViewModelBase
         }
     }
 
-    private void RefreshDeviceConnectionStatus()
+    private void RefreshDeviceConnectionStatus(bool isConnected)
     {
-        var isConnected = deviceConnectionMonitor.IsConnected();
         DeviceIconOpacity = isConnected ? 1 : 0.38;
         DeviceConnectionStatusText = isConnected ? "音箱设备已连接" : "音箱设备未连接";
-        DeviceConnectionBrush = new SolidColorBrush(isConnected ? Colors.LimeGreen : Colors.Gray);
+        var color = isConnected ? Colors.LimeGreen : Colors.Gray;
+        if (!DeviceConnectionBrush.Color.Equals(color))
+            DeviceConnectionBrush = new SolidColorBrush(color);
     }
 
     private async void CloseWindowService_Closed(object sender, WindowEventArgs args)

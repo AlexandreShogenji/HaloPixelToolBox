@@ -75,9 +75,11 @@ try {
         Invoke-DotNetRegression "tests/dsh-spoken-interaction-tests/SpokenInteractionTests.csproj"
         $DshUiProject = "tests/dsh-ui-tests/DshUiTests.csproj"
         Invoke-DotNetRegression $DshUiProject
-        foreach ($Probe in @("--page", "--tasks", "--voice")) {
+        foreach ($Probe in @("--page", "--tasks", "--voice", "--resources")) {
             Invoke-DotNetRegression -Project $DshUiProject -ProbeArguments @($Probe) -NoBuild
         }
+        Invoke-DotNetRegression "tests/resource-lifecycle-tests/ResourceLifecycleTests.csproj"
+        Invoke-DotNetRegression -Project "tests/resource-lifecycle-tests/ResourceLifecycleTests.csproj" -ProbeArguments @("--hidden-start") -NoBuild
 
         $BridgeDirectory = Join-Path $TestRepoRoot "integrations/deepseek-harness/halo-session-bridge"
         foreach ($Source in @("index.js", "bridge-core.js")) {
